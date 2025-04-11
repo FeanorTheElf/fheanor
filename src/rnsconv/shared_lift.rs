@@ -39,9 +39,9 @@ impl<A> AlmostExactSharedBaseConversion<A>
     ///  - `q` is the product of `additional_in_moduli`
     ///  - `a'` is the product of `additional_out_moduli`
     /// 
-    /// Currently, the list `[shared_moduli ..., additional_out_moduli ...]` must be sorted ascendingly.
-    /// This is actually quite an annoying and unnecessary constraint, and I hope I can get rid of it in
-    /// the future.
+    /// The input resp. output moduli are ordered as in `shared_moduli`, followed
+    /// by `additional_in_moduli` resp. `additional_out_moduli`. In other words, the
+    /// additional moduli are appended at the end to the shared moduli.
     /// 
     #[instrument(skip_all)]
     pub fn new_with(shared_moduli: Vec<Zn>, additional_in_moduli: Vec<Zn>, additional_out_moduli: Vec<Zn>, allocator: A) -> Self {

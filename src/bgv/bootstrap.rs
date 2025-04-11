@@ -230,10 +230,10 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         }
 
         let drop_additional_moduli_count = max(2, C_master.base_ring().len() - ct_dropped_moduli.len()) - 2;
-        let drop_additional_moduli = recommended_rns_factors_to_drop(&rk.0.gadget_vector_digits().remove_indices(&ct_dropped_moduli), drop_additional_moduli_count);
+        let drop_additional_moduli = recommended_rns_factors_to_drop(&rk.k0.gadget_vector_digits().remove_indices(&ct_dropped_moduli), drop_additional_moduli_count);
         let ct_dropped_moduli_new = drop_additional_moduli.pullback(&ct_dropped_moduli);
-        let C_input = Params::mod_switch_down_ciphertext_ring(C_master, &ct_dropped_moduli_new);
-        let ct_input = Params::mod_switch_down(P_base, &C_input, &Params::mod_switch_down_ciphertext_ring(C_master, ct_dropped_moduli), &drop_additional_moduli, ct);
+        let C_input = Params::mod_switch_down_ciphertext_C(C_master, &ct_dropped_moduli_new);
+        let ct_input = Params::mod_switch_down(P_base, &C_input, &Params::mod_switch_down_ciphertext_C(C_master, ct_dropped_moduli), &drop_additional_moduli, ct);
 
         let sk_input = debug_sk.map(|sk| Params::mod_switch_down_sk(&C_input, &C_master, &ct_dropped_moduli_new, sk));
         if let Some(sk) = &sk_input {
@@ -380,7 +380,7 @@ impl DigitExtract {
                     if let Some(sk) = debug_sk {
                         for ct in &digit_extracted {
                             modswitch_strategy.print_info(get_P(exp), C_master, ct);
-                            let Clocal = Params::mod_switch_down_ciphertext_ring(C_master, &ct.dropped_rns_factor_indices);
+                            let Clocal = Params::mod_switch_down_ciphertext_C(C_master, &ct.dropped_rns_factor_indices);
                             let sk_local = Params::mod_switch_down_sk(&Clocal, C_master, &ct.dropped_rns_factor_indices, sk);
                             Params::dec_println_slots(get_P(exp), &Clocal, &ct.data, &sk_local, Some("."));
                             println!();
@@ -390,7 +390,7 @@ impl DigitExtract {
                 return digit_extracted;
             },
             |exp_old, exp_new, input| {
-                let C_current = Params::mod_switch_down_ciphertext_ring(C_master, &input.dropped_rns_factor_indices);
+                let C_current = Params::mod_switch_down_ciphertext_C(C_master, &input.dropped_rns_factor_indices);
                 let result = ModulusAwareCiphertext {
                     data: Params::change_plaintext_modulus(get_P(exp_new), get_P(exp_old), &C_current, input.data),
                     dropped_rns_factor_indices: input.dropped_rns_factor_indices.clone(),
@@ -430,8 +430,8 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), None);
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, None);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, digits))).collect::<Vec<_>>();
-    let rk = Pow2BGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, digits);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, digits, 0))).collect::<Vec<_>>();
+    let rk = Pow2BGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, digits, 0);
     
     let m = P.int_hom().map(2);
     let ct = Pow2BGV::enc_sym(&P, &C_master, &mut rng, &m, &sk);
@@ -445,7 +445,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
         None,
         Some(&sk)
     );
-    let C_result = Pow2BGV::mod_switch_down_ciphertext_ring(&C_master, &ct_result.dropped_rns_factor_indices);
+    let C_result = Pow2BGV::mod_switch_down_ciphertext_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = Pow2BGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);
 
     assert_el_eq!(P, P.int_hom().map(2), Pow2BGV::dec(&P, &C_result, ct_result.data, &sk_result));
@@ -482,8 +482,8 @@ fn test_bootstrap_large() {
     let bootstrapper = bootstrap_params.build_odd::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, Some(hwt));
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, digits))).collect::<Vec<_>>();
-    let rk = CompositeBGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, digits);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, digits, 0))).collect::<Vec<_>>();
+    let rk = CompositeBGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, digits, 0);
     
     let m = P.int_hom().map(2);
     let ct = CompositeBGV::enc_sym(&P, &C_master, &mut rng, &m, &sk);
@@ -497,7 +497,7 @@ fn test_bootstrap_large() {
         Some(hwt),
         None // Some(&sk)
     );
-    let C_result = CompositeBGV::mod_switch_down_ciphertext_ring(&C_master, &ct_result.dropped_rns_factor_indices);
+    let C_result = CompositeBGV::mod_switch_down_ciphertext_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = CompositeBGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);
     let result = CompositeBGV::dec(&P, &C_result, ct_result.data, &sk_result);
     assert_el_eq!(P, P.int_hom().map(2), result);

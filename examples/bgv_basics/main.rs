@@ -47,18 +47,18 @@ fn main() {
     let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
 
     let digits = 2;
-    let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, digits);
+    let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, digits, 0);
 
     let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
         P.base_ring().int_hom().map(i)
     ));
     let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
 
-    let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+    let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
     
     let num_digits_to_drop = 1;
-    let to_drop = recommended_rns_factors_to_drop(rk.0.gadget_vector_digits(), num_digits_to_drop);
-    let C_new = ChosenBGVParamType::mod_switch_down_ciphertext_ring(&C_initial, &to_drop);
+    let to_drop = recommended_rns_factors_to_drop(rk.k0.gadget_vector_digits(), num_digits_to_drop);
+    let C_new = ChosenBGVParamType::mod_switch_down_ciphertext_C(&C_initial, &to_drop);
     
     println!("log2(q') = {}", BigIntRing::RING.abs_log2_ceil(C_new.base_ring().modulus()).unwrap());
     
@@ -66,7 +66,7 @@ fn main() {
     let sk_modswitch = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
     let rk_modswitch = ChosenBGVParamType::mod_switch_down_rk(&C_new, &C_initial, &to_drop, &rk);
     
-    let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_new, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
+    let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_new, &C_new, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
     assert_eq!(22, ChosenBGVParamType::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
     let dec_x_pow4 = ChosenBGVParamType::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
     assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);

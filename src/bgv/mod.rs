@@ -22,10 +22,12 @@ use feanor_math::seq::*;
 use tracing::instrument;
 
 use crate::ciphertext_ring::double_rns_managed::ManagedDoubleRNSRingBase;
-use crate::ciphertext_ring::{perform_rns_op_to_plaintext_ring, single_rns_ring::*};
+use crate::ciphertext_ring::single_rns_ring::*;
+use crate::ciphertext_ring::{perform_rns_op_to_plaintext_ring, perform_rns_op};
 use crate::ciphertext_ring::BGFVCiphertextRing;
+use crate::rnsconv::shared_lift::AlmostExactSharedBaseConversion;
 use crate::{cyclotomic::*, ZZi64};
-use crate::gadget_product::digits::RNSFactorIndexList;
+use crate::gadget_product::digits::{RNSFactorIndexList, RNSGadgetVectorDigitIndices};
 use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::ntt::{HERingConvolution, HERingNegacyclicNTT};
 use crate::number_ring::hypercube::isomorphism::*;
@@ -45,8 +47,14 @@ pub type NumberRing<Params: BGVCiphertextParams> = <Params::CiphertextRing as BG
 pub type CiphertextRing<Params: BGVCiphertextParams> = RingValue<Params::CiphertextRing>;
 pub type PlaintextRing<Params: BGVCiphertextParams> = NumberRingQuotient<NumberRing<Params>, Zn>;
 pub type SecretKey<Params: BGVCiphertextParams> = El<CiphertextRing<Params>>;
-pub type KeySwitchKey<'a, Params: BGVCiphertextParams> = (GadgetProductRhsOperand<Params::CiphertextRing>, GadgetProductRhsOperand<Params::CiphertextRing>);
 pub type RelinKey<'a, Params: BGVCiphertextParams> = KeySwitchKey<'a, Params>;
+
+pub struct KeySwitchKey<'a, Params: ?Sized + BGVCiphertextParams> {
+    pub k0: GadgetProductRhsOperand<Params::CiphertextRing>,
+    pub k1: GadgetProductRhsOperand<Params::CiphertextRing>,
+    pub special_modulus_factor_count: usize,
+    pub ring: PhantomData<&'a CiphertextRing<Params>>
+}
 
 ///
 /// Contains the trait [`noise_estimator::BGVNoiseEstimator`] for objects that provide
@@ -135,7 +143,7 @@ pub trait BGVCiphertextParams {
     /// 
     /// In many cases, you might already have access to a ciphertext ring
     /// with larger RNS base, in these cases it is more efficient to use
-    /// [`BGVCiphertextParams::mod_switch_down_ciphertext_ring()`].
+    /// [`BGVCiphertextParams::mod_switch_down_ciphertext_C()`].
     /// 
     fn create_ciphertext_ring(&self, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> CiphertextRing<Self>;
 
@@ -429,32 +437,52 @@ pub trait BGVCiphertextParams {
     /// Generates a key-switch key, which can be used (by [`BGVCiphertextParams::key_switch()`]) to
     /// convert a ciphertext w.r.t. `old_sk` into a ciphertext w.r.t. `new_sk`.
     /// 
-    /// The parameter `digits` refers to the number of "digits" to use for the gadget product
-    /// during key-switching. More concretely, when performing key-switching, the ciphertext
-    /// will be decomposed into multiple small parts, which are then multiplied with the components
-    /// of the key-switching key. Thus, a larger value for `digits` will result in lower (additive)
-    /// noise growth during key-switching, at the cost of higher performance.
+    /// Key-switching is parameterized by two parameters: the set of digits, and the special modulus
+    ///  - the special modulus is the product of the last `special_modulus_factor_count` rns factors
+    ///    of the ciphertext ring. Key-switching can only be performed on ciphertexts over an rns base
+    ///    that does not include the special modulus (i.e. must possibly be modulus-switched down before
+    ///    performing key-switching, possibly introducing noise). On the other hand, a high special modulus
+    ///    reduces the (additive) noise growth caused by key-switching. Note that the special modulus
+    ///    can be 1 (if `special_modulus_factor_count = 0`), in which case only digit-based key-switching
+    ///    will be performed.
+    ///  - the set of digits can be configured via `digit_count`, more concretely it is chosen as a
+    ///    decomposition of all rns factors into `digit_count` set of approximately equal size. The 
+    ///    (additive) noise growth during key-switching depends on the largest digit (i.e. the maximal size
+    ///    of the product of rns factors belonging to a single digit), however a larger number of digits
+    ///    will make key-switching keys larger, and key-switching more expensive. Note that noise growth
+    ///    becomes minimal if the largest digit is smaller or equal the special modulus.
     /// 
     #[instrument(skip_all)]
-    fn gen_switch_key<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: usize) -> KeySwitchKey<'a, Self>
+    fn gen_switch_key<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digit_count: usize, special_modulus_factor_count: usize) -> KeySwitchKey<'a, Self>
         where Self: 'a
     {
-        let mut res0 = GadgetProductRhsOperand::new(C.get_ring(), digits);
-        let mut res1 = GadgetProductRhsOperand::new(C.get_ring(), digits);
-        for digit_i in 0..digits {
+        assert!(special_modulus_factor_count < C.base_ring().len());
+        let digits = RNSGadgetVectorDigitIndices::select_digits(digit_count, C.base_ring().len() - special_modulus_factor_count);
+        let special_modulus = ZZbig.prod(C.base_ring().as_iter().rev().take(special_modulus_factor_count).map(|rns_factor| int_cast(*rns_factor.modulus(), ZZbig, ZZi64)));
+        let mut res0 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.clone());
+        let mut res1 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.clone());
+        for digit_i in 0..digits.len() {
             let base = Self::enc_sym_zero(P, C, &mut rng, new_sk);
             let digit_range = res0.gadget_vector_digits().at(digit_i).clone();
-            let factor = C.base_ring().get_ring().from_congruence((0..C.base_ring().len()).map(|i2| {
-                let Fp = C.base_ring().at(i2);
-                if digit_range.contains(&i2) { Fp.one() } else { Fp.zero() } 
-            }));
+            let factor = C.base_ring().mul(
+                C.base_ring().get_ring().from_congruence((0..C.base_ring().len()).map(|i2| {
+                    let Fp = C.base_ring().at(i2);
+                    if digit_range.contains(&i2) { Fp.one() } else { Fp.zero() } 
+                })),
+                C.base_ring().coerce(&ZZbig, ZZbig.clone_el(&special_modulus))
+            );
             let mut payload = C.clone_el(&old_sk);
             C.inclusion().mul_assign_ref_map(&mut payload, &factor);
             C.add_assign(&mut payload, base.c0);
             res0.set_rns_factor(C.get_ring(), digit_i, payload);
             res1.set_rns_factor(C.get_ring(), digit_i, base.c1);
         }
-        return (res0, res1);
+        return KeySwitchKey {
+            k0: res0,
+            k1: res1,
+            ring: PhantomData,
+            special_modulus_factor_count: special_modulus_factor_count
+        };
     }
 
     ///
@@ -463,32 +491,73 @@ pub trait BGVCiphertextParams {
     /// `new_sk` (which can be generated using [`BGVCiphertextParams::gen_switch_key()`]).
     /// 
     #[instrument(skip_all)]
-    fn key_switch<'a>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
+    fn key_switch<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
     {
-        let (s0, s1) = switch_key;
-        let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &ct.c1, switch_key.0.gadget_vector_digits());
-        return Ciphertext {
-            c0: C.add_ref_snd(ct.c0, &op.gadget_product(s0, C.get_ring())),
-            c1: op.gadget_product(s1, C.get_ring()),
-            implicit_scale: ct.implicit_scale
-        };
+        let special_modulus_factor_count = switch_key.special_modulus_factor_count;
+        let special_modulus_factors = RNSFactorIndexList::from(((C_special.base_ring().len() - special_modulus_factor_count)..C_special.base_ring().len()).collect(), C_special.base_ring().len());
+        assert_rns_factor_drop_correct::<Self>(C, C_special, &special_modulus_factors);
+        assert!(switch_key.k0.gadget_vector_digits() == switch_key.k1.gadget_vector_digits());
+
+        if special_modulus_factor_count == 0 {
+            let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &ct.c1, switch_key.k0.gadget_vector_digits());
+            return Ciphertext {
+                c0: C.add_ref_snd(ct.c0, &op.gadget_product(&switch_key.k0, C.get_ring())),
+                c1: op.gadget_product(&switch_key.k1, C.get_ring()),
+                implicit_scale: ct.implicit_scale
+            };
+        } else {
+            let lift_to_C_special = AlmostExactSharedBaseConversion::new_with(
+                C.base_ring().as_iter().map(|rns_factor| rns_factor.clone()).collect(),
+                Vec::new(),
+                special_modulus_factors.iter().map(|i| C_special.base_ring().at(*i).clone()).collect(),
+                Global
+            );
+            
+            let c1_lifted = perform_rns_op(C_special.get_ring(), C.get_ring(), &ct.c1, &lift_to_C_special);
+            let op = GadgetProductLhsOperand::from_element_with(
+                C_special.get_ring(), 
+                &c1_lifted, 
+                switch_key.k0.gadget_vector_digits()
+            );
+            // we cheat regarding the implicit scale; since the scaling up and down later exactly
+            // cancel out any changes to the implicit scale, we just temporarily set it to 1 and later
+            // overwrite it with the original implicit scale
+            let switched = Ciphertext {
+                c0: op.gadget_product(&switch_key.k0, C_special.get_ring()),
+                c1: op.gadget_product(&switch_key.k1, C_special.get_ring()),
+                implicit_scale: P.base_ring().one()
+            };
+            let mut result = Self::mod_switch_down(P, C, C_special, &special_modulus_factors, switched);
+            C.add_assign(&mut result.c0, ct.c0);
+            result.implicit_scale = ct.implicit_scale;
+            return result;
+        }
     }
 
     ///
     /// Generates a relinearization key, necessary to compute homomorphic multiplications.
     /// 
-    /// The parameter `digits` refers to the number of "digits" to use for the gadget product
-    /// during relinearization. More concretely, when performing relinearization, the ciphertext
-    /// will be decomposed into multiple small parts, which are then multiplied with the components
-    /// of the relinearization key. Thus, a larger value for `digits` will result in lower (additive)
-    /// noise growth during relinearization, at the cost of higher performance.
+    /// Key-switching is parameterized by two parameters: the set of digits, and the special modulus
+    ///  - the special modulus is the product of the last `special_modulus_factor_count` rns factors
+    ///    of the ciphertext ring. Key-switching can only be performed on ciphertexts over an rns base
+    ///    that does not include the special modulus (i.e. must possibly be modulus-switched down before
+    ///    performing key-switching, possibly introducing noise). On the other hand, a high special modulus
+    ///    reduces the (additive) noise growth caused by key-switching. Note that the special modulus
+    ///    can be 1 (if `special_modulus_factor_count = 0`), in which case only digit-based key-switching
+    ///    will be performed.
+    ///  - the set of digits can be configured via `digit_count`, more concretely it is chosen as a
+    ///    decomposition of all rns factors into `digit_count` set of approximately equal size. The 
+    ///    (additive) noise growth during key-switching depends on the largest digit (i.e. the maximal size
+    ///    of the product of rns factors belonging to a single digit), however a larger number of digits
+    ///    will make key-switching keys larger, and key-switching more expensive. Note that noise growth
+    ///    becomes minimal if the largest digit is smaller or equal the special modulus.
     /// 
     #[instrument(skip_all)]
-    fn gen_rk<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: usize) -> RelinKey<'a, Self>
+    fn gen_rk<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digit_count: usize, special_modulus_factor_count: usize) -> RelinKey<'a, Self>
         where Self: 'a
     {
-        Self::gen_switch_key(P, C, rng, &C.pow(C.clone_el(sk), 2), sk, digits)
+        Self::gen_switch_key(P, C, rng, &C.pow(C.clone_el(sk), 2), sk, digit_count, special_modulus_factor_count)
     }
 
     ///
@@ -499,8 +568,12 @@ pub trait BGVCiphertextParams {
     /// `hom_mul()` from causing exponential noise growth. For more info on modulus-switching
     /// and the modulus chain, see [`crate::examples::bgv_basics`].
     /// 
+    /// `C_special` must be the ciphertext ring w.r.t. which the relinearization key is defined.
+    /// In other words, this is the ciphertext ring including the special modulus. If the special
+    /// modulus is 1, this should be equal to `C`.
+    /// 
     #[instrument(skip_all)]
-    fn hom_mul<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
+    fn hom_mul<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
     {
         assert!(P.base_ring().is_unit(&lhs.implicit_scale));
@@ -508,14 +581,13 @@ pub trait BGVCiphertextParams {
 
         let [res0, res1, res2] = C.get_ring().two_by_two_convolution([&lhs.c0, &lhs.c1], [&rhs.c0, &rhs.c1]);
         
-        let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
-        let (s0, s1) = &rk;
-        
-        let result = Ciphertext {
-            c0: C.add(res0, op.gadget_product(s0, C.get_ring())), 
-            c1: C.add(res1, op.gadget_product(s1, C.get_ring())),
+        let mut result = Self::key_switch(P, C, C_special, Ciphertext {
+            c0: C.zero(),
+            c1: res2,
             implicit_scale: P.base_ring().mul(lhs.implicit_scale, rhs.implicit_scale)
-        };
+        }, rk);
+        C.add_assign(&mut result.c0, res0);
+        C.add_assign(&mut result.c1, res1);
         assert!(P.base_ring().is_unit(&result.implicit_scale));
         return result;
     }
@@ -527,23 +599,26 @@ pub trait BGVCiphertextParams {
     /// it is necessary to modulus-switch between calls to `hom_square()` in order to prevent
     /// `hom_square()` from causing exponential noise growth. For more info on modulus-switching
     /// and the modulus chain, see [`crate::examples::bgv_basics`].
+    ///  
+    /// `C_special` must be the ciphertext ring w.r.t. which the relinearization key is defined.
+    /// In other words, this is the ciphertext ring including the special modulus. If the special
+    /// modulus is 1, this should be equal to `C`.
     /// 
     #[instrument(skip_all)]
-    fn hom_square<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
+    fn hom_square<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
     {
         assert!(P.base_ring().is_unit(&val.implicit_scale));
 
         let [res0, res1, res2] = C.get_ring().two_by_two_convolution([&val.c0, &val.c1], [&val.c0, &val.c1]);
-        
-        let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
-        let (s0, s1) = &rk;
-        
-        let result = Ciphertext {
-            c0: C.add(res0, op.gadget_product(s0, C.get_ring())), 
-            c1: C.add(res1, op.gadget_product(s1, C.get_ring())),
+                
+        let mut result = Self::key_switch(P, C, C_special, Ciphertext {
+            c0: C.zero(),
+            c1: res2,
             implicit_scale: P.base_ring().pow(val.implicit_scale, 2)
-        };
+        }, rk);
+        C.add_assign(&mut result.c0, res0);
+        C.add_assign(&mut result.c1, res1);
         assert!(P.base_ring().is_unit(&result.implicit_scale));
         return result;
     }
@@ -591,12 +666,16 @@ pub trait BGVCiphertextParams {
     ///
     /// Computes an encryption of `sigma(x)`, where `x` is the message encrypted by the given ciphertext
     /// and `sigma` is the given Galois automorphism.
+    ///  
+    /// `C_special` must be the ciphertext ring w.r.t. which the Galois key is defined.
+    /// In other words, this is the ciphertext ring including the special modulus. If the special
+    /// modulus is 1, this should be equal to `C`.
     /// 
     #[instrument(skip_all)]
-    fn hom_galois<'a>(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: CyclotomicGaloisGroupEl, gk: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
+    fn hom_galois<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: CyclotomicGaloisGroupEl, gk: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
     {
-        Self::key_switch(C, Ciphertext {
+        Self::key_switch(P, C, C_special, Ciphertext {
             c0: C.get_ring().apply_galois_action(&ct.c0, g),
             c1: C.get_ring().apply_galois_action(&ct.c1, g),
             implicit_scale: ct.implicit_scale
@@ -607,34 +686,69 @@ pub trait BGVCiphertextParams {
     /// Homomorphically applies multiple Galois automorphisms at once.
     /// Functionally, this is equivalent to calling [`BGVCiphertextParams::hom_galois()`]
     /// multiple times, but can be faster.
+    ///  
+    /// `C_special` must be the ciphertext ring w.r.t. which all the Galois keys are defined.
+    /// In other words, this is the ciphertext ring including the special modulus. If the special
+    /// modulus is 1, this should be equal to `C`.
     /// 
     #[instrument(skip_all)]
-    fn hom_galois_many<'a, 'b, V>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[CyclotomicGaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
+    fn hom_galois_many<'a, 'b, V>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[CyclotomicGaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
         where V: VectorFn<&'b KeySwitchKey<'a, Self>>,
             KeySwitchKey<'a, Self>: 'b,
             'a: 'b,
             Self: 'a
     {
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
+        assert_eq!(gs.len(), gks.len());
+        if gs.len() == 0 {
+            return Vec::new();
+        }
 
-        let digits = gks.at(0).0.gadget_vector_digits();
+        let special_modulus_factor_count = gks.at(0).special_modulus_factor_count;
+        let special_modulus_factors = RNSFactorIndexList::from(((C_special.base_ring().len() - special_modulus_factor_count)..C_special.base_ring().len()).collect(), C_special.base_ring().len());
+        assert_rns_factor_drop_correct::<Self>(C, C_special, &special_modulus_factors);
+        let digits = gks.at(0).k0.gadget_vector_digits();
         let has_same_digits = |gk: &GadgetProductRhsOperand<_>| gk.gadget_vector_digits().len() == digits.len() && gk.gadget_vector_digits().iter().zip(digits.iter()).all(|(l, r)| l == r);
-        assert!(gks.iter().all(|gk| has_same_digits(&gk.0) && has_same_digits(&gk.1)));
-        let c1_op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &ct.c1, digits);
+        assert!(gks.iter().all(|gk| has_same_digits(&gk.k0) && has_same_digits(&gk.k1)));
+
+        let c1_lifted = if special_modulus_factor_count == 0 {
+            ct.c1
+        } else {
+            let lift_to_C_special = AlmostExactSharedBaseConversion::new_with(
+                C.base_ring().as_iter().map(|rns_factor| rns_factor.clone()).collect(),
+                Vec::new(),
+                special_modulus_factors.iter().map(|i| C_special.base_ring().at(*i).clone()).collect(),
+                Global
+            );
+            perform_rns_op(C_special.get_ring(), C.get_ring(), &ct.c1, &lift_to_C_special)
+        };
+        let c1_op = GadgetProductLhsOperand::from_element_with(
+            C_special.get_ring(), 
+            &c1_lifted, 
+            digits
+        );
         let c1_op_gs = c1_op.apply_galois_action_many(C.get_ring(), gs);
         let c0_gs = C.get_ring().apply_galois_action_many(&ct.c0, gs).into_iter();
         assert_eq!(gks.len(), c1_op_gs.len());
         assert_eq!(gks.len(), c0_gs.len());
-        return c0_gs.zip(c1_op_gs.iter()).enumerate().map(|(i, (c0_g, c1_g))| {
-            let (s0, s1) = gks.at(i);
-            let r0 = c1_g.gadget_product(s0, C.get_ring());
-            let r1 = c1_g.gadget_product(s1, C.get_ring());
-            let result = Ciphertext {
-                c0: C.add_ref(&r0, &c0_g),
-                c1: r1,
-                implicit_scale: P.base_ring().clone_el(&ct.implicit_scale)
+        return c0_gs.zip(c1_op_gs.iter()).enumerate().map(|(i, (c0_g, c1_g))| if special_modulus_factor_count == 0 {
+            return Ciphertext {
+                c0: C.add_ref_snd(c0_g, &c1_g.gadget_product(&gks.at(i).k0, C.get_ring())),
+                c1: c1_g.gadget_product(&gks.at(i).k1, C.get_ring()),
+                implicit_scale: ct.implicit_scale
             };
-            assert!(P.base_ring().is_unit(&result.implicit_scale));
+        } else {
+            // we cheat regarding the implicit scale; since the scaling up and down later exactly
+            // cancel out any changes to the implicit scale, we just temporarily set it to 1 and later
+            // overwrite it with the original implicit scale
+            let switched = Ciphertext {
+                c0: c1_g.gadget_product(&gks.at(i).k0, C_special.get_ring()),
+                c1: c1_g.gadget_product(&gks.at(i).k1, C_special.get_ring()),
+                implicit_scale: P.base_ring().one()
+            };
+            let mut result = Self::mod_switch_down(P, C, C_special, &special_modulus_factors, switched);
+            C.add_assign(&mut result.c0, c0_g);
+            result.implicit_scale = ct.implicit_scale;
             return result;
         }).collect();
     }
@@ -649,7 +763,7 @@ pub trait BGVCiphertextParams {
     /// much cheaper than creating a new ciphertext ring (e.g. using [`BGVCiphertextParams::create_ciphertext_ring()`]).
     /// 
     #[instrument(skip_all)]
-    fn mod_switch_down_ciphertext_ring(C: &CiphertextRing<Self>, drop_moduli: &RNSFactorIndexList) -> CiphertextRing<Self> {
+    fn mod_switch_down_ciphertext_C(C: &CiphertextRing<Self>, drop_moduli: &RNSFactorIndexList) -> CiphertextRing<Self> {
         RingValue::from(C.get_ring().drop_rns_factor(&drop_moduli))
     }
 
@@ -683,12 +797,19 @@ pub trait BGVCiphertextParams {
     fn mod_switch_down_rk<'a, 'b>(Cnew: &'b CiphertextRing<Self>, Cold: &CiphertextRing<Self>, drop_moduli: &RNSFactorIndexList, rk: &RelinKey<'a, Self>) -> RelinKey<'b, Self> {
         assert_rns_factor_drop_correct::<Self>(Cnew, Cold, drop_moduli);
         if drop_moduli.len() == 0 {
-            (rk.0.clone(Cnew.get_ring()), rk.1.clone(Cnew.get_ring()))
+            KeySwitchKey {
+                k0: rk.k0.clone(Cnew.get_ring()),
+                k1: rk.k1.clone(Cnew.get_ring()),
+                ring: PhantomData,
+                special_modulus_factor_count: rk.special_modulus_factor_count
+            }
         } else {
-            (
-                rk.0.clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()), 
-                rk.1.clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring())
-            )
+            KeySwitchKey {
+                k0: rk.k0.clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()), 
+                k1: rk.k1.clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()), 
+                ring: PhantomData,
+                special_modulus_factor_count: rk.special_modulus_factor_count
+            }
         }
     }
 
@@ -701,15 +822,7 @@ pub trait BGVCiphertextParams {
     /// 
     #[instrument(skip_all)]
     fn mod_switch_down_gk<'a, 'b>(Cnew: &'b CiphertextRing<Self>, Cold: &CiphertextRing<Self>, drop_moduli: &RNSFactorIndexList, gk: &KeySwitchKey<'a, Self>) -> KeySwitchKey<'b, Self> {
-        assert_rns_factor_drop_correct::<Self>(Cnew, Cold, drop_moduli);
-        if drop_moduli.len() == 0 {
-            (gk.0.clone(Cnew.get_ring()), gk.1.clone(Cnew.get_ring()))
-        } else {
-            (
-                gk.0.clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()), 
-                gk.1.clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring())
-            )
-        }
+        Self::mod_switch_down_rk(Cnew, Cold, drop_moduli, gk)
     }
 
     ///
@@ -784,17 +897,26 @@ pub trait BGVCiphertextParams {
     ///
     /// Generates a Galois key, usable for homomorphically applying Galois automorphisms.
     /// 
-    /// The parameter `digits` refers to the number of "digits" to use for the gadget product
-    /// during key-switching. More concretely, when performing key-switching, the ciphertext
-    /// will be decomposed into multiple small parts, which are then multiplied with the components
-    /// of the key-switching key. Thus, a larger value for `digits` will result in lower (additive)
-    /// noise growth during key-switching, at the cost of higher performance.
+    /// Key-switching is parameterized by two parameters: the set of digits, and the special modulus
+    ///  - the special modulus is the product of the last `special_modulus_factor_count` rns factors
+    ///    of the ciphertext ring. Key-switching can only be performed on ciphertexts over an rns base
+    ///    that does not include the special modulus (i.e. must possibly be modulus-switched down before
+    ///    performing key-switching, possibly introducing noise). On the other hand, a high special modulus
+    ///    reduces the (additive) noise growth caused by key-switching. Note that the special modulus
+    ///    can be 1 (if `special_modulus_factor_count = 0`), in which case only digit-based key-switching
+    ///    will be performed.
+    ///  - the set of digits can be configured via `digit_count`, more concretely it is chosen as a
+    ///    decomposition of all rns factors into `digit_count` set of approximately equal size. The 
+    ///    (additive) noise growth during key-switching depends on the largest digit (i.e. the maximal size
+    ///    of the product of rns factors belonging to a single digit), however a larger number of digits
+    ///    will make key-switching keys larger, and key-switching more expensive. Note that noise growth
+    ///    becomes minimal if the largest digit is smaller or equal the special modulus.
     /// 
     #[instrument(skip_all)]
-    fn gen_gk<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: CyclotomicGaloisGroupEl, digits: usize) -> KeySwitchKey<'a, Self>
+    fn gen_gk<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: CyclotomicGaloisGroupEl, digit_count: usize, special_modulus_factor_count: usize) -> KeySwitchKey<'a, Self>
         where Self: 'a
     {
-        Self::gen_switch_key(P, C, rng, &C.get_ring().apply_galois_action(sk, g), sk, digits)
+        Self::gen_switch_key(P, C, rng, &C.get_ring().apply_galois_action(sk, g), sk, digit_count, special_modulus_factor_count)
     }
 
     ///
@@ -1169,11 +1291,49 @@ fn test_pow2_bgv_mul() {
     let P = params.create_plaintext_ring(t);
     let C = params.create_initial_ciphertext_ring();
     let sk = Pow2BGV::gen_sk(&C, &mut rng, None);
-    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, digits);
+    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, digits, 0);
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
-    let result_ctxt = Pow2BGV::hom_mul(&P, &C, Pow2BGV::clone_ct(&P, &C, &ctxt), ctxt, &rk);
+    let result_ctxt = Pow2BGV::hom_mul(&P, &C, &C, Pow2BGV::clone_ct(&P, &C, &ctxt), ctxt, &rk);
+    let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
+    assert_el_eq!(&P, P.int_hom().map(4), result);
+}
+
+#[test]
+fn test_pow2_bgv_hybrid_key_switch() {
+    let mut rng = thread_rng();
+    
+    let params = Pow2BGV {
+        log2_q_min: 300,
+        log2_q_max: 320,
+        log2_N: 7,
+        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
+    };
+    let t = 257;
+    let digits = 3;
+    
+    let P = params.create_plaintext_ring(t);
+    let C_special = params.create_initial_ciphertext_ring();
+    assert_eq!(6, C_special.base_ring().len());
+    let special_modulus_factors = RNSFactorIndexList::from(vec![4, 5], C_special.base_ring().len());
+    let C = Pow2BGV::mod_switch_down_ciphertext_C(&C_special, &special_modulus_factors);
+    let sk = Pow2BGV::gen_sk(&C_special, &mut rng, None);
+    let sk_new = Pow2BGV::gen_sk(&C_special, &mut rng, None);
+    let switch_key = Pow2BGV::gen_switch_key(&P, &C_special, &mut rng, &sk, &sk_new, digits, special_modulus_factors.len());
+
+    let input = P.int_hom().map(2);
+    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &Pow2BGV::mod_switch_down_sk(&C, &C_special, &special_modulus_factors, &sk));
+    let result_ctxt = Pow2BGV::key_switch(&P, &C, &C_special, ctxt, &switch_key);
+    let result = Pow2BGV::dec(&P, &C, result_ctxt, &Pow2BGV::mod_switch_down_sk(&C, &C_special, &special_modulus_factors, &sk_new));
+    assert_el_eq!(&P, P.int_hom().map(2), result);
+
+    let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, digits, special_modulus_factors.len());
+    let sk = Pow2BGV::mod_switch_down_sk(&C, &C_special, &special_modulus_factors, &sk);
+    let input = P.int_hom().map(2);
+    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
+    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, ctxt, &rk);
     let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
     assert_el_eq!(&P, P.int_hom().map(4), result);
 }
@@ -1202,7 +1362,7 @@ fn test_pow2_bgv_modulus_switch() {
 
     for i in [0, 1, 8] {
         let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
-        let C1 = Pow2BGV::mod_switch_down_ciphertext_ring(&C0, &to_drop);
+        let C1 = Pow2BGV::mod_switch_down_ciphertext_C(&C0, &to_drop);
         let result_ctxt = Pow2BGV::mod_switch_down(&P, &C1, &C0, &to_drop, Pow2BGV::clone_ct(&P, &C0, &ctxt));
         let result = Pow2BGV::dec(&P, &C1, result_ctxt, &Pow2BGV::mod_switch_down_sk(&C1, &C0, &to_drop, &sk));
         assert_el_eq!(&P, P.int_hom().map(2), result);
@@ -1258,7 +1418,7 @@ fn test_pow2_modulus_switch_hom_add() {
 
     for i in [0, 1, 8] {
         let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
-        let C1 = Pow2BGV::mod_switch_down_ciphertext_ring(&C0, &to_drop);
+        let C1 = Pow2BGV::mod_switch_down_ciphertext_C(&C0, &to_drop);
         let ctxt_modswitch = Pow2BGV::mod_switch_down(&P, &C1, &C0, &to_drop, Pow2BGV::clone_ct(&P, &C0, &ctxt));
         let sk_modswitch = Pow2BGV::mod_switch_down_sk(&C1, &C0, &to_drop, &sk);
         let ctxt_other = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(30), &sk_modswitch);
@@ -1289,19 +1449,20 @@ fn test_pow2_bgv_modulus_switch_rk() {
     assert_eq!(9, C0.base_ring().len());
 
     let sk = Pow2BGV::gen_sk(&C0, &mut rng, None);
-    let rk = Pow2BGV::gen_rk(&P, &C0, &mut rng, &sk, digits);
+    let rk = Pow2BGV::gen_rk(&P, &C0, &mut rng, &sk, digits, 0);
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk);
 
     for i in [0, 1, 8] {
         let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
-        let C1 = Pow2BGV::mod_switch_down_ciphertext_ring(&C0, &to_drop);
+        let C1 = Pow2BGV::mod_switch_down_ciphertext_C(&C0, &to_drop);
         let new_sk = Pow2BGV::mod_switch_down_sk(&C1, &C0, &to_drop, &sk);
         let new_rk = Pow2BGV::mod_switch_down_rk(&C1, &C0, &to_drop, &rk);
         let ctxt2 = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(3), &new_sk);
         let result_ctxt = Pow2BGV::hom_mul(
             &P,
+            &C1,
             &C1,
             Pow2BGV::mod_switch_down(&P, &C1, &C0, &to_drop, Pow2BGV::clone_ct(&P, &C0, &ctxt)),
             ctxt2,
@@ -1357,16 +1518,16 @@ fn measure_time_pow2_bgv() {
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, digits)
+        Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, digits, 0)
     );
     let ct2 = Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk);
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
-        Pow2BGV::hom_mul(&P, &C, ct, ct2, &rk)
+        Pow2BGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &res), &sk));
 
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
-    let C_new = Pow2BGV::mod_switch_down_ciphertext_ring(&C, &to_drop);
+    let C_new = Pow2BGV::mod_switch_down_ciphertext_C(&C, &to_drop);
     let sk_new = Pow2BGV::mod_switch_down_sk(&C_new, &C, &to_drop, &sk);
     let res_new = log_time::<_, _, true, _>("ModSwitch", |[]| 
         Pow2BGV::mod_switch_down(&P, &C_new, &C, &to_drop, res)
@@ -1420,16 +1581,16 @@ fn measure_time_double_rns_composite_bgv() {
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        CompositeBGV::gen_rk(&P, &C, &mut rng, &sk, digits)
+        CompositeBGV::gen_rk(&P, &C, &mut rng, &sk, digits, 0)
     );
     let ct2 = CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk);
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
-        CompositeBGV::hom_mul(&P, &C, ct, ct2, &rk)
+        CompositeBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &res), &sk));
 
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
-    let C_new = CompositeBGV::mod_switch_down_ciphertext_ring(&C, &to_drop);
+    let C_new = CompositeBGV::mod_switch_down_ciphertext_C(&C, &to_drop);
     let sk_new = CompositeBGV::mod_switch_down_sk(&C_new, &C, &to_drop, &sk);
     let res_new = log_time::<_, _, true, _>("ModSwitch", |[]| 
         CompositeBGV::mod_switch_down(&P, &C_new, &C, &to_drop, res)
@@ -1484,16 +1645,16 @@ fn measure_time_single_rns_composite_bgv() {
     assert_el_eq!(&P, &P.int_hom().map(1), &SingleRNSCompositeBGV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        SingleRNSCompositeBGV::gen_rk(&P, &C, &mut rng, &sk, digits)
+        SingleRNSCompositeBGV::gen_rk(&P, &C, &mut rng, &sk, digits, 0)
     );
     let ct2 = SingleRNSCompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk);
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
-        SingleRNSCompositeBGV::hom_mul(&P, &C, ct, ct2, &rk)
+        SingleRNSCompositeBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &SingleRNSCompositeBGV::dec(&P, &C, SingleRNSCompositeBGV::clone_ct(&P, &C, &res), &sk));
 
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
-    let C_new = SingleRNSCompositeBGV::mod_switch_down_ciphertext_ring(&C, &to_drop);
+    let C_new = SingleRNSCompositeBGV::mod_switch_down_ciphertext_C(&C, &to_drop);
     let sk_new = SingleRNSCompositeBGV::mod_switch_down_sk(&C_new, &C, &to_drop, &sk);
     let res_new = log_time::<_, _, true, _>("ModSwitch", |[]| 
         SingleRNSCompositeBGV::mod_switch_down(&P, &C_new, &C, &to_drop, res)

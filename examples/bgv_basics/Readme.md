@@ -326,7 +326,7 @@ let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, ChosenBGVParamType::
 
 let num_digits_to_drop = 2;
 let to_drop = recommended_rns_factors_to_drop(rk.0.gadget_vector_digits(), num_digits_to_drop);
-let C_new = ChosenBGVParamType::mod_switch_down_ciphertext_ring(&C_initial, &to_drop);
+let C_new = ChosenBGVParamType::mod_switch_down_ciphertext_C(&C_initial, &to_drop);
 
 let enc_x_modswitch = ChosenBGVParamType::mod_switch_down(&P, &C_new, &C_initial, &to_drop, enc_x_sqr);
 let sk_modswitch = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
@@ -408,7 +408,7 @@ let enc_x_pow4 = modswitch_strategy.evaluate_circuit(
     &mut 0,
     None
 ).into_iter().next().unwrap();
-let C_new = ChosenBGVParamType::mod_switch_down_ciphertext_ring(&C_initial, &enc_x_pow4.dropped_rns_factor_indices);
+let C_new = ChosenBGVParamType::mod_switch_down_ciphertext_C(&C_initial, &enc_x_pow4.dropped_rns_factor_indices);
 let sk_new = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &enc_x_pow4.dropped_rns_factor_indices, &sk);
 assert_eq!(41, ChosenBGVParamType::noise_budget(&P, &C_new, &enc_x_pow4.data, &sk_new));
 let dec_x_pow4 = ChosenBGVParamType::dec(&P, &C_new, enc_x_pow4.data, &sk_new);
