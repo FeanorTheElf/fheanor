@@ -302,7 +302,7 @@ Since creating a double-RNS ring is somewhat expensive, we do this once and reus
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
 fn create_multiplication_ring(ciphertext_ring: &CiphertextRing) -> CiphertextRing {
     let number_ring = ciphertext_ring.get_ring().number_ring().clone();
-    let mut rns_factors = extend_sampled_primes(
+    let rns_factors = extend_sampled_primes(
         &ciphertext_ring.base_ring().as_iter().map(|RNS_factor| int_cast(*RNS_factor.modulus(), BigIntRing::RING, StaticRing::<i64>::RING)).collect::<Vec<_>>(),
         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 10, 
         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 67, 
@@ -311,7 +311,6 @@ fn create_multiplication_ring(ciphertext_ring: &CiphertextRing) -> CiphertextRin
     ).unwrap().into_iter().map(|p| 
         int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING)
     ).collect::<Vec<_>>();
-    rns_factors.sort_unstable();
     return <CiphertextRing as RingStore>::Type::new(
         number_ring,
         zn_rns::Zn::new(rns_factors.into_iter().map(|p| zn_64::Zn::new(p as u64)).collect(), BigIntRing::RING)
@@ -340,7 +339,7 @@ If we now want to apply such an RNS conversion to an element of `R_q`, we need t
 This requires a relatively costly NTT, but no way of avoiding this is known.
 Note however that it actually is not required to get the actual coefficients `x[i]` in the representatation `x = x[0] + x[1] X + ... + x[phi(n) - 1] X^(phi(n) - 1)`, but the coefficients w.r.t. any basis that consists of "short" elements suffice.
 The reason for this is that the noise growth during multiplication depends on the size of `c0, c1, c0', c1'` w.r.t. the *canonical norm* of the number ring `R`.
-More details on the mathematical background can be found in teh original BFV paper.
+More details on the mathematical background can be found in the original BFV paper.
 
 We can access the coefficients w.r.t. some "short-element" basis of an element of `R_q` using the functions [`crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::undo_fft()`] and [`crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::as_matrix_wrt_small_basis()`].
 Fortunately for us, the returned data is exactly in the right format.
@@ -373,7 +372,7 @@ This leaves us to implement BFV multiplication as follows.
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
 # fn create_multiplication_ring(ciphertext_ring: &CiphertextRing) -> CiphertextRing {
 #     let number_ring = ciphertext_ring.get_ring().number_ring().clone();
-#     let mut rns_factors = extend_sampled_primes(
+#     let rns_factors = extend_sampled_primes(
 #         &ciphertext_ring.base_ring().as_iter().map(|RNS_factor| int_cast(*RNS_factor.modulus(), BigIntRing::RING, StaticRing::<i64>::RING)).collect::<Vec<_>>(),
 #         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 10, 
 #         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 67, 
@@ -382,7 +381,6 @@ This leaves us to implement BFV multiplication as follows.
 #     ).unwrap().into_iter().map(|p| 
 #         int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING)
 #     ).collect::<Vec<_>>();
-#     rns_factors.sort_unstable();
 #     return <CiphertextRing as RingStore>::Type::new(
 #         number_ring,
 #         zn_rns::Zn::new(rns_factors.into_iter().map(|p| zn_64::Zn::new(p as u64)).collect(), BigIntRing::RING)
@@ -631,7 +629,7 @@ Finally, let's test this implementation again!
 # }
 # fn create_multiplication_ring(ciphertext_ring: &CiphertextRing) -> CiphertextRing {
 #     let number_ring = ciphertext_ring.get_ring().number_ring().clone();
-#     let mut rns_factors = extend_sampled_primes(
+#     let rns_factors = extend_sampled_primes(
 #         &ciphertext_ring.base_ring().as_iter().map(|RNS_factor| int_cast(*RNS_factor.modulus(), BigIntRing::RING, StaticRing::<i64>::RING)).collect::<Vec<_>>(),
 #         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 10, 
 #         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 67, 
@@ -640,7 +638,6 @@ Finally, let's test this implementation again!
 #     ).unwrap().into_iter().map(|p| 
 #         int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING)
 #     ).collect::<Vec<_>>();
-#     rns_factors.sort_unstable();
 #     return <CiphertextRing as RingStore>::Type::new(
 #         number_ring,
 #         zn_rns::Zn::new(rns_factors.into_iter().map(|p| zn_64::Zn::new(p as u64)).collect(), BigIntRing::RING)

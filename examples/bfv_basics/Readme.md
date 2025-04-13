@@ -120,6 +120,9 @@ This is a parameter that is necessary for all forms of key-switching (i.e. also 
 Note that the noise growth during key-switching is additive, i.e. will have a very large impact on very-low-noise ciphertexts, but a negligible impact on ciphertexts that already have a significant level of noise.
 Hence, it would be optimal to use a high value for `digits` for the first operations, and a lower value for `digits` later on - however, this might be impractical, since the number of digits is fixed once the key is generated.
 
+Hybrid key switching is less relevant in BFV than in BGV, although using it correctly can give some performance benefits.
+Hence, it is currently not implemented for BFV, and we can't specify a special modulus when creating the relinearization key.
+
 ## Encryption and Decryption
 
 Next, let's encrypt a message.

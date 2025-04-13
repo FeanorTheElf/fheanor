@@ -120,7 +120,7 @@ fn hom_add(
 
 fn create_multiplication_ring(ciphertext_ring: &CiphertextRing) -> CiphertextRing {
     let number_ring = ciphertext_ring.get_ring().number_ring().clone();
-    let mut rns_factors = extend_sampled_primes(
+    let rns_factors = extend_sampled_primes(
         &ciphertext_ring.base_ring().as_iter().map(|RNS_factor| int_cast(*RNS_factor.modulus(), BigIntRing::RING, StaticRing::<i64>::RING)).collect::<Vec<_>>(),
         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 10, 
         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 67, 
@@ -129,7 +129,6 @@ fn create_multiplication_ring(ciphertext_ring: &CiphertextRing) -> CiphertextRin
     ).unwrap().into_iter().map(|p| 
         int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING)
     ).collect::<Vec<_>>();
-    rns_factors.sort_unstable();
     return <CiphertextRing as RingStore>::Type::new(
         number_ring,
         zn_rns::Zn::new(rns_factors.into_iter().map(|p| zn_64::Zn::new(p as u64)).collect(), BigIntRing::RING)

@@ -719,9 +719,11 @@ pub trait BGVCiphertextParams {
         let special_modulus_factor_count = gks.at(0).special_modulus_factor_count;
         let special_modulus_factors = RNSFactorIndexList::from(((C_special.base_ring().len() - special_modulus_factor_count)..C_special.base_ring().len()).collect(), C_special.base_ring().len());
         assert_rns_factor_drop_correct::<Self>(C, C_special, &special_modulus_factors);
+        assert!(gks.iter().all(|gk| gk.special_modulus_factor_count == special_modulus_factor_count), "hom_galois_many() requires all Galois keys to use the same parameters");
+
         let digits = gks.at(0).k0.gadget_vector_digits();
         let has_same_digits = |gk: &GadgetProductRhsOperand<_>| gk.gadget_vector_digits().len() == digits.len() && gk.gadget_vector_digits().iter().zip(digits.iter()).all(|(l, r)| l == r);
-        assert!(gks.iter().all(|gk| has_same_digits(&gk.k0) && has_same_digits(&gk.k1)));
+        assert!(gks.iter().all(|gk| has_same_digits(&gk.k0) && has_same_digits(&gk.k1)), "hom_galois_many() requires all Galois keys to use the same parameters");
 
         let c1_lifted = if special_modulus_factor_count == 0 {
             ct.c1
@@ -1133,13 +1135,13 @@ impl<A: Allocator + Clone + Send + Sync> BGVCiphertextParams for CompositeBGV<A>
 fn assert_rns_factor_drop_correct<Params>(Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList)
     where Params: ?Sized + BGVCiphertextParams
 {
-    assert_eq!(Cold.base_ring().len(), Cnew.base_ring().len() + drop_moduli.len());
+    assert_eq!(Cold.base_ring().len(), Cnew.base_ring().len() + drop_moduli.len(), "incorrect RNS factors dropped");
     let mut i_new = 0;
     for i_old in 0..Cold.base_ring().len() {
         if drop_moduli.contains(i_old) {
             continue;
         }
-        assert!(Cold.base_ring().at(i_old).get_ring() == Cnew.base_ring().at(i_new).get_ring());
+        assert!(Cold.base_ring().at(i_old).get_ring() == Cnew.base_ring().at(i_new).get_ring(), "incorrect RNS factors dropped");
         i_new += 1;
     }
 }
