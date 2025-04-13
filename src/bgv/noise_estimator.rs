@@ -1,6 +1,4 @@
 
-
-use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use super::*;
 
 ///
@@ -68,14 +66,14 @@ pub trait BGVNoiseEstimator<Params: BGVCiphertextParams> {
         self.hom_mul_plain_i64(P, C, P.base_ring().smallest_lift(P.base_ring().invert(&implicit_scale).unwrap()), ct, implicit_scale)
     }
 
-    fn key_switch(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &Self::CriticalQuantityLevel, switch_key: &RNSGadgetVectorDigitIndices) -> Self::CriticalQuantityLevel;
+    fn key_switch(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, ct: &Self::CriticalQuantityLevel, key: KeySwitchKeyParams) -> Self::CriticalQuantityLevel;
 
-    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, lhs: &Self::CriticalQuantityLevel, rhs: &Self::CriticalQuantityLevel, rk_digits: &RNSGadgetVectorDigitIndices) -> Self::CriticalQuantityLevel;
+    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>,lhs: &Self::CriticalQuantityLevel, rhs: &Self::CriticalQuantityLevel, rk: KeySwitchKeyParams) -> Self::CriticalQuantityLevel;
 
     fn hom_add(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, lhs: &Self::CriticalQuantityLevel, lhs_implicit_scale: El<Zn>, rhs: &Self::CriticalQuantityLevel, rhs_implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel;
 
-    fn hom_galois(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &Self::CriticalQuantityLevel, _g: CyclotomicGaloisGroupEl, gk: &RNSGadgetVectorDigitIndices) -> Self::CriticalQuantityLevel {
-        self.key_switch(P, C, ct, gk)
+    fn hom_galois(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>,ct: &Self::CriticalQuantityLevel, _g: CyclotomicGaloisGroupEl, gk: KeySwitchKeyParams) -> Self::CriticalQuantityLevel {
+        self.key_switch(P, C, C_special, ct, gk)
     }
 
     fn mod_switch_down(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList, ct: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel;
@@ -178,20 +176,22 @@ impl<Params: BGVCiphertextParams> BGVNoiseEstimator<Params> for NaiveBGVNoiseEst
         return result;
     }
 
-    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, lhs: &Self::CriticalQuantityLevel, rhs: &Self::CriticalQuantityLevel, rk_digits: &RNSGadgetVectorDigitIndices) -> Self::CriticalQuantityLevel {
+    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, lhs: &Self::CriticalQuantityLevel, rhs: &Self::CriticalQuantityLevel, rk: KeySwitchKeyParams) -> Self::CriticalQuantityLevel {
         let log2_q = BigIntRing::RING.abs_log2_ceil(C.base_ring().modulus()).unwrap() as f64;
         let intermediate_result = (*lhs + *rhs + 2. * log2_q) * HEURISTIC_FACTOR_MUL_INPUT_NOISE - log2_q;
-        let result = <Self as BGVNoiseEstimator<Params>>::key_switch(self, P, C, &intermediate_result, rk_digits);
+        let result = <Self as BGVNoiseEstimator<Params>>::key_switch(self, P, C, C_special, &intermediate_result, rk);
         assert!(!result.is_nan());
         return result;
     }
 
-    fn key_switch(&self, _P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &Self::CriticalQuantityLevel, switch_key: &RNSGadgetVectorDigitIndices) -> Self::CriticalQuantityLevel {
+    fn key_switch(&self, _P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, ct: &Self::CriticalQuantityLevel, switch_key: KeySwitchKeyParams) -> Self::CriticalQuantityLevel {
+        assert_eq!(C.base_ring().len() + switch_key.special_modulus_factor_count, C_special.base_ring().len());
         let log2_q = BigIntRing::RING.abs_log2_ceil(C.base_ring().modulus()).unwrap() as f64;
-        let log2_largest_digit = switch_key.iter().map(|digit| digit.iter().map(|i| *C.base_ring().at(i).modulus() as f64).map(f64::log2).sum::<f64>()).max_by(f64::total_cmp).unwrap();
+        let log2_largest_digit = switch_key.digits.iter().map(|digit| digit.iter().map(|i| *C_special.base_ring().at(i).modulus() as f64).map(f64::log2).sum::<f64>()).max_by(f64::total_cmp).unwrap();
+        let special_modulus_log2 = (0..switch_key.special_modulus_factor_count).map(|i| *C_special.base_ring().at(C_special.base_ring().len() - 1 - i).modulus() as f64).map(f64::log2).sum::<f64>();
         let result = f64::max(
             *ct,
-            log2_largest_digit + (C.rank() as f64).log2() * 2. - log2_q
+            log2_largest_digit - special_modulus_log2 + (C_special.rank() as f64).log2() * 2. - log2_q
         );
         assert!(!result.is_nan());
         return result;
@@ -229,12 +229,12 @@ impl<Params: BGVCiphertextParams> BGVNoiseEstimator<Params> for AlwaysZeroNoiseE
     fn hom_add(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _lhs: &Self::CriticalQuantityLevel, _lhs_implicit_scale: El<Zn>, _rhs: &Self::CriticalQuantityLevel, _rhs_implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
     fn hom_add_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, _ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
     fn hom_add_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
-    fn hom_galois(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _ct: &Self::CriticalQuantityLevel, _g: CyclotomicGaloisGroupEl, _gk: &RNSGadgetVectorDigitIndices) -> Self::CriticalQuantityLevel {}
-    fn hom_mul(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _lhs: &Self::CriticalQuantityLevel, _rhs: &Self::CriticalQuantityLevel, _rk_digits: &RNSGadgetVectorDigitIndices) -> Self::CriticalQuantityLevel {}
+    fn hom_galois(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _ct: &Self::CriticalQuantityLevel, _g: CyclotomicGaloisGroupEl, _gk: KeySwitchKeyParams) -> Self::CriticalQuantityLevel {}
+    fn hom_mul(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _lhs: &Self::CriticalQuantityLevel, _rhs: &Self::CriticalQuantityLevel, _rk: KeySwitchKeyParams) -> Self::CriticalQuantityLevel {}
     fn hom_mul_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, _ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
     fn hom_mul_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
     fn hom_mul_plain_i64(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: i64, _ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
-    fn key_switch(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _ct: &Self::CriticalQuantityLevel, _switch_key: &RNSGadgetVectorDigitIndices) -> Self::CriticalQuantityLevel {}
+    fn key_switch(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _ct: &Self::CriticalQuantityLevel, _switch_key: KeySwitchKeyParams) -> Self::CriticalQuantityLevel {}
     fn mod_switch_down(&self, _P: &PlaintextRing<Params>, _Cnew: &CiphertextRing<Params>, _Cold: &CiphertextRing<Params>, _drop_moduli: &RNSFactorIndexList, _ct: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel {}
     fn transparent_zero(&self) -> Self::CriticalQuantityLevel {}
     fn change_plaintext_modulus(_Pnew: &PlaintextRing<Params>, _Pold: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _ct: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel {}

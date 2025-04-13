@@ -5,9 +5,9 @@
 // For a guided explanation of this example, see the doc
 #![doc = include_str!("Readme.md")]
 
-use he_ring::bgv::{BGVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BGV};
+use he_ring::bgv::{BGVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BGV, KeySwitchKeyParams};
 use he_ring::cyclotomic::CyclotomicRingStore;
-use he_ring::gadget_product::digits::recommended_rns_factors_to_drop;
+use he_ring::gadget_product::digits::{recommended_rns_factors_to_drop, RNSGadgetVectorDigitIndices};
 use he_ring::DefaultNegacyclicNTT;
 use rand::{SeedableRng, rngs::StdRng};
 use std::alloc::Global;
@@ -18,6 +18,7 @@ use feanor_math::ring::*;
 use feanor_math::rings::zn::ZnRingStore;
 use feanor_math::ring::RingStore;
 use feanor_math::algorithms::eea::signed_gcd;
+use feanor_math::seq::*;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::assert_el_eq;
@@ -47,7 +48,7 @@ fn main() {
     let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
 
     let digits = 2;
-    let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, digits, 0);
+    let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, KeySwitchKeyParams { digits: &RNSGadgetVectorDigitIndices::select_digits(C_initial.base_ring().len(), digits), special_modulus_factor_count: 0 });
 
     let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
         P.base_ring().int_hom().map(i)
@@ -58,7 +59,7 @@ fn main() {
     
     let num_digits_to_drop = 1;
     let to_drop = recommended_rns_factors_to_drop(rk.k0.gadget_vector_digits(), num_digits_to_drop);
-    let C_new = ChosenBGVParamType::mod_switch_down_ciphertext_C(&C_initial, &to_drop);
+    let C_new = ChosenBGVParamType::mod_switch_down_C(&C_initial, &to_drop);
     
     println!("log2(q') = {}", BigIntRing::RING.abs_log2_ceil(C_new.base_ring().modulus()).unwrap());
     

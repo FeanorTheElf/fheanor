@@ -188,6 +188,14 @@ impl Clone for Box<RNSGadgetVectorDigitIndices> {
     }
 }
 
+impl ToOwned for RNSGadgetVectorDigitIndices {
+    type Owned = Box<Self>;
+
+    fn to_owned(&self) -> Self::Owned {
+        RNSGadgetVectorDigitIndices::from_unchecked(self.digit_boundaries.to_owned().into_boxed_slice())
+    }
+}
+
 ///
 /// Thin wrapper around ordered slices `[usize]`, used to store a set of indices
 /// of RNS factors. In most cases, it refers to those RNS factors that should be
@@ -262,6 +270,10 @@ impl RNSFactorIndexList {
 
     pub fn contains(&self, i: usize) -> bool {
         self.rns_factor_indices.binary_search(&i).is_ok()
+    }
+
+    pub fn contains_all(&self, subset: &Self) -> bool {
+        subset.iter().all(|i| self.contains(*i))
     }
 
     ///
