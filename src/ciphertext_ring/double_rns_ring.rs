@@ -669,6 +669,7 @@ impl<NumberRing, A> CyclotomicRing for DoubleRNSRingBase<NumberRing, A>
 
     #[instrument(skip_all)]
     fn apply_galois_action(&self, el: &Self::Element, g: CyclotomicGaloisGroupEl) -> Self::Element {
+        assert_eq!(self.element_len(), el.el_wrt_mult_basis.len());
         let mut result = self.zero();
         for (i, _) in self.rns_base().as_iter().enumerate() {
             self.ring_decompositions().at(i).permute_galois_action(

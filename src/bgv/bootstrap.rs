@@ -6,10 +6,8 @@ use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::ring::*;
 
 use crate::bgv::modswitch::DefaultModswitchStrategy;
-use crate::circuit::serialization::DeserializeSeedPlaintextCircuit;
-use crate::circuit::serialization::SerializablePlaintextCircuit;
+use crate::circuit::serialization::{DeserializeSeedPlaintextCircuit, SerializablePlaintextCircuit};
 use crate::circuit::*;
-use crate::gadget_product::digits::recommended_rns_factors_to_drop;
 use crate::lintransform::matmul::MatmulTransform;
 use crate::log_time;
 use crate::digitextract::DigitExtract;
@@ -229,13 +227,19 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
             println!("Starting Bootstrapping")
         }
 
-        let drop_additional_moduli_count = max(2, C_master.base_ring().len() - ct_dropped_moduli.len()) - 2;
-        let drop_additional_moduli = recommended_rns_factors_to_drop(&rk.k0.gadget_vector_digits().remove_indices(&ct_dropped_moduli), drop_additional_moduli_count);
-        let ct_dropped_moduli_new = drop_additional_moduli.pullback(&ct_dropped_moduli);
-        let C_input = Params::mod_switch_down_C(C_master, &ct_dropped_moduli_new);
-        let ct_input = Params::mod_switch_down(P_base, &C_input, &Params::mod_switch_down_C(C_master, ct_dropped_moduli), &drop_additional_moduli, ct);
+        let drop_input_rns_factors = {
+            let special_modulus_factor_count = gks[0].1.special_modulus_factor_count;
+            let special_modulus_factors = RNSFactorIndexList::from(((C_master.base_ring().len() - special_modulus_factor_count)..C_master.base_ring().len()).collect(), C_master.base_ring().len());
+            let drop_additional_moduli_count = max(2, C_master.base_ring().len() - ct_dropped_moduli.union(&special_modulus_factors).len()) - 2;
+            let ct_dropped_moduli_without_special = ct_dropped_moduli.subtract(&special_modulus_factors);
+            let gk_digits_after_drop = gks[0].1.k0.gadget_vector_digits().remove_indices(&ct_dropped_moduli_without_special);
+            let drop_additional_moduli = recommended_rns_factors_to_drop(KeySwitchKeyParams { digits: &gk_digits_after_drop, special_modulus_factor_count }, drop_additional_moduli_count);
+            drop_additional_moduli.pullback(&ct_dropped_moduli_without_special).union(&special_modulus_factors)
+        };
+        let C_input = Params::mod_switch_down_C(C_master, &drop_input_rns_factors);
+        let ct_input = Params::mod_switch_down_ct(P_base, &C_input, &Params::mod_switch_down_C(C_master, ct_dropped_moduli), &drop_input_rns_factors.pushforward(&ct_dropped_moduli), ct);
 
-        let sk_input = debug_sk.map(|sk| Params::mod_switch_down_sk(&C_input, &C_master, &ct_dropped_moduli_new, sk));
+        let sk_input = debug_sk.map(|sk| Params::mod_switch_down_sk(&C_input, &C_master, &drop_input_rns_factors, sk));
         if let Some(sk) = &sk_input {
             Params::dec_println_slots(P_base, &C_input, &ct_input, sk, Some("."));
         }
@@ -252,7 +256,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
                 &[ModulusAwareCiphertext {
                     data: ct_input, 
                     info: (), 
-                    dropped_rns_factor_indices: ct_dropped_moduli_new.clone()
+                    dropped_rns_factor_indices: drop_input_rns_factors.clone()
                 }], 
                 None, 
                 gks,
@@ -261,7 +265,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
             );
             assert_eq!(1, result.len());
             let result = result.into_iter().next().unwrap();
-            debug_assert_eq!(result.dropped_rns_factor_indices, ct_dropped_moduli_new);
+            debug_assert_eq!(result.dropped_rns_factor_indices, drop_input_rns_factors);
             return result.data;
         });
         if let Some(sk) = &sk_input {
@@ -313,21 +317,23 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
             return result.into_iter().next().unwrap();
         });
         if let Some(sk) = debug_sk {
-            Params::dec_println_slots(P_main, C_master, &noisy_decryption_in_slots.data, sk, Some("."));
+            let C_current = Params::mod_switch_down_C(C_master, &noisy_decryption_in_slots.dropped_rns_factor_indices);
+            Params::dec_println_slots(P_main, &C_current, &noisy_decryption_in_slots.data, &Params::mod_switch_down_sk(&C_current, C_master, &noisy_decryption_in_slots.dropped_rns_factor_indices, sk), Some("."));
         }
 
         let final_result = log_time::<_, _, LOG, _>("4. Computing digit extraction", |[key_switches]| {
 
-            let rounding_divisor_half = C_master.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(int_cast(self.p(), ZZbig, ZZ), self.v()), &ZZbig.int_hom().map(2)));
+            let C_current = Params::mod_switch_down_C(C_master, &noisy_decryption_in_slots.dropped_rns_factor_indices);
+            let rounding_divisor_half = C_current.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(int_cast(self.p(), ZZbig, ZZ), self.v()), &ZZbig.int_hom().map(2)));
             let digit_extraction_input = ModulusAwareCiphertext {
-                data: Params::hom_add_plain_encoded(P_main, C_master, &C_master.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots.data),
+                data: Params::hom_add_plain_encoded(P_main, &C_current, &C_current.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots.data),
                 info: noisy_decryption_in_slots.info,
                 dropped_rns_factor_indices: noisy_decryption_in_slots.dropped_rns_factor_indices
             };
     
             if let Some(sk) = debug_sk {
-                self.modswitch_strategy.print_info(P_main, C_master, &digit_extraction_input);
-                Params::dec_println_slots(P_main, C_master, &digit_extraction_input.data, sk, Some("."));
+                self.modswitch_strategy.print_info(P_main, &C_current, &digit_extraction_input);
+                Params::dec_println_slots(P_main, &C_current, &digit_extraction_input.data, &Params::mod_switch_down_sk(&C_current, C_master, &digit_extraction_input.dropped_rns_factor_indices, sk), Some("."));
             }
 
             return self.digit_extract.evaluate_bgv::<Params, Strategy, LOG>(

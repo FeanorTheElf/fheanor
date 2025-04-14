@@ -7,8 +7,9 @@
 
 use he_ring::bgv::{BGVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BGV, KeySwitchKeyParams};
 use he_ring::cyclotomic::CyclotomicRingStore;
-use he_ring::gadget_product::digits::{recommended_rns_factors_to_drop, RNSGadgetVectorDigitIndices};
+use he_ring::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use he_ring::DefaultNegacyclicNTT;
+use he_ring::bgv::modswitch::recommended_rns_factors_to_drop;
 use rand::{SeedableRng, rngs::StdRng};
 use std::alloc::Global;
 use std::marker::PhantomData;
@@ -58,12 +59,12 @@ fn main() {
     let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
     
     let num_digits_to_drop = 1;
-    let to_drop = recommended_rns_factors_to_drop(rk.k0.gadget_vector_digits(), num_digits_to_drop);
+    let to_drop = recommended_rns_factors_to_drop(rk.params(), num_digits_to_drop);
     let C_new = ChosenBGVParamType::mod_switch_down_C(&C_initial, &to_drop);
     
     println!("log2(q') = {}", BigIntRing::RING.abs_log2_ceil(C_new.base_ring().modulus()).unwrap());
     
-    let enc_x_modswitch = ChosenBGVParamType::mod_switch_down(&P, &C_new, &C_initial, &to_drop, enc_x_sqr);
+    let enc_x_modswitch = ChosenBGVParamType::mod_switch_down_ct(&P, &C_new, &C_initial, &to_drop, enc_x_sqr);
     let sk_modswitch = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
     let rk_modswitch = ChosenBGVParamType::mod_switch_down_rk(&C_new, &C_initial, &to_drop, &rk);
     

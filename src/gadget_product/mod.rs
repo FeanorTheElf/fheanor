@@ -124,6 +124,9 @@ impl<R: PreparedMultiplicationRing> GadgetProductLhsOperand<R> {
     /// to `x`. This function only supports the gadget vector given by a decomposition
     /// `q = D1 ... Dr` into coprime "digits".
     /// 
+    /// Note that this performs just a gadget product, and no additional scalings as in
+    /// hybrid key switching. These can be built on top of the gadget product.
+    /// 
     /// # What exactly is a "gadget product"?
     /// 
     /// In an HE setting, we often have a noisy approximation to some value `x`, say
