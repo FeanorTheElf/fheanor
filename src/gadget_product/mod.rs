@@ -46,10 +46,7 @@ impl<R: BGFVCiphertextRing> GadgetProductLhsOperand<R> {
     /// For an explanation of gadget products, see [`GadgetProductLhsOperand::gadget_product()`].
     /// 
     pub fn from_element_with(ring: &R, el: &R::Element, digits: &RNSGadgetVectorDigitIndices) -> Self {
-        let decomposition = gadget_decompose(ring, el, digits);
-        return Self {
-            element_decomposition: decomposition
-        };
+        Self::from_element_map_ring_with(ring, el, digits, ring)
     }
 
     /// 
@@ -58,6 +55,29 @@ impl<R: BGFVCiphertextRing> GadgetProductLhsOperand<R> {
     /// 
     pub fn from_element(ring: &R, el: &R::Element, digits: usize) -> Self {
         Self::from_element_with(ring, el, &RNSGadgetVectorDigitIndices::select_digits(digits, ring.base_ring().len()))
+    }
+
+    /// 
+    /// Creates a [`GadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits` over a different
+    /// ring that the original element is contained in.
+    /// 
+    /// More concretely, if we have a number ring modulo two different moduli `q, q'`, we can decompose
+    /// an element `x in Rq` as `x = sum_i g[i] x[i]` (the gadget vector is also defined modulo `q`), but
+    /// then map every `x[i]` into `Rq'`, via `shortest-lift(x[i]) mod q'`.
+    /// 
+    /// There are two use cases I can think of:
+    ///  - If `q | q'`, we basically compute a decomposition of `s * x`, where `s = 0 mod q'/q` and `s = 1 mod q`.
+    ///    This is necessary during hybrid key switching
+    ///  - If `q' < q` and the result of the gadget product is small, this allows to perform the computation for
+    ///    less RNS factors, improving performance. This is similiar to the LKSS key switching algorithm.
+    /// 
+    pub fn from_element_map_ring_with(ring: &R, el: &R::Element, digits: &RNSGadgetVectorDigitIndices, out_ring: &R) -> Self {
+        assert!(ring.number_ring() == out_ring.number_ring());
+        assert!(digits.iter().all(|digit| digit.end > digit.start));
+        let decomposition = gadget_decompose(ring, el, digits, out_ring);
+        return Self {
+            element_decomposition: decomposition
+        };
     }
 }
 
@@ -70,6 +90,7 @@ impl<NumberRing, A> GadgetProductLhsOperand<DoubleRNSRingBase<NumberRing, A>>
     /// For an explanation of gadget products, see [`GadgetProductLhsOperand::gadget_product()`].
     /// 
     pub fn from_double_rns_ring_with(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: &RNSGadgetVectorDigitIndices) -> Self {
+        assert!(digits.iter().all(|digit| digit.end > digit.start));
         let decomposition = gadget_decompose_doublerns(ring, el, digits);
         return Self {
             element_decomposition: decomposition
@@ -243,8 +264,9 @@ impl<R: PreparedMultiplicationRing> GadgetProductLhsOperand<R> {
 /// 
 /// The order of the fourier coefficients is the same as specified by the corresponding [`GeneralizedFFT`].
 /// 
-fn gadget_decompose<R, V>(ring: &R, el: &R::Element, digits: V) -> Vec<(R::PreparedMultiplicant, R::Element)>
+fn gadget_decompose<R, S, V>(ring: &R, el: &R::Element, digits: V, out_ring: &S) -> Vec<(S::PreparedMultiplicant, S::Element)>
     where R: BGFVCiphertextRing,
+        S: BGFVCiphertextRing,
         V: VectorFn<Range<usize>>
 {
     let ZZi64 = StaticRing::<i64>::RING;
@@ -252,9 +274,9 @@ fn gadget_decompose<R, V>(ring: &R, el: &R::Element, digits: V) -> Vec<(R::Prepa
     let mut el_as_matrix = OwnedMatrix::zero(ring.base_ring().len(), ring.small_generating_set_len(), ring.base_ring().at(0));
     ring.as_representation_wrt_small_generating_set(el, el_as_matrix.data_mut());
     
-    let homs = ring.base_ring().as_iter().map(|Zp| Zp.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
+    let homs = out_ring.base_ring().as_iter().map(|Zp| Zp.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
     let mut current_row = Vec::new();
-    current_row.resize_with(homs.len() * el_as_matrix.col_count(), || ring.base_ring().at(0).zero());
+    current_row.resize_with(homs.len() * el_as_matrix.col_count(), || out_ring.base_ring().at(0).zero());
     let mut current_row = SubmatrixMut::from_1d(&mut current_row[..], homs.len(), el_as_matrix.col_count());
     
     for i in 0..digits.len() {
@@ -271,9 +293,9 @@ fn gadget_decompose<R, V>(ring: &R, el: &R::Element, digits: V) -> Vec<(R::Prepa
             current_row.reborrow()
         );
 
-        let decomposition_part = ring.from_representation_wrt_small_generating_set(current_row.as_const());
+        let decomposition_part = out_ring.from_representation_wrt_small_generating_set(current_row.as_const());
         result.push((
-            ring.prepare_multiplicant(&decomposition_part),
+            out_ring.prepare_multiplicant(&decomposition_part),
             decomposition_part
         ));
     }
@@ -423,6 +445,7 @@ impl<R: PreparedMultiplicationRing> GadgetProductRhsOperand<R> {
         where R: RingExtension,
             R::BaseRing: RingStore<Type = zn_rns::ZnBase<zn_64::Zn, BigIntRing>>
     {
+        assert!(digits.iter().all(|digit| digit.end > digit.start));
         let mut operands = Vec::with_capacity(digits.len());
         operands.extend((0..digits.len()).map(|_| None));
         return Self {

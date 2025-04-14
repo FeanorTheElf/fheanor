@@ -233,7 +233,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
             let drop_additional_moduli_count = max(2, C_master.base_ring().len() - ct_dropped_moduli.union(&special_modulus_factors).len()) - 2;
             let ct_dropped_moduli_without_special = ct_dropped_moduli.subtract(&special_modulus_factors);
             let gk_digits_after_drop = gks[0].1.k0.gadget_vector_digits().remove_indices(&ct_dropped_moduli_without_special);
-            let drop_additional_moduli = recommended_rns_factors_to_drop(KeySwitchKeyParams { digits: &gk_digits_after_drop, special_modulus_factor_count }, drop_additional_moduli_count);
+            let drop_additional_moduli = recommended_rns_factors_to_drop(KeySwitchKeyParams { digits_without_special: gk_digits_after_drop, special_modulus_factor_count }, drop_additional_moduli_count);
             drop_additional_moduli.pullback(&ct_dropped_moduli_without_special).union(&special_modulus_factors)
         };
         let C_input = Params::mod_switch_down_C(C_master, &drop_input_rns_factors);
@@ -431,17 +431,13 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     };
     let P = params.create_plaintext_ring(t);
     let C_master = params.create_initial_ciphertext_ring();
-    let key_switch_digits = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
-    let key_switch_params = KeySwitchKeyParams {
-        digits: &key_switch_digits,
-        special_modulus_factor_count: 2
-    };
+    let key_switch_params = KeySwitchKeyParams::default(5, 2, C_master.base_ring().len());
 
     let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), None);
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, None);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, key_switch_params))).collect::<Vec<_>>();
-    let rk = Pow2BGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, key_switch_params);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
+    let rk = Pow2BGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
     let m = P.int_hom().map(2);
     let ct = Pow2BGV::enc_sym(&P, &C_master, &mut rng, &m, &sk);
@@ -487,17 +483,13 @@ fn test_bootstrap_large() {
     };
     let P = params.create_plaintext_ring(t);
     let C_master = params.create_initial_ciphertext_ring();
-    let key_switch_digits = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
-    let key_switch_params = KeySwitchKeyParams {
-        digits: &key_switch_digits,
-        special_modulus_factor_count: 3
-    };
+    let key_switch_params = KeySwitchKeyParams::default(6, 3, C_master.base_ring().len());
 
     let bootstrapper = bootstrap_params.build_odd::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, Some(hwt));
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, key_switch_params))).collect::<Vec<_>>();
-    let rk = CompositeBGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, key_switch_params);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
+    let rk = CompositeBGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
     let m = P.int_hom().map(2);
     let ct = CompositeBGV::enc_sym(&P, &C_master, &mut rng, &m, &sk);
@@ -509,7 +501,7 @@ fn test_bootstrap_large() {
         &rk, 
         &gk,
         Some(hwt),
-        None // Some(&sk)
+        Some(&sk)
     );
     let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = CompositeBGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);

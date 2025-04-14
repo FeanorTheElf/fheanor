@@ -7,7 +7,6 @@
 
 use he_ring::bgv::{BGVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BGV, KeySwitchKeyParams};
 use he_ring::cyclotomic::CyclotomicRingStore;
-use he_ring::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use he_ring::DefaultNegacyclicNTT;
 use he_ring::bgv::modswitch::recommended_rns_factors_to_drop;
 use rand::{SeedableRng, rngs::StdRng};
@@ -47,9 +46,7 @@ fn main() {
 
     let mut rng = StdRng::from_seed([1; 32]);
     let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-
-    let digits = 2;
-    let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, KeySwitchKeyParams { digits: &RNSGadgetVectorDigitIndices::select_digits(C_initial.base_ring().len(), digits), special_modulus_factor_count: 0 });
+    let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(2, 0, C_initial.base_ring().len()));
 
     let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
         P.base_ring().int_hom().map(i)

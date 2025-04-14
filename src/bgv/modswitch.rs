@@ -244,7 +244,7 @@ pub trait AsBGVPlaintext<Params: BGVCiphertextParams>: RingBase {
 /// # use he_ring::gadget_product::digits::*;
 /// let digits = RNSGadgetVectorDigitIndices::from([0..3, 3..5].clone_els());
 /// let params = KeySwitchKeyParams {
-///     digits: &digits,
+///     digits_without_special: digits,
 ///     special_modulus_factor_count: 0
 /// };
 /// // remove the first two indices from 0..3, and the first index from 3..5 - the resulting ranges both have length 1
@@ -252,20 +252,17 @@ pub trait AsBGVPlaintext<Params: BGVCiphertextParams>: RingBase {
 /// ```
 /// 
 pub fn recommended_rns_factors_to_drop(key_params: KeySwitchKeyParams, drop_prime_count: usize) -> Box<RNSFactorIndexList> {
-    assert!(drop_prime_count + key_params.special_modulus_factor_count < key_params.digits.rns_base_len());
+    assert!(drop_prime_count < key_params.digits_without_special.rns_base_len());
 
-    let mut drop_from_digit = (0..key_params.digits.len()).map(|_| 0).collect::<Vec<_>>();
+    let mut drop_from_digit = (0..key_params.digits_without_special.len()).map(|_| 0).collect::<Vec<_>>();
 
-    let effective_len = |range: Range<usize>| min(range.end, key_params.digits.rns_base_len() - key_params.special_modulus_factor_count) - min(range.start, key_params.digits.rns_base_len() - key_params.special_modulus_factor_count);
+    let effective_len = |range: Range<usize>| range.end - range.start;
     for _ in 0..drop_prime_count {
-        let largest_digit_idx = (0..key_params.digits.len()).max_by_key(|i| effective_len(key_params.digits.at(*i)) - drop_from_digit[*i]).unwrap();
+        let largest_digit_idx = (0..key_params.digits_without_special.len()).max_by_key(|i| effective_len(key_params.digits_without_special.at(*i)) - drop_from_digit[*i]).unwrap();
         drop_from_digit[largest_digit_idx] += 1;
     }
 
-    let result = RNSFactorIndexList::from((0..key_params.digits.len()).flat_map(|i| key_params.digits.at(i).start..(key_params.digits.at(i).start + drop_from_digit[i])).collect(), key_params.digits.rns_base_len());
-    for i in (key_params.digits.rns_base_len() - key_params.special_modulus_factor_count)..key_params.digits.rns_base_len() {
-        debug_assert!(!result.contains(i));
-    }
+    let result = RNSFactorIndexList::from((0..key_params.digits_without_special.len()).flat_map(|i| key_params.digits_without_special.at(i).start..(key_params.digits_without_special.at(i).start + drop_from_digit[i])).collect(), key_params.digits_without_special.rns_base_len());
     return result;
 }
 
@@ -623,10 +620,6 @@ impl<Params: BGVCiphertextParams, A: Allocator + Clone> AsBGVPlaintext<Params> f
     }
 }
 
-fn key_params<'a, Params: BGVCiphertextParams>(key: &'a KeySwitchKey<Params>) -> KeySwitchKeyParams<'a> {
-    KeySwitchKeyParams { digits: key.k0.gadget_vector_digits(), special_modulus_factor_count: key.special_modulus_factor_count }
-}
-
 impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool> DefaultModswitchStrategy<Params, N, LOG> {
 
     pub fn new(noise_estimator: N) -> Self {
@@ -748,16 +741,16 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
         // these are exactly the RNS factors that are missing in either input, and the ones corresponding
         // to the special modulus
         let base_drop_without_special = dropped_factors_x.union(&dropped_factors_y).subtract(&special_modulus_factors);
-        let rk_digits_after_base_drop = rk.digits.remove_indices(&base_drop_without_special);
+        let rk_digits_after_base_drop = rk.digits_without_special.remove_indices(&base_drop_without_special);
 
         // now try every number of additional RNS factors to drop
         let compute_result_noise = |num_to_drop: usize| {
-            let second_drop_without_special = recommended_rns_factors_to_drop(KeySwitchKeyParams { digits: &rk_digits_after_base_drop, special_modulus_factor_count: rk.special_modulus_factor_count }, num_to_drop);
+            let second_drop_without_special = recommended_rns_factors_to_drop(KeySwitchKeyParams { digits_without_special: rk_digits_after_base_drop.clone(), special_modulus_factor_count: rk.special_modulus_factor_count }, num_to_drop);
             let total_drop_without_special = second_drop_without_special.pullback(&base_drop_without_special);
             let total_drop = total_drop_without_special.union(&special_modulus_factors);
             let C_target = Params::mod_switch_down_C(C_master, &total_drop);
             let C_special = Params::mod_switch_down_C(C_master, &total_drop_without_special);
-            let rk_digits_after_total_drop = rk.digits.remove_indices(&total_drop_without_special);
+            let rk_digits_after_total_drop = rk.digits_without_special.remove_indices(&total_drop_without_special);
 
             let expected_noise = self.noise_estimator.estimate_log2_relative_noise_level(
                 P,
@@ -768,8 +761,8 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
                     &C_special,
                     &self.noise_estimator.mod_switch_down(&P, &C_target, &Cx, &total_drop.pushforward(dropped_factors_x), noise_x),
                     &self.noise_estimator.mod_switch_down(&P, &C_target, &Cy, &total_drop.pushforward(dropped_factors_y), noise_y),
-                    KeySwitchKeyParams {
-                        digits: &rk_digits_after_total_drop,
+                    &KeySwitchKeyParams {
+                        digits_without_special: rk_digits_after_total_drop,
                         special_modulus_factor_count: rk.special_modulus_factor_count
                     }
                 )
@@ -977,7 +970,7 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
                 **key_switches.borrow_mut() += 1;
                 let rk = rk.unwrap();
 
-                let total_drop = self.compute_optimal_mul_modswitch(P, C_master, &x.info, &x.dropped_rns_factor_indices, &y.info, &y.dropped_rns_factor_indices, key_params(&rk));
+                let total_drop = self.compute_optimal_mul_modswitch(P, C_master, &x.info, &x.dropped_rns_factor_indices, &y.info, &y.dropped_rns_factor_indices, rk.params());
                 let special_modulus_factors = RNSFactorIndexList::from(((C_master.base_ring().len() - rk.special_modulus_factor_count)..C_master.base_ring().len()).collect(), C_master.base_ring().len());
                 let total_drop_without_special = total_drop.subtract(&special_modulus_factors);
                 let C_special = Params::mod_switch_down_C(&C_master, &total_drop_without_special);
@@ -990,7 +983,7 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
                 let y_modswitched = self.mod_switch_down(P, &C_target, C_master, &total_drop, y, "HomMul", debug_sk);
 
                 let res_data = Params::hom_mul(P, &C_target, &C_special, x_modswitched.data, y_modswitched.data, &rk_modswitch);
-                let res_info = self.noise_estimator.hom_mul(P, &C_target, &C_special, &x_modswitched.info, &y_modswitched.info, key_params(&rk_modswitch));
+                let res_info = self.noise_estimator.hom_mul(P, &C_target, &C_special, &x_modswitched.info, &y_modswitched.info, &rk_modswitch.params());
 
                 if LOG {
                     println!("HomMul: Result has estimated noise budget {}/{}",
@@ -1031,7 +1024,7 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
                 **key_switches.borrow_mut() += 1;
                 let rk = rk.unwrap();
 
-                let total_drop = self.compute_optimal_mul_modswitch(P, C_master, &x.info, &x.dropped_rns_factor_indices, &x.info, &x.dropped_rns_factor_indices, key_params(&rk));
+                let total_drop = self.compute_optimal_mul_modswitch(P, C_master, &x.info, &x.dropped_rns_factor_indices, &x.info, &x.dropped_rns_factor_indices, rk.params());
                 let special_modulus_factors = RNSFactorIndexList::from(((C_master.base_ring().len() - rk.special_modulus_factor_count)..C_master.base_ring().len()).collect(), C_master.base_ring().len());
                 let total_drop_without_special = total_drop.subtract(&special_modulus_factors);
                 let C_special = Params::mod_switch_down_C(&C_master, &total_drop_without_special);
@@ -1041,7 +1034,7 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
 
                 let x_modswitched = self.mod_switch_down(P, &C_target, C_master, &total_drop, x, "HomSquare", debug_sk);
 
-                let res_info = self.noise_estimator.hom_mul(P, &C_target, &C_special, &x_modswitched.info, &x_modswitched.info, key_params(&rk_modswitch));
+                let res_info = self.noise_estimator.hom_mul(P, &C_target, &C_special, &x_modswitched.info, &x_modswitched.info, &rk_modswitch.params());
                 let res_data = Params::hom_square(P, &C_target, &C_special, x_modswitched.data, &rk_modswitch);
 
                 if LOG {
@@ -1113,7 +1106,7 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
                 };
                 result.into_iter().zip(gs.into_iter()).zip(gks_mod_switched.iter()).map(|((res, g), gk)| PlainOrCiphertext::Ciphertext(ModulusAwareCiphertext {
                     dropped_rns_factor_indices: total_drop.clone(),
-                    info: self.noise_estimator.hom_galois(&P, &C_target, &C_special, &x.info, *g, key_params(&gk)),
+                    info: self.noise_estimator.hom_galois(&P, &C_target, &C_special, &x.info, *g, &gk.params()),
                     data: res
                 })).collect()
             },
@@ -1225,13 +1218,12 @@ fn test_default_modswitch_strategy_plain() {
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
-    let digits = 3;
-
+    
     let P = params.create_plaintext_ring(t);
     let C = params.create_initial_ciphertext_ring();
 
     let sk = Pow2BGV::gen_sk(&C, &mut rng, None);
-    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, KeySwitchKeyParams { digits: &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), special_modulus_factor_count: 0 });
+    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C.base_ring().len()));
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
@@ -1281,14 +1273,10 @@ fn test_default_modswitch_strategy_hybrid_keyswitch() {
 
     let P = params.create_plaintext_ring(t);
     let C = params.create_initial_ciphertext_ring();
-    let key_switch_digits = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
-    let key_switch_params = KeySwitchKeyParams {
-        digits: &key_switch_digits,
-        special_modulus_factor_count: 2
-    };
+    let key_switch_params = KeySwitchKeyParams::default(3, 2, C.base_ring().len());
 
     let sk = Pow2BGV::gen_sk(&C, &mut rng, None);
-    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, key_switch_params);
+    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &key_switch_params);
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
@@ -1335,13 +1323,12 @@ fn test_never_modswitch_strategy() {
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
-    let digits = 3;
-
+    
     let P = params.create_plaintext_ring(t);
     let C = params.create_initial_ciphertext_ring();
 
     let sk = Pow2BGV::gen_sk(&C, &mut rng, None);
-    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, KeySwitchKeyParams { digits: &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), special_modulus_factor_count: 0 });
+    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C.base_ring().len()));
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);

@@ -152,6 +152,9 @@ impl RNSGadgetVectorDigitIndices {
     /// ```
     /// 
     pub fn remove_indices(&self, drop_rns_factors: &RNSFactorIndexList) -> Box<Self> {
+        for i in drop_rns_factors.iter() {
+            assert!(*i < self.rns_base_len());
+        }
         let mut result = Vec::new();
         let mut current_len = 0;
         for range in self.iter() {

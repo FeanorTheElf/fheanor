@@ -121,12 +121,7 @@ While it would be preferable for the BFV implementation not to be tied to any sp
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 let mut rng = StdRng::from_seed([1; 32]);
 let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-let rk_digits = RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len());
-let rk_params = KeySwitchKeyParams {
-    digits: &rk_digits,
-    special_modulus_factor_count: 0
-};
-let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, rk_params);
+let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
 ```
 To generate the keys (as well as for encryption), we require a source of randomness.
 HE-Ring is internally completely deterministic, hence it takes this source as parameter - in form of a [`rand::CryptoRng`].
@@ -171,12 +166,7 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk_digits = RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len());
-# let rk_params = KeySwitchKeyParams {
-#     digits: &rk_digits,
-#     special_modulus_factor_count: 0
-# };
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, rk_params);
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
 let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
     P.base_ring().int_hom().map(i)
 ));
@@ -226,12 +216,7 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk_digits = RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len());
-# let rk_params = KeySwitchKeyParams {
-#     digits: &rk_digits,
-#     special_modulus_factor_count: 0
-# };
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, rk_params);
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
@@ -278,12 +263,7 @@ The naive way would be to compute
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk_digits = RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len());
-# let rk_params = KeySwitchKeyParams {
-#     digits: &rk_digits,
-#     special_modulus_factor_count: 0
-# };
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, rk_params);
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
@@ -337,12 +317,7 @@ Alternatively, these can also determined manually: [`crate::bgv::BGVCiphertextPa
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk_digits = RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len());
-# let rk_params = KeySwitchKeyParams {
-#     digits: &rk_digits,
-#     special_modulus_factor_count: 0
-# };
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, rk_params);
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
@@ -406,12 +381,7 @@ For example, we could implement the above evaluation instead as follows:
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk_digits = RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len());
-# let rk_params = KeySwitchKeyParams {
-#     digits: &rk_digits,
-#     special_modulus_factor_count: 0
-# };
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, rk_params);
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
