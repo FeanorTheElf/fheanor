@@ -501,7 +501,7 @@ fn test_bootstrap_large() {
         &rk, 
         &gk,
         Some(hwt),
-        Some(&sk)
+        None // Some(&sk)
     );
     let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = CompositeBGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);
