@@ -413,7 +413,7 @@ use crate::bgv::noise_estimator::NaiveBGVNoiseEstimator;
 
 #[test]
 fn test_pow2_bgv_thin_bootstrapping_17() {
-    let mut rng = thread_rng();
+    let mut rng = StdRng::from_seed([0; 32]);
     
     // 8 slots of rank 16
     let params = Pow2BGV {
@@ -464,7 +464,7 @@ fn test_bootstrap_large() {
     let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
     tracing_subscriber::registry().with(filtered_chrome_layer).init();
 
-    let mut rng = thread_rng();
+    let mut rng = StdRng::from_seed([0; 32]);
 
     let t = 4;
     let v = 7;
@@ -483,7 +483,8 @@ fn test_bootstrap_large() {
     };
     let P = params.create_plaintext_ring(t);
     let C_master = params.create_initial_ciphertext_ring();
-    let key_switch_params = KeySwitchKeyParams::default(6, 3, C_master.base_ring().len());
+    assert_eq!(15, C_master.base_ring().len());
+    let key_switch_params = KeySwitchKeyParams::default(7, 2, C_master.base_ring().len());
 
     let bootstrapper = bootstrap_params.build_odd::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
@@ -505,6 +506,7 @@ fn test_bootstrap_large() {
     );
     let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = CompositeBGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);
+    println!("final noise budget: {}", CompositeBGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result));
     let result = CompositeBGV::dec(&P, &C_result, ct_result.data, &sk_result);
     assert_el_eq!(P, P.int_hom().map(2), result);
 }

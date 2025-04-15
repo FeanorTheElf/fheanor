@@ -523,28 +523,52 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
         }
     }
 
+    ///
+    /// Computes a subset of the rows of the representation that would be returned by
+    /// [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`]. Since not all rows
+    /// have to be computed, this may be faster than `as_representation_wrt_small_generating_set()`.
+    /// 
+    /// However, this also means that this function will not cache the element in small-basis
+    /// representation, if that was computed (unlike `as_representation_wrt_small_generating_set()`).
+    /// Thus, if you want to access the element in small-basis representation afterwards anyway,
+    /// it will be faster to use `as_representation_wrt_small_generating_set()`.
+    /// 
     fn partial_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, row_indices: &[usize], mut output: SubmatrixMut<V, zn_64::ZnEl>)
         where V: AsPointerToSlice<zn_64::ZnEl>
     {
         assert_eq!(output.row_count(), row_indices.len());
         assert_eq!(output.col_count(), self.base.rank());
 
-        // following rationale: if element is already in small-basis form, we of course just use that;
-        // if the element is in sum repr, it won't help to use a partial conversion only, since we will
-        // at some point go to either double-RNS or small-basis repr, which both take a full conversion
-        // from a sum representation; hence, the only case where we do a partial conversion only is if
-        // we have the element in double-rns representation
-        if let ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) = x.internal.get_repr() {
-            self.base.undo_fft_partial(double_rns_repr, row_indices, output);
-            return;
-        }
-
-        let matrix = self.base.as_matrix_wrt_small_basis(self.to_small_basis(x).unwrap_or(&self.zero));
-        for (i_out, i_in) in row_indices.iter().enumerate() {
-            for j in 0..matrix.col_count() {
-                *output.at_mut(i_out, j) = *matrix.at(*i_in, j);
+        match x.internal.get_repr() {
+            ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) => self.base.undo_fft_partial(double_rns_repr, row_indices, output),
+            ManagedDoubleRNSElRepresentation::Sum(parts) => {
+                let small_basis_part = &parts.0;
+                let double_rns_part = &parts.1;
+                self.base.undo_fft_partial(double_rns_part, row_indices, output.reborrow());
+                let matrix = self.base.as_matrix_wrt_small_basis(small_basis_part);
+                for (i_out, i_in) in row_indices.iter().enumerate() {
+                    for j in 0..matrix.col_count() {
+                        self.base.base_ring().at(*i_in).add_assign(output.at_mut(i_out, j), *matrix.at(*i_in, j));
+                    }
+                }
+            },
+            ManagedDoubleRNSElRepresentation::Both(small_basis_repr, _) | ManagedDoubleRNSElRepresentation::SmallBasis(small_basis_repr) => {   
+                let matrix = self.base.as_matrix_wrt_small_basis(small_basis_repr);
+                for (i_out, i_in) in row_indices.iter().enumerate() {
+                    for j in 0..matrix.col_count() {
+                        *output.at_mut(i_out, j) = *matrix.at(*i_in, j);
+                    }
+                }
+            },
+            ManagedDoubleRNSElRepresentation::Zero => {
+                for (i_out, i_in) in row_indices.iter().enumerate() {
+                    for j in 0..self.base.rank() {
+                        *output.at_mut(i_out, j) = self.base.base_ring().at(*i_in).zero();
+                    }
+                }
             }
         }
+
     }
 
     fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, zn_64::ZnEl>) -> Self::Element
