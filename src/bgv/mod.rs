@@ -212,7 +212,7 @@ pub fn equalize_implicit_scale(Zt: &Zn, implicit_scale_quotient: El<Zn>) -> (i64
 /// of the [`super::bfv::BFVCiphertextParams`], but the (initial) ciphertext modulus size
 /// is. Note however that BGV requires many ciphertext rings, with progressively
 /// smaller ciphertext moduli. You can either manage these manually, or have a look
-/// on [`super::modswitch::BGVModswitchStrategy`], which is built on top of this
+/// on [`modswitch::BGVModswitchStrategy`], which is built on top of this
 /// trait and (partially at least) manages ciphertext moduli automatically.
 /// In particular, this is different to how other libraries handle BGV ciphertexts, for
 /// example HElib by default manages the moduli of all BGV ciphertexts.

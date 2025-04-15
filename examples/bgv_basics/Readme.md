@@ -91,7 +91,7 @@ However, since `q` is sampled using large primes of up to 56 bits, this is unlik
 
 Next, let's generate the keys we will require later.
 Since the type of the ciphertext ring depends on the type of the chosen parameters, all further functions are associated functions of `ChosenBGVParamType`.
-While it would be preferable for the BFV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVParams`].
+While it would be preferable for the BFV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVCiphertextParams`].
 ```rust
 #![feature(allocator_api)]
 # use he_ring::bgv::*;
@@ -225,7 +225,7 @@ let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, ChosenBG
 let dec_x_sqr = ChosenBGVParamType::dec(&P, &C_initial, enc_x_sqr, &sk);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 2), &dec_x_sqr);
 ```
-Note that the two ciphertext ring parameters to [`he_ring::bgv::BGVCiphertextParams::hom_mul()`] are the ciphertext ring over the current and special RNS base, respectively. Since we did not use any special modulus, they can be the same.
+Note that the two ciphertext ring parameters to [`crate::bgv::BGVCiphertextParams::hom_mul()`] are the ciphertext ring over the current and special RNS base, respectively. Since we did not use any special modulus, they can be the same.
 
 ## Modulus-switching
 
@@ -281,8 +281,8 @@ However, we can decrease the noise growth that happens during the second multipl
 Note that finding the right size of `q'` is, in general, not so easy, since it requires an estimate of the current size of the noise in `enc_x_sqr`. 
 In particular, this depends on the size of the ring we work in, and also on the number of digits chosen for relinearization.
 
-Once we decided on the number of factors to drop, we can use the convenience function [`crate::gadget_product::digits::recommended_rns_factors_to_drop()`] to choose the exact factors to drop in such a way as to preserve the quality of the relinearization key.
-Alternatively, these can also determined manually: [`crate::bgv::BGVCiphertextParams::mod_switch_down()`] takes a list of indices, which refer to the indices of the factors of `q` that will be dropped.
+Once we decided on the number of factors to drop, we can use the convenience function [`crate::bgv::modswitch::recommended_rns_factors_to_drop()`] to choose the exact factors to drop in such a way as to preserve the quality of the relinearization key.
+Alternatively, these can also determined manually: [`crate::bgv::BGVCiphertextParams::mod_switch_down_ct()`] takes a list of indices, which refer to the indices of the factors of `q` that will be dropped.
 ```rust
 #![feature(allocator_api)]
 # use he_ring::bgv::*;
