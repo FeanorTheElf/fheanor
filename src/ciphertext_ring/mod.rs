@@ -129,6 +129,10 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExt
     ///  - [`double_rns_managed::ManagedDoubleRNSRing`] will currently return the coefficients w.r.t.
     ///    the powerful basis representation
     /// 
+    /// Currently, this function is only used for gadget products and modulus-switching. In these
+    /// cases, it is indeed ok if the representation is not unique, as long as it is w.r.t. a small
+    /// generating set.
+    /// 
     fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, ZnEl>)
         where V: AsPointerToSlice<ZnEl>;
 
@@ -137,12 +141,7 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExt
     /// [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`]. Since not all rows
     /// have to be computed, this may be faster than `as_representation_wrt_small_generating_set()`.
     /// 
-    /// This function is a compromise between encapsulating the storage of ring elements and exposing 
-    /// it (which is sometimes necessary for performance).
-    /// Hence, it is recommended to instead use [`FreeAlgebra::wrt_canonical_basis()`] and
-    /// [`FreeAlgebra::from_canonical_basis()`], whose result is uniquely defined. However, note
-    /// that these may incur costs for internal representation conversion, which may not always
-    /// be acceptable.
+    /// For details, [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`].
     /// 
     fn partial_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, row_indices: &[usize], output: SubmatrixMut<V, ZnEl>)
         where V: AsPointerToSlice<ZnEl>;
@@ -181,6 +180,14 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExt
     }
 }
 
+///
+/// Maps an element from a ring `from` to a quotient of the same number ring `to` (but with
+/// a different modulus). This is done by applying the given RNS conversion to each coefficient
+/// in the representation given by [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`].
+/// 
+/// Note that [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`] might not behave
+/// exactly as expected, due to the need for a very performant implementation. See its doc for details.
+/// 
 #[instrument(skip_all)]
 pub fn perform_rns_op<R, Op>(to: &R, from: &R, el: &R::Element, op: &Op) -> R::Element
     where R: BGFVCiphertextRing,

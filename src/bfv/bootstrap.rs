@@ -156,6 +156,8 @@ impl<Params: BFVCiphertextParams> ThinBootstrapData<Params> {
         let P_main = self.plaintext_ring_hierarchy.last().unwrap();
         debug_assert_eq!(ZZ.pow(self.p(), self.e()), *P_main.base_ring().modulus());
 
+        // TODO: mod-switch down before computing slots-to-coeffs
+
         let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[key_switches]| {
             let result = self.slots_to_coeffs_thin.evaluate_bfv::<Params>(P_base, C, None, std::slice::from_ref(&ct), None, gk, key_switches);
             assert_eq!(1, result.len());

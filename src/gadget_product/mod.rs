@@ -255,15 +255,7 @@ impl<R: PreparedMultiplicationRing> GadgetProductLhsOperand<R> {
         return ring.inner_product_prepared(self.element_decomposition.iter().zip(rhs.scaled_element.iter()).filter_map(|((lhs, _), rhs)| rhs.as_ref().map(|(rhs, _)| (lhs, rhs))));
     }
 }
-
-///
-/// `gadget_decompose()[decomposed_component][rns_base_index]` contains the prepared convolution 
-/// modulo `shortened_rns_base.at(rns_base_index)` of the `decomposed_component`-th element of the gadget 
-/// decomposition vector. Here `shortened_rns_base` is formed by the last `output_moduli_count` rns 
-/// components of the main rns base.
-/// 
-/// The order of the fourier coefficients is the same as specified by the corresponding [`GeneralizedFFT`].
-/// 
+ 
 fn gadget_decompose<R, S, V>(ring: &R, el: &R::Element, digits: V, out_ring: &S) -> Vec<(S::PreparedMultiplicant, S::Element)>
     where R: BGFVCiphertextRing,
         S: BGFVCiphertextRing,

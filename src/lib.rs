@@ -10,11 +10,13 @@
 #![feature(min_specialization)]
 #![feature(array_chunks)]
 #![feature(mapped_lock_guards)]
+#![feature(associated_const_equality)]
 
 #![allow(non_snake_case)]
 #![allow(type_alias_bounds)]
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
+#![allow(rustdoc::private_intra_doc_links)]
 
 #![doc = include_str!("../Readme.md")]
 

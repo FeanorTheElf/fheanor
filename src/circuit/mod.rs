@@ -938,7 +938,6 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// assert_eq!(vec![3], circuit.evaluate_generic(
     ///     &[1 as i32, 2 as i32], 
     ///     DefaultCircuitEvaluator::new(
-    ///         |_, _| unreachable!("circuit should have no multiplication gates"), 
     ///         |x| x.to_ring_el(StaticRing::<i64>::RING) as i32, 
     ///         |x, c, y| x + c.mul_to(*y as i64, StaticRing::<i64>::RING) as i32,
     ///     )
@@ -952,6 +951,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     {
         assert_eq!(self.input_count, inputs.len());
         assert!(evaluator.supports_gal() || !self.has_galois_gates());
+        assert!(evaluator.supports_mul() || !self.has_multiplication_gates());
         let mut current = Vec::new();
         for gate in &self.gates {
             match gate {

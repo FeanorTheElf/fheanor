@@ -1145,9 +1145,10 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
         let result = circuit.evaluate_generic(
             &inputs.iter().map(PlainOrCiphertext::CiphertextRef).collect::<Vec<_>>(),
             DefaultCircuitEvaluator::new(
-                |x, y| self.mul(P, C_master, x, y, &ring, rk, &key_switches_refcell, debug_sk),
                 |m| PlainOrCiphertext::PlaintextRef(m),
                 |_, _, _| unreachable!(),
+            ).with_mul( 
+                |x, y| self.mul(P, C_master, x, y, &ring, rk, &key_switches_refcell, debug_sk),
             ).with_square(
                 |x| self.square(P, C_master, x, &ring, rk, &key_switches_refcell, debug_sk),
             ).with_gal(

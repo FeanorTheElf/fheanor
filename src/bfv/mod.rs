@@ -335,12 +335,38 @@ pub trait BFVCiphertextParams {
     /// 
     #[instrument(skip_all)]
     fn hom_mul_plain(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
-        let m = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))));
-        let (c0, c1) = ct;
-        return (C.mul_ref_snd(c0, &m), C.mul(c1, m));
+        Self::hom_mul_plain_encoded(P, C, &Self::encode_plain_multiplicant(P, C, m), ct)
     }
     
+    ///
+    /// Computes the smallest lift of the plaintext ring element to the ciphertext
+    /// ring. The result can be used in [`BFVCiphertextParams::hom_mul_plain_encoded()`]
+    /// to compute plaintext-ciphertext multiplication faster.
+    /// 
+    /// Note that (as opposed to BFV), encoding of plaintexts that are used as multiplicants
+    /// (i.e. multiplied to ciphertexts) is different than for plaintexts that are used as summands
+    /// (i.e. added to ciphertexts). Currently only the former is supported for BFV.
+    /// 
+    #[instrument(skip_all)]
+    fn encode_plain_multiplicant(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
+        let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
+        return C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))));
+    }
+
+    ///
+    /// Returns an encryption of the product of the encrypted input and the given plaintext,
+    /// which has already been lifted/encoded into the ciphertext ring.
+    /// 
+    /// When the plaintext is given as an element of `P`, use [`BFVCiphertextParams::hom_mul_plain()`]
+    /// instead. However, internally, the plaintext will be lifted into the ciphertext ring during
+    /// the multiplication, and if this is performed in advance (via [`BFVCiphertextParams::encode_plain_multiplicant()`]),
+    /// multiplication will be faster.
+    /// 
+    #[instrument(skip_all)]
+    fn hom_mul_plain_encoded(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<CiphertextRing<Self>>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
+        (C.mul_ref_snd(ct.0, m), C.mul_ref_snd(ct.1, m))
+    }
+
     ///
     /// Computes an encryption of the product of an encrypted message and an integer plaintext.
     /// 
@@ -630,12 +656,13 @@ impl<NumberRing> PlaintextCircuit<NumberRingQuotientBase<NumberRing, Zn>>
         return self.evaluate_generic(
             inputs,
             DefaultCircuitEvaluator::new(
-                |lhs, rhs| Params::hom_mul(P, C, Cmul.unwrap(), lhs, rhs, rk.unwrap()),
                 |x| match x {
                     Coefficient::Zero => Params::transparent_zero(C),
                     x => Params::hom_add_plain(P, C, &x.clone(P).to_ring_el(P), Params::transparent_zero(C))
                 },
                 |dst, x, ct| Params::hom_add(C, dst, &Params::hom_mul_plain(P, C, &x.clone(P).to_ring_el(P), Params::clone_ct(C, ct))),
+            ).with_mul(
+                |lhs, rhs| Params::hom_mul(P, C, Cmul.unwrap(), lhs, rhs, rk.unwrap()),
             ).with_square(
                 |x| Params::hom_square(P, C, Cmul.unwrap(), x, rk.unwrap()),
             ).with_gal(
@@ -670,12 +697,13 @@ impl PlaintextCircuit<StaticRingBase<i64>> {
         return self.evaluate_generic(
             inputs,
             DefaultCircuitEvaluator::new(
-                |lhs, rhs| Params::hom_mul(P, C, Cmul.unwrap(), lhs, rhs, rk.unwrap()),
                 |x| match x {
                     Coefficient::Zero => Params::transparent_zero(C),
                     x => Params::hom_add_plain(P, C, &P.int_hom().map(x.clone(ZZ).to_ring_el(ZZ) as i32), Params::transparent_zero(C))
                 },
                 |dst, x, ct| Params::hom_add(C, dst, &Params::hom_mul_plain_i64(P, C, x.to_ring_el(ZZ), Params::clone_ct(C, ct))),
+            ).with_mul(
+                |lhs, rhs| Params::hom_mul(P, C, Cmul.unwrap(), lhs, rhs, rk.unwrap())
             ).with_square(
                 |x| Params::hom_square(P, C, Cmul.unwrap(), x, rk.unwrap()),
             ).with_gal(
@@ -774,6 +802,12 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
         debug_assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
         return (C, Cmul);
     }
+
+    #[instrument(skip_all)]
+    fn encode_plain_multiplicant(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
+        let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
+        return double_rns_repr::<Self, _, _>(C, &C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c)))));
+    }
 }
 
 ///
@@ -837,6 +871,12 @@ impl<A: Allocator + Clone + Send + Sync> BFVCiphertextParams for CompositeBFV<A>
         let C = RingValue::from(Cmul.get_ring().drop_rns_factor(&dropped_indices));
         debug_assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
         return (C, Cmul);
+    }
+
+    #[instrument(skip_all)]
+    fn encode_plain_multiplicant(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
+        let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
+        return double_rns_repr::<Self, _, _>(C, &C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c)))));
     }
 }
 
@@ -919,10 +959,18 @@ pub fn small_basis_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, ct: C
         NumberRing: HECyclotomicNumberRing,
         A: Allocator + Clone
 {
-    return (
+    (
         C.get_ring().from_small_basis_repr(C.get_ring().to_small_basis(&ct.0).map(|x| C.get_ring().unmanaged_ring().get_ring().clone_el_non_fft(x)).unwrap_or_else(|| C.get_ring().unmanaged_ring().get_ring().zero_non_fft())), 
         C.get_ring().from_small_basis_repr(C.get_ring().to_small_basis(&ct.1).map(|x| C.get_ring().unmanaged_ring().get_ring().clone_el_non_fft(x)).unwrap_or_else(|| C.get_ring().unmanaged_ring().get_ring().zero_non_fft())), 
-    );
+    )
+}
+
+pub fn double_rns_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, x: &El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>>
+    where Params: BFVCiphertextParams<CiphertextRing = ManagedDoubleRNSRingBase<NumberRing, A>>,
+        NumberRing: HECyclotomicNumberRing,
+        A: Allocator + Clone
+{
+    C.get_ring().from_double_rns_repr(C.get_ring().to_doublerns(x).map(|x| C.get_ring().unmanaged_ring().get_ring().clone_el(x)).unwrap_or_else(|| C.get_ring().unmanaged_ring().get_ring().zero()))
 }
 
 #[cfg(test)]
