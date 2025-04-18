@@ -222,6 +222,11 @@ pub mod digitextract;
 pub mod bgv;
 
 ///
+/// Contains an implementation of the CLPX/GBFV scheme.
+/// 
+pub mod clpx;
+
+///
 /// This is a workaround for displaying examples on `docs.rs`.
 /// 
 /// Contains an empty submodule for each example, whose documentation gives

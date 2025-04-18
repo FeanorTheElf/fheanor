@@ -97,6 +97,10 @@ impl CyclotomicGaloisGroup {
         self.ring.eq_el(&lhs.value, &rhs.value)
     }
 
+    ///
+    /// Returns `n` such that this group is the Galois group of the `n`-th cyclotomic number
+    /// field `Q[𝝵]`, where `𝝵` is an `n`-th primitive root of unity.
+    /// 
     pub fn n(&self) -> usize {
         *self.ring.modulus() as usize
     }
@@ -187,9 +191,9 @@ pub struct CyclotomicGaloisGroupEl {
 }
 
 ///
-/// Trait for rings `R[X]/(Phi_n)`, for a base ring `R`. Note that `Phi_n` is allowed to factor in `R`, hence this ring
-/// might not be integral. Furthermore, the residue class of `X`, i.e. the root of unity, must be given by 
-/// [`feanor_math::rings::extension::FreeAlgebra::canonical_gen()`].
+/// Trait for rings `R[X]/(Phi_n(X))`, for a base ring `R`. Note that `Phi_n` is allowed to factor in `R`, 
+/// hence this ring might not be integral. Furthermore, the residue class of `X`, i.e. the root of unity, 
+/// must be given by [`feanor_math::rings::extension::FreeAlgebra::canonical_gen()`].
 /// 
 /// # Nontrivial automorphisms
 /// 
@@ -212,7 +216,7 @@ pub trait CyclotomicRing: FreeAlgebra {
     ///
     /// The cyclotomic order, i.e. the multiplicative order of `self.canonical_gen()`.
     /// The degree of this ring extension is `phi(self.n())` where `phi` is Euler's totient
-    /// function.
+    /// function. This is sometimes also called the conductor of this cyclotomic ring.
     ///
     fn n(&self) -> usize;
 

@@ -90,6 +90,11 @@ pub trait HENumberRing: Send + Sync + PartialEq + Clone {
 /// 
 pub trait HECyclotomicNumberRing: HENumberRing<Decomposed: HECyclotomicNumberRingMod> {    
 
+    ///
+    /// The cyclotomic order, i.e. the multiplicative order of the canonical generator of this ring.
+    /// The degree of this ring extension is `phi(self.n())` where `phi` is Euler's totient
+    /// function. This is sometimes also called the conductor of this cyclotomic ring.
+    ///
     fn n(&self) -> usize;
 
     fn galois_group(&self) -> CyclotomicGaloisGroup {
@@ -145,6 +150,11 @@ pub trait HENumberRingMod: Send + Sync + PartialEq {
 
 pub trait HECyclotomicNumberRingMod: HENumberRingMod {
 
+    ///
+    /// The cyclotomic order, i.e. the multiplicative order of the canonical generator of this ring.
+    /// The degree of this ring extension is `phi(self.n())` where `phi` is Euler's totient
+    /// function. This is sometimes also called the conductor of this cyclotomic ring.
+    ///
     fn n(&self) -> usize;
 
     fn galois_group(&self) -> CyclotomicGaloisGroup {

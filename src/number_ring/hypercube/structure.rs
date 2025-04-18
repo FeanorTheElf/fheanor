@@ -329,6 +329,7 @@ impl HypercubeStructure {
 
     ///
     /// Returns `n`, i.e. the multiplicative order of the root of unity of the main ring.
+    /// This is also sometimes called the conductor of the cyclotomic number ring.
     /// 
     pub fn n(&self) -> usize {
         self.galois_group().n()
