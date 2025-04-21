@@ -47,9 +47,9 @@ This time, the relevant function is called `create_encoding()` instead of `creat
 The reason is that, while CLPX has the "natural" plaintext ring `Z[X]/(Phi_n(X), t(X2))` for a polynomial `t(X)`, this is not the representation one usually wants to work with.
 The whole point of using CLPX is to perform computations with large integers, and this can indeed be done using this ring, by observing that we have the isomorphism
 ```text
-  Z[X]/(p, Phi_n(X), t(X)) ~ Z[X]/(p, F(X))
+  Z[X]/(p, Phi_n(X), t(X)) ~ Z[X]/(p, G(X))
 ```
-where `p` is a large prime (concretely, it should be a prime factor of `Res(t(X), Phi_n(X))`) and `F(X)` some (for now irrelevant) polynomial.
+where `p` is a large prime (concretely, it should be a prime factor of `Res(t(X), Phi_n(X))`) and `G(X)` is some (for now irrelevant) polynomial.
 As an example, consider the following possible choices of `n`, `p` and `t(X)`:
 
 | `n`       | `t(X)`      | `p`                                                                |
@@ -63,9 +63,9 @@ As an example, consider the following possible choices of `n`, `p` and `t(X)`:
 | `17 * 31` | `X - 2`     | *a number so large that we cant easily find its prime factors...*  |
 
 Indeed, as this table shows, a suitable choice of `t` means that we can effectively perform arithmetic modulo some very large modulus.
-As users, this means we want to work in the ring `Z[X]/(p, F(X))`, but since the scheme naturally works only over an isomorphic ring with different representation, we need a way to compute this isomorphism - and that is exactly what the "encoding" is for.
+As users, this means we want to work in the ring `Z[X]/(p, G(X))`, but since the scheme naturally works only over an isomorphic ring with different representation, we need a way to compute this isomorphism - and that is exactly what the "encoding" is for.
 
-More concretely, `create_encoding()` will provide an object of type [`crate::clpx::encoding::CLPXEncoding`], which makes available the ring `Z[X]/(p, F(X))` through the function `plaintext_ring()`.
+More concretely, `create_encoding()` will provide an object of type [`crate::clpx::encoding::CLPXEncoding`], which makes available the ring `Z[X]/(p, G(X))` through the function `plaintext_ring()`.
 Hence, we can use CLPX as follows:
 ```rust
 #![feature(allocator_api)]

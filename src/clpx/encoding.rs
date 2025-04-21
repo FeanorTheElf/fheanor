@@ -1,9 +1,11 @@
 use feanor_math::algorithms::eea::*;
+use feanor_math::algorithms::int_factor::factor;
 use feanor_math::algorithms::resultant::resultant_local;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::field::FieldStore;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::ordered::OrderedRingStore;
+use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::ring::*;
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
 use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
@@ -18,10 +20,11 @@ use feanor_math::rings::zn::*;
 use feanor_math::integer::*;
 use feanor_math::seq::sparse::SparseMapVector;
 use feanor_math::seq::VectorFn;
-use feanor_math::rings::zn::zn_64::Zn;
+use feanor_math::seq::VectorView;
 use feanor_math::seq::VectorViewMut;
 use crate::cyclotomic::{CyclotomicRing, CyclotomicRingStore};
 use crate::ciphertext_ring::BGFVCiphertextRing;
+use crate::euler_phi;
 use crate::log_time;
 
 const ZZi64: StaticRing<i64> = StaticRing::RING;
@@ -188,14 +191,14 @@ pub type IsomorphicRing = FreeAlgebraImpl<AsField<zn_big::Zn<BigIntRing>>, Spars
 ///
 /// Implements the isomorphism
 /// ```text
-///   Z[𝝵]/(p, t(𝝵^n2)) -> Fp[X]/(Phi_n2(X))
+///   Z[𝝵]/(p, t(𝝵^n2)) -> Fp[X]/(G(X))
 /// ```
-/// where `n = n1 * n2` for integers `n1`, `n2` and `p` is a prime
-/// that divides `N(t(𝝵^n2))` exactly once (where the norm here is the norm in
+/// where `n = n1 * n2` for integers `n1`, `n2` and `p` is a prime that 
+/// divides `N(t(𝝵^n2))` exactly once (where the norm here is the norm in
 /// the smaller field extension `Q[𝝵^n2]/Q`).
 /// 
-/// In this sense, this is the result of tensoring [`CLPXBaseEncoding`] (for `n = n1`)
-/// with `Z[X]/(Phi_n2(X))`.
+/// Furthermore, the polynomial `G(X)` is the minimal polynomial of `𝝵`
+/// over the field `Q[𝝵^n2]`.
 ///
 pub struct CLPXEncoding {
     n2: usize,
@@ -209,23 +212,42 @@ pub struct CLPXEncoding {
 impl CLPXEncoding {
 
     pub fn new<const LOG: bool>(n2: usize, encoding: CLPXBaseEncoding) -> Self {
-        // TODO: drop this constraint
-        assert_eq!(1, signed_gcd(encoding.n() as i64, n2 as i64, ZZi64));
         let sparse_ZZi64X = SparsePolyRing::new(ZZi64, "X");
-        let Phi_n2 = cyclotomic_polynomial(&sparse_ZZi64X, n2);
-        let mut X_pow_phi_n2_mod_Phi_n2 = SparseMapVector::new(sparse_ZZi64X.degree(&Phi_n2).unwrap(), encoding.Fp().clone());
-        for (c, i) in sparse_ZZi64X.terms(&Phi_n2) {
-            if i != sparse_ZZi64X.degree(&Phi_n2).unwrap() {
-                *X_pow_phi_n2_mod_Phi_n2.at_mut(i) = encoding.Fp().coerce(&ZZi64, -*c);
+        let n1 = encoding.n();
+        let FpX = DensePolyRing::new(encoding.Fp(), "X");
+        let G = log_time::<_, _, LOG, _>("Computing G(X)", |[]| {
+            // first, decompose `n2 = k1 * k2` with `k2` maximally coprime to `n2`, i.e. `k1 | n2^i` for some `i > 0`
+            let mut k2 = n2 as i64;
+            let mut k1 = 1;
+            let mut d = signed_gcd(k2, n1 as i64, StaticRing::<i64>::RING);
+            while d != 1 {
+                k2 /= d;
+                k1 *= d;
+                d = signed_gcd(k2, n1 as i64, StaticRing::<i64>::RING)
+            }
+            let Phi_k2 = cyclotomic_polynomial(&sparse_ZZi64X, k2 as usize);
+            // then we find that `G(X) = gcd(X^k2 - zeta, Phi_k2(X^n1))(X^k1)`
+            let tensor_part = FpX.normalize(FpX.ideal_gen(
+                &FpX.from_terms([(FpX.base_ring().negate(FpX.base_ring().clone_el(&encoding.zeta_im)), 0), (FpX.base_ring().one(), k2 as usize)]),
+                &FpX.evaluate(&FpX.coerce(&sparse_ZZi64X, Phi_k2), &FpX.from_terms([(FpX.base_ring().one(), n1)]), FpX.inclusion())
+            ));
+            debug_assert_eq!(euler_phi(&factor(StaticRing::<i64>::RING, k2)), FpX.degree(&tensor_part).unwrap() as i64);
+            FpX.from_terms(FpX.terms(&tensor_part).map(|(c, i)| (FpX.base_ring().clone_el(c), i * k1 as usize)))
+        });
+        FpX.println(&G);
+        let mut x_pow_rank = SparseMapVector::new(FpX.degree(&G).unwrap(), (*FpX.base_ring()).clone());
+        for (c, i) in FpX.terms(&G) {
+            if i < x_pow_rank.len() {
+                *x_pow_rank.at_mut(i) = FpX.base_ring().negate(FpX.base_ring().clone_el(c));
             }
         }
-        let plaintext_ring = FreeAlgebraImpl::new(encoding.Fp().clone(), sparse_ZZi64X.degree(&Phi_n2).unwrap(), X_pow_phi_n2_mod_Phi_n2);
+        let plaintext_ring = FreeAlgebraImpl::new((*FpX.base_ring()).clone(), FpX.degree(&G).unwrap(), x_pow_rank);
 
-        let Phi_n = encoding.ZZX().coerce(&sparse_ZZi64X, cyclotomic_polynomial(&sparse_ZZi64X, encoding.n() * n2));
-        let t = log_time::<_, _, LOG, _>("Compute tensor t ⊗ 1", |[]|
+        let Phi_n = encoding.ZZX().coerce(&sparse_ZZi64X, cyclotomic_polynomial(&sparse_ZZi64X, n1 * n2));
+        let t = log_time::<_, _, LOG, _>("Embedding t(𝝵^n2) into Z[𝝵]", |[]|
             encoding.ZZX().div_rem_monic(encoding.ZZX().from_terms(encoding.ZZi64X.terms(&encoding.t).map(|(c, i)| (int_cast(*c, ZZbig, ZZi64), i * n2))), &Phi_n).1
         );
-        let normt_t_inv = log_time::<_, _, LOG, _>("Compute t^-1 ⊗ 1", |[]|
+        let normt_t_inv = log_time::<_, _, LOG, _>("Compute t(𝝵^n2)^-1 into Z[𝝵]", |[]|
             encoding.ZZX().div_rem_monic(encoding.ZZX().from_terms(encoding.ZZX().terms(&encoding.normt_t_inv).map(|(c, i)| (ZZbig.clone_el(c), i * n2))), &Phi_n).1
         );
         Self {
@@ -277,42 +299,22 @@ impl CLPXEncoding {
     /// ```
     /// 
     pub fn map(&self, f: &El<DensePolyRing<BigIntRing>>) -> El<IsomorphicRing> {
-        if self.n2() == 1 {
-            return self.plaintext_ring().from_canonical_basis([self.base_encoding().map(f)]);
+        if self.ZZX().is_zero(f) {
+            return self.plaintext_ring.zero();
         }
-        // the idea is to decompose the input as a sum of tensor products `𝝵_n2^i ⊗ ai(𝝵_n1)` and evaluate
-        // the base encoding on each `ai(𝝵_n1)`; the point is that `t(𝝵^n2) = 1 ⊗ t(𝝵_n1)`
-        let Zn1 = Zn::new(self.n1() as u64);
-        let n2_inv = Zn1.invert(&Zn1.coerce(&ZZi64, self.n2() as i64)).unwrap();
-        let Zn2 = Zn::new(self.n2() as u64);
-        let n1_inv = Zn2.invert(&Zn2.coerce(&ZZi64, self.n1() as i64)).unwrap();
-        let phi_n = self.ZZX().degree(&self.Phi_n).unwrap();
-        let mut decoded_tensor = Vec::new();
-        decoded_tensor.resize_with(self.n2(), || self.ZZX().zero());
-        for (c, idx) in self.ZZX().terms(f) {
-            let i = Zn2.smallest_positive_lift(Zn2.mul(Zn2.coerce(&ZZi64, idx as i64), n1_inv)) as usize;
-            let j = Zn1.smallest_positive_lift(Zn1.mul(Zn1.coerce(&ZZi64, idx as i64), n2_inv)) as usize;
-            debug_assert!(i * self.n1() + j * self.n2() >= phi_n || i * self.n1() + j * self.n2() == idx);
-            self.ZZX().add_assign(&mut decoded_tensor[i], self.ZZX().from_terms([(ZZbig.clone_el(c), j)]));
-        }
-        return self.plaintext_ring().sum(decoded_tensor.into_iter().scan(self.plaintext_ring.one(), |current_gen_power, f| {
-            let result = self.plaintext_ring().inclusion().mul_ref_map(current_gen_power, &self.encoding.map(&f));
-            self.plaintext_ring().mul_assign(current_gen_power, self.plaintext_ring().canonical_gen());
-            return Some(result);
-        }));
+        let mod_p = self.plaintext_ring.base_ring().can_hom(&ZZbig).unwrap();
+        self.plaintext_ring.from_canonical_basis_extended((0..=self.ZZX().degree(f).unwrap()).map(|i| mod_p.map_ref(self.ZZX().coefficient_at(f, i))))
     }
 
     ///
     /// Finds a small preimage under the map `Z[X] -> Z[𝝵]/(p, t(𝝵^n2)) -> Fp[X]/(Phi_n2(X))`
     /// 
     pub fn small_preimage(&self, x: &El<IsomorphicRing>) -> El<DensePolyRing<BigIntRing>> {
-        // again, the idea is to note that the `i`-th input coefficient relates to the basis vectors
-        // `𝝵_n2^i ⊗ 𝝵_n1^j` for all the `j`; thus we can take a small preimage of each coefficient
-        // separately; this works because `t(𝝵^n2) = 1 ⊗ t(𝝵_n1)`
+        // since X -> X, we can operate on every coefficient separately
         let result = self.ZZX().from_terms(self.plaintext_ring().wrt_canonical_basis(&x).iter().enumerate().flat_map(|(i, c)|
             self.ZZX().terms(&self.encoding.small_preimage(c)).map(move |(c, j)| (
                 ZZbig.clone_el(c),
-                (i * self.n1() + j * self.n2()) % self.n()
+                i + j * self.n2()
             )).collect::<Vec<_>>()
         ));
         return self.ZZX().div_rem_monic(result, &self.Phi_n).1;
@@ -330,7 +332,7 @@ impl CLPXEncoding {
             C::Type: BGFVCiphertextRing + CyclotomicRing
     {
         assert_eq!(self.n(), ciphertext_ring.n() as usize);
-        let x_lift = self.ZZX().from_terms(self.plaintext_ring().wrt_canonical_basis(x).iter().enumerate().map(|(i, c)| (self.plaintext_ring().base_ring().smallest_lift(c), i * self.n1())));
+        let x_lift = self.ZZX().from_terms(self.plaintext_ring().wrt_canonical_basis(x).iter().enumerate().map(|(i, c)| (self.plaintext_ring().base_ring().smallest_lift(c), i)));
         let ZQ = ciphertext_ring.base_ring();
         let mod_Q = ZQ.can_hom(&ZZbig).unwrap();
         let normt_x_lift_over_t = self.ZZX().div_rem_monic(self.ZZX().mul_ref_snd(x_lift, &self.normt_t_inv), &self.Phi_n).1;
@@ -471,6 +473,43 @@ fn test_clpx_encoding_map() {
         P.pow(P.canonical_gen(), rank - 1),
         P.int_hom().mul_map(P.pow(P.canonical_gen(), rank - 1), 363),
     ];
+    for a in &elements {
+        for b in &elements {
+            assert_el_eq!(P, P.mul_ref(a, b), encoding.map(&ZZX.mul(encoding.small_preimage(a), encoding.small_preimage(b))));
+        }
+    }
+    for a in &elements {
+        assert!(ZZX.terms(&encoding.small_preimage(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 3));
+    }
+}
+
+#[test]
+fn test_clpx_encoding_not_coprime_map() {
+    let ZZX = DensePolyRing::new(ZZi64, "X");
+    let [t] = ZZX.with_wrapped_indeterminate(|X| [X - 2]);
+    let n1 = 10;
+    let n2 = 15;
+    let base_encoding = CLPXBaseEncoding::new::<false>(n1, ZZX.clone(), t, ZZbig.int_hom().map(11));
+    let encoding = CLPXEncoding::new::<false>(n2, base_encoding);
+    let P = encoding.plaintext_ring();
+    let ZZX = encoding.ZZX();
+    let rank = encoding.plaintext_ring().rank();
+    assert_eq!(10, rank);
+    let elements = [
+        P.zero(),
+        P.one(),
+        P.int_hom().map(5),
+        P.canonical_gen(),
+        P.int_hom().mul_map(P.canonical_gen(), 5),
+        P.add(P.canonical_gen(), P.one()),
+        P.pow(P.canonical_gen(), rank - 1),
+        P.int_hom().mul_map(P.pow(P.canonical_gen(), rank - 1), 5),
+    ];
+    assert_el_eq!(P, P.one(), P.pow(encoding.map(&ZZX.indeterminate()), 150));
+    assert_el_eq!(P, P.inclusion().map_ref(&encoding.base_encoding().zeta_im), P.pow(encoding.map(&ZZX.indeterminate()), 15));
+    assert!(!P.is_one(&P.pow(encoding.map(&ZZX.indeterminate()), 50)));
+    assert!(!P.is_one(&P.pow(encoding.map(&ZZX.indeterminate()), 75)));
+    assert!(!P.is_one(&P.pow(encoding.map(&ZZX.indeterminate()), 30)));
     for a in &elements {
         for b in &elements {
             assert_el_eq!(P, P.mul_ref(a, b), encoding.map(&ZZX.mul(encoding.small_preimage(a), encoding.small_preimage(b))));
