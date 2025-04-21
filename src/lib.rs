@@ -245,4 +245,6 @@ pub mod examples {
     pub mod bfv_impl_v1 {}
     #[doc = include_str!("../examples/bfv_impl_v2/Readme.md")]
     pub mod bfv_impl_v2 {}
+    #[doc = include_str!("../examples/clpx_basics/Readme.md")]
+    pub mod clpx_basics {}
 }
