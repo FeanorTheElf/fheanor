@@ -184,14 +184,14 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluatorGal<R, S, 
 /// 
 pub trait Possibly {
     type T;
-    const IS_PRESENT: bool;
-
-    fn get_mut(&mut self) -> &mut Self::T
-        where Self: Possibly<IS_PRESENT = true>;
-    fn get(&self) -> &Self::T
-        where Self: Possibly<IS_PRESENT = true>;
     fn get_mut_option(&mut self) -> Option<&mut Self::T>;
     fn get_option(&self) -> Option<&Self::T>;
+}
+
+pub trait PossiblyIsPresent: Possibly {
+    
+    fn get_mut(&mut self) -> &mut Self::T;
+    fn get(&self) -> &Self::T;
 }
 
 pub struct Present<T> {
@@ -200,19 +200,22 @@ pub struct Present<T> {
 
 impl<T> Possibly for Present<T> {
     type T = T;
-    const IS_PRESENT: bool = true;
 
-    fn get_mut(&mut self) -> &mut Self::T {
-        &mut self.t
-    }
-    fn get(&self) -> &Self::T {
-        &self.t
-    }
     fn get_mut_option(&mut self) -> Option<&mut Self::T> {
         Some(self.get_mut())
     }
     fn get_option(&self) -> Option<&Self::T> {
         Some(self.get())
+    }
+}
+
+impl<T> PossiblyIsPresent for Present<T> {
+    
+    fn get_mut(&mut self) -> &mut Self::T {
+        &mut self.t
+    }
+    fn get(&self) -> &Self::T {
+        &self.t
     }
 }
 
@@ -222,18 +225,7 @@ pub struct Absent<T> {
 
 impl<T> Possibly for Absent<T> {
     type T = T;
-    const IS_PRESENT: bool = false;
 
-    fn get_mut(&mut self) -> &mut Self::T
-        where Self: Possibly<IS_PRESENT = true>
-    {
-        unreachable!()
-    }
-    fn get(&self) -> &Self::T
-        where Self: Possibly<IS_PRESENT = true>
-    {
-        unreachable!()
-    }
     fn get_mut_option(&mut self) -> Option<&mut Self::T> {
         None
     }
@@ -290,8 +282,8 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnGal, Fn
         R: 'a,
         T: 'a
 {
-    fn supports_gal(&self) -> bool { <FnGal as Possibly>::IS_PRESENT }
-    fn supports_mul(&self) -> bool { <FnMul as Possibly>::IS_PRESENT }
+    fn supports_gal(&self) -> bool { self.gal.get_option().is_some() }
+    fn supports_mul(&self) -> bool { self.mul.get_option().is_some() }
 
     fn add_inner_prod(&mut self, dst: T, lhs: &'a [Coefficient<R>], rhs: &[T]) -> T {
         assert_eq!(lhs.len(), rhs.len());

@@ -10,7 +10,6 @@
 #![feature(min_specialization)]
 #![feature(array_chunks)]
 #![feature(mapped_lock_guards)]
-#![feature(associated_const_equality)]
 
 #![allow(non_snake_case)]
 #![allow(type_alias_bounds)]
