@@ -72,8 +72,8 @@ I did not have practical considerations (like side-channel resistance) in mind, 
 
 Please use the following bibtex entry to cite Fheanor:
 ```text
-@misc{hering,
-    title = {{Fheanor}},
+@misc{fheanor,
+    title = {{Fheanor}, a new, modular FHE library for designing and optimising schemes: General cyclotomics, RNS representations, BFV/BGV bootstrapping, and more},
     url = {https://github.com/FeanorTheElf/fheanor},
     author = {Hiroki Okada and Rachel Player and Simon Pohmann},
     year = {2025}

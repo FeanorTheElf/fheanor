@@ -277,6 +277,9 @@ impl CLPXEncoding {
     /// ```
     /// 
     pub fn map(&self, f: &El<DensePolyRing<BigIntRing>>) -> El<IsomorphicRing> {
+        if self.n2() == 1 {
+            return self.plaintext_ring().from_canonical_basis([self.base_encoding().map(f)]);
+        }
         // the idea is to decompose the input as a sum of tensor products `𝝵_n2^i ⊗ ai(𝝵_n1)` and evaluate
         // the base encoding on each `ai(𝝵_n1)`; the point is that `t(𝝵^n2) = 1 ⊗ t(𝝵_n1)`
         let Zn1 = Zn::new(self.n1() as u64);

@@ -459,7 +459,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
 
 #[ignore]
 #[test]
-fn test_bootstrap_large() {
+fn measure_time_bootstrap() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
     tracing_subscriber::registry().with(filtered_chrome_layer).init();
@@ -468,7 +468,7 @@ fn test_bootstrap_large() {
 
     let t = 4;
     let v = 7;
-    let hwt = 256;
+    let hwt = Some(256);
     let params = CompositeBGV {
         log2_q_min: 805,
         log2_q_max: 820,
@@ -488,7 +488,7 @@ fn test_bootstrap_large() {
 
     let bootstrapper = bootstrap_params.build_odd::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
-    let sk = CompositeBGV::gen_sk(&C_master, &mut rng, Some(hwt));
+    let sk = CompositeBGV::gen_sk(&C_master, &mut rng, hwt);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
     let rk = CompositeBGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
@@ -501,7 +501,7 @@ fn test_bootstrap_large() {
         ct, 
         &rk, 
         &gk,
-        Some(hwt),
+        hwt,
         None // Some(&sk)
     );
     let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);

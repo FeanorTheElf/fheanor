@@ -188,14 +188,7 @@ impl<A> RNSOperation for AlmostExactBaseConversion<A>
         // for every input element `x` and output rns base component `q'`
         for k in 0..out_ordered.row_count() {
             let no_red_steps = (0..in_len).take_while(|i| ZZi64.is_gt(self.to_summands_ordered.at(k).modulus(), self.from_summands_ordered.at(*i).modulus())).count();
-            // will we make use of the fact that for `q' >= q`, we don't have to explicitly reduce `lift(x * q/Q mod q)` modulo `q'`?
-            if cfg!(feature = "force_rns_conversion_full_reduction") {
-                for j in 0..col_count {
-                    *out_ordered.at_mut(k, j) = <_ as ComputeInnerProduct>::inner_product_ref_fst(self.to_summands_ordered.at(k).get_ring(), (0..in_len).map(|i| {
-                        (self.Q_over_q.at(i + in_len * k), i64_to_homs[k].map_ref(lifts.at(i, j)))
-                    }));
-                }
-            } else if no_red_steps == in_len {
+            if no_red_steps == in_len {
                 for j in 0..col_count {
                     *out_ordered.at_mut(k, j) = <_ as ComputeInnerProduct>::inner_product_ref_fst(self.to_summands_ordered.at(k).get_ring(), (0..no_red_steps).map(|i| {
                         (self.Q_over_q.at(i + in_len * k), self.to_summands_ordered.at(k).get_ring().from_int_promise_reduced(*lifts.at(i, j)))

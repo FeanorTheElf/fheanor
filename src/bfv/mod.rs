@@ -824,6 +824,13 @@ pub struct CompositeBFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAl
     pub ciphertext_allocator: A
 }
 
+impl<A: Allocator + Clone + Send + Sync> Display for CompositeBFV<A> {
+
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BFV(n = {} * {}, log2(q) in {}..{})", self.n1, self.n2, self.log2_q_min, self.log2_q_max)
+    }
+}
+
 impl<A: Allocator + Clone + Send + Sync> BFVCiphertextParams for CompositeBFV<A> {
 
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
@@ -896,6 +903,13 @@ pub struct CompositeSingleRNSBFV<A: Allocator + Clone + Send + Sync = DefaultCip
     pub n2: usize,
     pub ciphertext_allocator: A,
     pub convolution: PhantomData<C>
+}
+
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>> Display for CompositeSingleRNSBFV<A, C> {
+
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BFV(n = {} * {}, log2(q) in {}..{})", self.n1, self.n2, self.log2_q_min, self.log2_q_max)
+    }
 }
 
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>> BFVCiphertextParams for CompositeSingleRNSBFV<A, C> {

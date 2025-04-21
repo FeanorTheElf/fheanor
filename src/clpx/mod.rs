@@ -21,13 +21,15 @@ use tracing::instrument;
 
 use crate::ciphertext_ring::{perform_rns_op, BGFVCiphertextRing};
 use crate::number_ring::*;
+use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::cyclotomic::*;
 use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::ciphertext_ring::double_rns_managed::*;
+use crate::ntt::HERingNegacyclicNTT;
 use crate::number_ring::odd_cyclotomic::*;
 use crate::rnsconv::bfv_rescale::AlmostExactRescalingConvert;
 use crate::rnsconv::shared_lift::AlmostExactSharedBaseConversion;
-use crate::DefaultCiphertextAllocator;
+use crate::bfv::{Pow2BFV, CompositeBFV};
 use encoding::*;
 
 use rand::{Rng, CryptoRng};
@@ -313,16 +315,49 @@ pub trait CLPXCiphertextParams {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct CompositeCLPX<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator> {
-    pub log2_q_min: usize,
-    pub log2_q_max: usize,
-    pub n1: usize,
-    pub n2: usize,
-    pub ciphertext_allocator: A
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> CLPXCiphertextParams for Pow2BFV<A, C> {
+
+    type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
+
+    fn number_ring(&self) -> NumberRing<Self> {
+        Pow2CyclotomicNumberRing::new_with(2 << self.log2_N)
+    }
+
+    fn ciphertext_modulus_bits(&self) -> Range<usize> {
+        assert!(self.log2_q_min < self.log2_q_max);
+        self.log2_q_min..self.log2_q_max
+    }
+
+    #[instrument(skip_all)]
+    fn create_ciphertext_rings(&self) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
+        let log2_q = self.ciphertext_modulus_bits();
+        let number_ring = self.number_ring();
+        let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
+
+        let mut C_rns_base = sample_primes(log2_q.start, log2_q.end, 56, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
+        C_rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
+
+        let mut Cmul_rns_base = extend_sampled_primes(&C_rns_base, log2_q.end * 2 + 10, log2_q.end * 2 + 67, 57, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
+        assert!(ZZbig.is_gt(&Cmul_rns_base[Cmul_rns_base.len() - 1], &C_rns_base[C_rns_base.len() - 1]));
+        Cmul_rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
+
+        let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
+        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
+
+        let Cmul = ManagedDoubleRNSRingBase::new_with(
+            number_ring,
+            Cmul_rns_base,
+            self.ciphertext_allocator.clone()
+        );
+
+        let dropped_indices = (0..Cmul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != Cmul.base_ring().at(*i).get_ring())).collect::<Vec<_>>();
+        let C = RingValue::from(Cmul.get_ring().drop_rns_factor(&dropped_indices));
+        debug_assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
+        return (C, Cmul);
+    }
 }
 
-impl<A: Allocator + Clone + Send + Sync> CLPXCiphertextParams for CompositeCLPX<A> {
+impl<A: Allocator + Clone + Send + Sync> CLPXCiphertextParams for CompositeBFV<A> {
 
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
     
@@ -368,13 +403,17 @@ use feanor_math::assert_el_eq;
 use crate::log_time;
 #[cfg(test)]
 use rand::thread_rng;
+#[cfg(test)]
+use std::marker::PhantomData;
+#[cfg(test)]
+use crate::DefaultNegacyclicNTT;
 
 #[test]
-fn test_clpx_hom_mul() {
+fn test_composite_clpx_mul() {
     let mut rng = thread_rng();
     let ZZi64X = DensePolyRing::new(ZZi64, "X");
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X - 2]);
-    let params = CompositeCLPX {
+    let params = CompositeBFV {
         log2_q_min: 400,
         log2_q_max: 420,
         n1: 17,
@@ -386,19 +425,19 @@ fn test_clpx_hom_mul() {
     let P = params.create_encoding::<false>(params.n1, ZZi64X.clone(), t, p);
     let (C, C_mul) = params.create_ciphertext_rings();
 
-    let sk = CompositeCLPX::gen_sk(&C, &mut rng, None);
+    let sk = CompositeBFV::gen_sk(&C, &mut rng, None);
     let m = P.plaintext_ring().int_hom().map(2);
-    let ct = CompositeCLPX::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let ct = CompositeBFV::enc_sym(&P, &C, &mut rng, &m, &sk);
 
-    assert_el_eq!(P.plaintext_ring(), &m, &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &ct), &sk));
+    assert_el_eq!(P.plaintext_ring(), &m, &CompositeBFV::dec(&P, &C, CompositeBFV::clone_ct(&C, &ct), &sk));
 
-    let rk = CompositeCLPX::gen_rk(&C, &mut rng, &sk, 3);
-    let sqr_ct = CompositeCLPX::hom_square(&P, &C, &C_mul, ct, &rk);
+    let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, 3);
+    let sqr_ct = CompositeBFV::hom_square(&P, &C, &C_mul, ct, &rk);
     
-    assert_el_eq!(P.plaintext_ring(), P.plaintext_ring().int_hom().map(4), &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &sqr_ct), &sk));
+    assert_el_eq!(P.plaintext_ring(), P.plaintext_ring().int_hom().map(4), &CompositeBFV::dec(&P, &C, CompositeBFV::clone_ct(&C, &sqr_ct), &sk));
 
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
-    let params = CompositeCLPX {
+    let params = CompositeBFV {
         log2_q_min: 400,
         log2_q_max: 420,
         n1: 17,
@@ -411,25 +450,55 @@ fn test_clpx_hom_mul() {
     let P = params.create_encoding::<false>(params.n1, ZZi64X, t, p);
     let (C, C_mul) = params.create_ciphertext_rings();
 
-    let sk = CompositeCLPX::gen_sk(&C, &mut rng, None);
+    let sk = CompositeBFV::gen_sk(&C, &mut rng, None);
     let m = P.plaintext_ring().int_hom().map(210);
-    let ct = CompositeCLPX::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let ct = CompositeBFV::enc_sym(&P, &C, &mut rng, &m, &sk);
 
-    assert_el_eq!(P.plaintext_ring(), &m, &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &ct), &sk));
+    assert_el_eq!(P.plaintext_ring(), &m, &CompositeBFV::dec(&P, &C, CompositeBFV::clone_ct(&C, &ct), &sk));
 
-    let rk = CompositeCLPX::gen_rk(&C, &mut rng, &sk, 3);
-    let sqr_ct = CompositeCLPX::hom_square(&P, &C, &C_mul, ct, &rk);
+    let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, 3);
+    let sqr_ct = CompositeBFV::hom_square(&P, &C, &C_mul, ct, &rk);
     
-    assert_el_eq!(P.plaintext_ring(), P.plaintext_ring().int_hom().map(409), &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &sqr_ct), &sk));
+    assert_el_eq!(P.plaintext_ring(), P.plaintext_ring().int_hom().map(409), &CompositeBFV::dec(&P, &C, CompositeBFV::clone_ct(&C, &sqr_ct), &sk));
+}
+
+
+#[test]
+fn test_pow2_clpx_mul() {
+    let mut rng = thread_rng();
+    let ZZi64X = DensePolyRing::new(ZZi64, "X");
+    let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(3) - 2]);
+    let params = Pow2BFV {
+        log2_q_min: 400,
+        log2_q_max: 420,
+        log2_N: 7,
+        ciphertext_allocator: Global,
+        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
+    };
+    let p = int_cast(5704689200685129054721, ZZbig, StaticRing::<i128>::RING);
+
+    let P = params.create_encoding::<false>(2 << params.log2_N, ZZi64X.clone(), t, p);
+    let (C, C_mul) = params.create_ciphertext_rings();
+
+    let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+    let m1 = P.plaintext_ring().inclusion().map(P.plaintext_ring().base_ring().coerce(&ZZbig, ZZbig.power_of_two(35)));
+    let ct1 = Pow2BFV::enc_sym(&P, &C, &mut rng, &m1, &sk);
+    let m2 = P.plaintext_ring().inclusion().map(P.plaintext_ring().base_ring().coerce(&ZZbig, ZZbig.power_of_two(36)));
+    let ct2 = Pow2BFV::enc_sym(&P, &C, &mut rng, &m2, &sk);
+
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, 3);
+    let ct_res = Pow2BFV::hom_mul(&P, &C, &C_mul, ct1, ct2, &rk);
+    let res = Pow2BFV::dec(&P, &C, Pow2BFV::clone_ct(&C, &ct_res), &sk);
+    assert_el_eq!(ZZbig, ZZbig.power_of_two(71), &P.plaintext_ring().base_ring().smallest_positive_lift(P.plaintext_ring().wrt_canonical_basis(&res).at(0)));
 }
 
 #[test]
 #[ignore]
-fn print_timings_clpx() {
+fn measure_time_composite_clpx() {
     let mut rng = thread_rng();
     let ZZi64X = DensePolyRing::new(ZZi64, "X");
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
-    let params = CompositeCLPX {
+    let params = CompositeBFV {
         log2_q_min: 790,
         log2_q_max: 800,
         n1: 127,
@@ -448,34 +517,34 @@ fn print_timings_clpx() {
     );
 
     let sk = log_time::<_, _, true, _>("GenSK", |[]| 
-        CompositeCLPX::gen_sk(&C, &mut rng, None)
+        CompositeBFV::gen_sk(&C, &mut rng, None)
     );
 
     let m = int_to_P.map(1 << 63);
     let ct = log_time::<_, _, true, _>("EncSym", |[]|
-        CompositeCLPX::enc_sym(&P, &C, &mut rng, &m, &sk)
+        CompositeBFV::enc_sym(&P, &C, &mut rng, &m, &sk)
     );
 
     let res = log_time::<_, _, true, _>("HomAddPlain", |[]| 
-        CompositeCLPX::hom_add_plain(&P, &C, &m, CompositeCLPX::clone_ct(&C, &ct))
+        CompositeBFV::hom_add_plain(&P, &C, &m, CompositeBFV::clone_ct(&C, &ct))
     );
-    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 64), &CompositeCLPX::dec(&P, &C, res, &sk));
+    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 64), &CompositeBFV::dec(&P, &C, res, &sk));
 
     let res = log_time::<_, _, true, _>("HomAdd", |[]| 
-        CompositeCLPX::hom_add(&C, CompositeCLPX::clone_ct(&C, &ct), &ct)
+        CompositeBFV::hom_add(&C, CompositeBFV::clone_ct(&C, &ct), &ct)
     );
-    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 64), &CompositeCLPX::dec(&P, &C, res, &sk));
+    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 64), &CompositeBFV::dec(&P, &C, res, &sk));
 
     let res = log_time::<_, _, true, _>("HomMulPlain", |[]| 
-        CompositeCLPX::hom_mul_plain(&P, &C, &m, CompositeCLPX::clone_ct(&C, &ct))
+        CompositeBFV::hom_mul_plain(&P, &C, &m, CompositeBFV::clone_ct(&C, &ct))
     );
-    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 126), &CompositeCLPX::dec(&P, &C, res, &sk));
+    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 126), &CompositeBFV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        CompositeCLPX::gen_rk(&C, &mut rng, &sk, digits)
+        CompositeBFV::gen_rk(&C, &mut rng, &sk, digits)
     );
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
-        CompositeCLPX::hom_mul(&P, &C, &C_mul, CompositeCLPX::clone_ct(&C, &ct), CompositeCLPX::clone_ct(&C, &ct), &rk)
+        CompositeBFV::hom_mul(&P, &C, &C_mul, CompositeBFV::clone_ct(&C, &ct), CompositeBFV::clone_ct(&C, &ct), &rk)
     );
-    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 126), &CompositeCLPX::dec(&P, &C, res, &sk));
+    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 126), &CompositeBFV::dec(&P, &C, res, &sk));
 }
