@@ -2,6 +2,9 @@
 
 ## A toolkit library to build Homomorphic Encryption
 
+> [!NOTE]
+> This library was previously called HE-Ring.
+
 Building on [feanor-math](https://crates.io/crates/feanor-math), this library provides efficient implementations of various building blocks for Homomorphic Encryption (HE).
 The focus is on implementations of the ring `R_q = Z[X]/(Phi_n(X), q)` as required for second-generation HE schemes (like BGV, BFV), but also contains many other components and schemes.
 
