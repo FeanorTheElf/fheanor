@@ -3,3 +3,6 @@
 trace-*.json
 perf.data
 perf.data.*
+hypercube_*.json
+coeffs_to_slots_*.json
+slots_to_coeffs_*.json
