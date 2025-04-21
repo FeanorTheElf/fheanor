@@ -1,10 +1,10 @@
 [package]
-name = "he-ring"
+name = "fheanor"
 version = "0.6.0"
 edition = "2021"
 
-repository = "https://github.com/FeanorTheElf/he-ring"
-homepage = "https://github.com/FeanorTheElf/he-ring"
+repository = "https://github.com/FeanorTheElf/fheanor"
+homepage = "https://github.com/FeanorTheElf/he-fheanor"
 keywords = ["cryptography", "encryption", "fhe", "homomorphic"]
 readme = "Readme.md"
 description = "A library that provides fast implementations of rings commonly used in homomorphic encryption, built on feanor-math."

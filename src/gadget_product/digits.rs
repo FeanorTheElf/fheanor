@@ -14,7 +14,7 @@ use feanor_math::seq::VectorFn;
 /// ```
 /// for a list of digits `digits` and `p0, ..., p(rns_len - 1)` being the RNS factors.
 /// 
-/// This trait (and many other components in HE-Ring) currently do not support
+/// This trait (and many other components in Fheanor) currently do not support
 /// digits that are not a contiguous range of indices. More concretely, it would make
 /// sense to decompose `0..6` into digits as `{0, 2, 3}, {1, 4, 5}`, but this is not
 /// supported. The reason is that this allows us to take slices of data corresponding
@@ -24,7 +24,7 @@ use feanor_math::seq::VectorFn;
 /// # Example
 /// ```
 /// # use feanor_math::seq::*;
-/// # use he_ring::gadget_product::digits::*;
+/// # use fheanor::gadget_product::digits::*;
 /// let digits = RNSGadgetVectorDigitIndices::from([3..7, 0..3, 7..10].clone_els());
 /// assert_eq!(3, digits.len());
 /// 
@@ -99,7 +99,7 @@ impl RNSGadgetVectorDigitIndices {
     /// # Example
     /// ```
     /// # use feanor_math::seq::*;
-    /// # use he_ring::gadget_product::digits::*;
+    /// # use fheanor::gadget_product::digits::*;
     /// let digits = RNSGadgetVectorDigitIndices::select_digits(3, 10);
     /// assert_eq!(3, digits.len());
     /// assert_eq!(0..4, digits.at(0));
@@ -132,7 +132,7 @@ impl RNSGadgetVectorDigitIndices {
     /// # Example
     /// ```
     /// # use feanor_math::seq::*;
-    /// # use he_ring::gadget_product::digits::*;
+    /// # use fheanor::gadget_product::digits::*;
     /// let original_digits = RNSGadgetVectorDigitIndices::from([0..3, 3..5, 5..7].clone_els());
     /// let digits = original_digits.remove_indices(RNSFactorIndexList::from_ref(&[1, 2, 5], 7));
     /// assert_eq!(3, digits.len());
@@ -143,7 +143,7 @@ impl RNSGadgetVectorDigitIndices {
     /// If all indices from a given digit are removed, the whole digit is removed.
     /// ```
     /// # use feanor_math::seq::*;
-    /// # use he_ring::gadget_product::digits::*;
+    /// # use fheanor::gadget_product::digits::*;
     /// let original_digits = RNSGadgetVectorDigitIndices::from([0..3, 3..5, 5..7].clone_els());
     /// let digits = original_digits.remove_indices(RNSFactorIndexList::from_ref(&[0, 1, 2, 5], 7));
     /// assert_eq!(2, digits.len());
@@ -284,7 +284,7 @@ impl RNSFactorIndexList {
     /// 
     /// # Example
     /// ```
-    /// # use he_ring::gadget_product::digits::*;
+    /// # use fheanor::gadget_product::digits::*;
     /// assert_eq!(1, RNSFactorIndexList::from_ref(&[2, 5], 8).num_within(&(0..5)));
     /// ```
     /// 
@@ -319,7 +319,7 @@ impl RNSFactorIndexList {
     /// 
     /// # Example
     /// ```
-    /// # use he_ring::gadget_product::digits::*;
+    /// # use fheanor::gadget_product::digits::*;
     /// assert_eq!(&[1usize, 3, 5][..], &RNSFactorIndexList::from_ref(&[1, 2, 4, 5, 7], 8).pushforward(RNSFactorIndexList::from_ref(&[2, 5], 8)) as &[usize])
     /// ```
     /// 
@@ -361,7 +361,7 @@ impl RNSFactorIndexList {
     /// 
     /// # Example
     /// ```
-    /// # use he_ring::gadget_product::digits::*;
+    /// # use fheanor::gadget_product::digits::*;
     /// assert_eq!(&[1, 2, 3, 5, 6][..], &RNSFactorIndexList::from_ref(&[1, 2, 4], 6).pullback(RNSFactorIndexList::from_ref(&[2, 5], 8)) as &[usize])
     /// ```
     /// 

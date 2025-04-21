@@ -22,8 +22,8 @@ use super::Coefficient;
 /// or [`HomEvaluatorGal`]. Otherwise, you can build a custom evaluator
 /// using [`DefaultCircuitEvaluator`], for example as follows:
 /// ```
-/// # use he_ring::circuit::*;
-/// # use he_ring::circuit::evaluator::*;
+/// # use fheanor::circuit::*;
+/// # use fheanor::circuit::evaluator::*;
 /// # use feanor_math::ring::*;
 /// # use feanor_math::primitive_int::*;
 /// let ring = StaticRing::<i64>::RING;

@@ -1,6 +1,6 @@
-# Implementing BFV using HE-Ring, version 1
+# Implementing BFV using Fheanor, version 1
 
-HE-Ring is designed to facilitate the implementation of new, or variants of known HE schemes. To demonstrate which features come in useful in this case, this example walks you through a simple implementation of the BFV scheme.
+Fheanor is designed to facilitate the implementation of new, or variants of known HE schemes. To demonstrate which features come in useful in this case, this example walks you through a simple implementation of the BFV scheme.
 In this first example, we will not optimize for performance, we defer this to the follow-up [`crate::examples::bfv_impl_v2`].
 If you are just interested in how to use BFV, have a look at [`crate::examples::bfv_basics`].
 
@@ -29,7 +29,7 @@ With these parameters, the scheme can be described as follows:
 Before we come to implementing the first operations, let's discuss how we represent the involved rings.
 In particular, we will have to perform arithmetic operations in `R_t` and in `R_q`.
 
-Fortunately, there are already various ring implementations available, in both `feanor-math` and `he-ring`.
+Fortunately, there are already various ring implementations available, in both `feanor-math` and `fheanor`.
 For `R_t`, we have the following options:
  - Use [`feanor_math::rings::extension::extension_impl::FreeAlgebraImpl`], this is a general implementation of ring extensions of the form `BaseRing[X]/(f(X))`. By choosing `BaseRing` to be `Z/(t)` and `f(X) = Phi_n(X)`, we get the desired ring.
  - Use [`crate::number_ring::quotient::NumberRingQuotient`], which is an implementation of `R/(t)` for any integer `t` and ring `R` that is represented abstractly using [`crate::number_ring::HENumberRing`].
@@ -50,9 +50,9 @@ Based on this, we can create type aliases for our ring types.
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 type NumberRing = Pow2CyclotomicNumberRing;
 type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 type CiphertextRing = NumberRingQuotient<NumberRing, zn_big::Zn<BigIntRing>>;
@@ -69,9 +69,9 @@ There is only a small quirk - caused by how `feanor-math` always wraps rings in 
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 # type CiphertextRing = NumberRingQuotient<NumberRing, zn_big::Zn<BigIntRing>>;
@@ -102,9 +102,9 @@ Using this, we can generate an element of `R_q` with ternary coefficients very e
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # use feanor_math::homomorphism::*;
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
@@ -147,9 +147,9 @@ For this, we use `can_hom()` to get the "canonical homomorphism" `Z -> Z/(q)` an
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # use feanor_math::homomorphism::*;
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
@@ -218,9 +218,9 @@ It does not require any new techniques.
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # use feanor_math::homomorphism::*;
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
@@ -298,9 +298,9 @@ We can then test this code, but note that these parameters are not secure in pra
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # use feanor_math::homomorphism::*;
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
@@ -382,9 +382,9 @@ First of all, implementing addition of ciphertexts is absolutely trivial.
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # use feanor_math::homomorphism::*;
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
@@ -418,10 +418,10 @@ In the power-of-two case that we are currently working in, this is just `X^(n/2)
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::cyclotomic::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::cyclotomic::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # use feanor_math::homomorphism::*;
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
@@ -481,10 +481,10 @@ We do this by using the formula `round( t (c0 + c1 * sk + c2 * sk^2) / q )` to d
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::cyclotomic::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::cyclotomic::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # use feanor_math::homomorphism::*;
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
@@ -604,10 +604,10 @@ This leads us to the following code.
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::cyclotomic::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::cyclotomic::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # use feanor_math::homomorphism::*;
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
@@ -640,10 +640,10 @@ Putting it all together, we get the following.
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::cyclotomic::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::cyclotomic::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # use feanor_math::homomorphism::*;
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
@@ -797,10 +797,10 @@ Finally, let's test that decrypting the result of a homomorphic multiplication w
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::cyclotomic::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::cyclotomic::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::number_ring::quotient::*;
 # use feanor_math::homomorphism::*;
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;

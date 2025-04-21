@@ -19,7 +19,7 @@ use serde::Deserializer;
 /// 
 /// The function `deserializer()` in
 /// ```
-/// # use he_ring::impl_deserialize_seed_for_dependent_struct;
+/// # use fheanor::impl_deserialize_seed_for_dependent_struct;
 /// # use serde::*;
 /// # use std::marker::PhantomData;
 /// struct FooDeserializeSeed;
@@ -55,7 +55,7 @@ use serde::Deserializer;
 /// of course, but the leaves here are usually std type `i64`, `&[u8]` or `String`, for which the implementation
 /// of [`serde::Deserialize`] is contained in `serde`).
 /// ```
-/// # use he_ring::impl_deserialize_seed_for_dependent_struct;
+/// # use fheanor::impl_deserialize_seed_for_dependent_struct;
 /// # use serde::*;
 /// # use serde::de::DeserializeSeed;
 /// # use std::marker::PhantomData;
@@ -101,7 +101,7 @@ use serde::Deserializer;
 /// Note that if `FooDeserializeSeed` should have generic parameters, these should be passed
 /// in the following way:
 /// ```
-/// # use he_ring::impl_deserialize_seed_for_dependent_struct;
+/// # use fheanor::impl_deserialize_seed_for_dependent_struct;
 /// # use serde::*;
 /// # use serde::de::DeserializeSeed;
 /// # use std::marker::PhantomData;
@@ -123,7 +123,7 @@ use serde::Deserializer;
 /// In the simpler (and possibly more common) case that `Foo` should own its data and
 /// outlive the [`serde::Deserializer`], this causes a problem:
 /// ```compile_fail
-/// # use he_ring::impl_deserialize_seed_for_dependent_struct;
+/// # use fheanor::impl_deserialize_seed_for_dependent_struct;
 /// # use serde::*;
 /// # use serde::de::DeserializeSeed;
 /// # use std::marker::PhantomData;
@@ -144,7 +144,7 @@ use serde::Deserializer;
 /// However, in these cases, it should suffice to manually convert `Foo` into some self-defined
 /// struct `FooOwned` before returning it.
 /// ```
-/// # use he_ring::impl_deserialize_seed_for_dependent_struct;
+/// # use fheanor::impl_deserialize_seed_for_dependent_struct;
 /// # use serde::*;
 /// # use serde::de::DeserializeSeed;
 /// # use std::marker::PhantomData;

@@ -1,4 +1,4 @@
-// he-ring completely relies on unstable Rust features
+// Fheanor completely relies on unstable Rust features
 #![feature(allocator_api)]
 #![allow(non_snake_case)]
 
@@ -13,9 +13,9 @@ use feanor_math::integer::{BigIntRing, IntegerRingStore};
 use feanor_math::ring::{RingExtensionStore, RingStore};
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::zn::ZnRingStore;
-use he_ring::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
-use he_ring::cyclotomic::CyclotomicRingStore;
-use he_ring::DefaultNegacyclicNTT;
+use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
+use fheanor::cyclotomic::CyclotomicRingStore;
+use fheanor::DefaultNegacyclicNTT;
 use rand::thread_rng;
 
 fn main() {

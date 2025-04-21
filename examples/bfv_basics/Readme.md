@@ -1,4 +1,4 @@
-# Homomorphic operations using the BFV scheme in HE-Ring
+# Homomorphic operations using the BFV scheme in Fheanor
 
 BFV was proposed in "Somewhat practical fully homomorphic encryption" by Fan and Vercauteren (<https://ia.cr/2012/144>), and has become one of the most popular and often implemented HE schemes.
 In this example, we will show how to use the provided implementation of BFV, without going far into the details of the scheme itself.
@@ -7,20 +7,20 @@ For more details on how BFV works and can be implemented, see the original paper
 ## Setting up BFV
 
 In many libraries, there is a central context object that stores all parameters and data associated to the currently used HE scheme.
-In HE-Ring, we intentionally avoid this approach, and instead have the user manage these parts themselves - don't worry, it's not that much.
+In Fheanor, we intentionally avoid this approach, and instead have the user manage these parts themselves - don't worry, it's not that much.
 More concretely, an instantiation of BFV consists of the following:
  - A ciphertext ring
  - An extended-modulus ciphertext ring, which is only used for intermediate results during homomorphic multiplication
  - One (or multiple) plaintext rings
  - Keys, possibly including a secret key, a relinearization key and Galois keys
 
-While there is no central object storing all of this, HE-Ring does provide a simple way of creating these objects from a set of parameters.
+While there is no central object storing all of this, Fheanor does provide a simple way of creating these objects from a set of parameters.
 There are multiple structs that represent a set of parameters for BFV each, since each of them will lead to a different type for the involved rings.
 For example, to setup BFV in a power-of-two cyclotomic number ring `Z[X]/(X^N + 1)`, we could proceed as follows:
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
-# use he_ring::DefaultNegacyclicNTT;
+# use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 type ChosenBFVParamType = Pow2BFV;
@@ -39,8 +39,8 @@ Here, we choose [`crate::DefaultNegacyclicNTT`], which will point either to the 
 Once we setup the parameters, we can create plaintext and ciphertext rings:
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
-# use he_ring::DefaultNegacyclicNTT;
+# use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
@@ -66,8 +66,8 @@ Note here that the plaintext modulus `t` was not part of the BFV parameters - th
 After we set this up, we actually won't need the parameter object anymore - to demonstrate this, we delete it here.
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
-# use he_ring::DefaultNegacyclicNTT;
+# use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 # type ChosenBFVParamType = Pow2BFV;
@@ -88,8 +88,8 @@ Since the type of the ciphertext ring depends on the type of the chosen paramete
 While it would be preferable for the BFV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVCiphertextParams`].
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
-# use he_ring::DefaultNegacyclicNTT;
+# use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 # use rand::thread_rng;
@@ -111,7 +111,7 @@ let digits = 2;
 let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, digits);
 ```
 To generate the keys (as well as for encryption), we require a source of randomness.
-HE-Ring is internally completely deterministic, hence it takes this source as parameter - in form of a [`rand::CryptoRng`].
+Fheanor is internally completely deterministic, hence it takes this source as parameter - in form of a [`rand::CryptoRng`].
 Furthermore, we have to decide on a number of "digits" to use when creating the relinearization key.
 This is a parameter that is necessary for all forms of key-switching (i.e. also Galois keys), and it refers to the number of parts an element is "decomposed into" when performing a gadget product:
  - A higher number of `digits` will make key generation and key-switching slower, but cause less (additive) noise growth.
@@ -135,8 +135,8 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # use feanor_math::homomorphism::*;
 # use feanor_math::assert_el_eq;
 # use feanor_math::ring::*;
-# use he_ring::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
-# use he_ring::DefaultNegacyclicNTT;
+# use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 # use rand::thread_rng;
@@ -180,8 +180,8 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # use feanor_math::homomorphism::*;
 # use feanor_math::assert_el_eq;
 # use feanor_math::ring::*;
-# use he_ring::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
-# use he_ring::DefaultNegacyclicNTT;
+# use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 # use rand::thread_rng;
@@ -218,8 +218,8 @@ Note that the plaintext ring is actually quite large - we chose `N = 4096` - so 
 # use feanor_math::homomorphism::*;
 # use feanor_math::assert_el_eq;
 # use feanor_math::ring::*;
-# use he_ring::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
-# use he_ring::DefaultNegacyclicNTT;
+# use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 # use rand::thread_rng;

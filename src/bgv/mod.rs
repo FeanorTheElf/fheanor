@@ -104,8 +104,8 @@ impl<'a, Params: ?Sized + BGVCiphertextParams> KeySwitchKey<'a, Params> {
 /// A standard choice is to use a small value for `special_modulus_factor_count`
 /// (e.g. 1 or 2), and then set `digit_count = rns_base_len / special_modulus_factor_count`. 
 /// ```
-/// # use he_ring::bgv::*;
-/// # use he_ring::gadget_product::digits::*;
+/// # use fheanor::bgv::*;
+/// # use fheanor::gadget_product::digits::*;
 /// let rns_base_len = 10; // length of the RNS base of the ciphertext ring
 /// let special_modulus_factor_count = 2;
 /// let digit_count = rns_base_len / special_modulus_factor_count;
@@ -638,7 +638,7 @@ pub trait BGVCiphertextParams {
     ///
     /// Computes an encryption of the product of two encrypted inputs.
     /// 
-    /// Since HE-Ring does not (at least not implicitly) perform automatic modulus management,
+    /// Since Fheanor does not (at least not implicitly) perform automatic modulus management,
     /// it is necessary to modulus-switch between calls to `hom_mul()` in order to prevent
     /// `hom_mul()` from causing exponential noise growth. For more info on modulus-switching
     /// and the modulus chain, see [`crate::examples::bgv_basics`].
@@ -670,7 +670,7 @@ pub trait BGVCiphertextParams {
     ///
     /// Computes an encryption of the square of an encrypted input.
     /// 
-    /// Since HE-Ring does not (at least not implicitly) perform automatic modulus management,
+    /// Since Fheanor does not (at least not implicitly) perform automatic modulus management,
     /// it is necessary to modulus-switch between calls to `hom_square()` in order to prevent
     /// `hom_square()` from causing exponential noise growth. For more info on modulus-switching
     /// and the modulus chain, see [`crate::examples::bgv_basics`].
@@ -825,7 +825,7 @@ pub trait BGVCiphertextParams {
     /// is derived from the RNS base of `q` by removing the RNS factors whose indices are mentioned
     /// in `drop_moduli`.
     /// 
-    /// Note that for the implementation in HE-Ring at least, the underlying rings will share
+    /// Note that for the implementation in Fheanor at least, the underlying rings will share
     /// most of their data, which means that this function is actually very cheap, in particular
     /// much cheaper than creating a new ciphertext ring (e.g. using [`BGVCiphertextParams::create_ciphertext_ring()`]).
     /// 

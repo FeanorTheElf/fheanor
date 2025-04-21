@@ -1,14 +1,14 @@
-// he-ring completely relies on unstable Rust features
+// Fheanor completely relies on unstable Rust features
 #![feature(allocator_api)]
 #![allow(non_snake_case)]
 
 // For a guided explanation of this example, see the doc
 #![doc = include_str!("Readme.md")]
 
-use he_ring::bgv::{BGVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BGV, KeySwitchKeyParams};
-use he_ring::cyclotomic::CyclotomicRingStore;
-use he_ring::DefaultNegacyclicNTT;
-use he_ring::bgv::modswitch::recommended_rns_factors_to_drop;
+use fheanor::bgv::{BGVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BGV, KeySwitchKeyParams};
+use fheanor::cyclotomic::CyclotomicRingStore;
+use fheanor::DefaultNegacyclicNTT;
+use fheanor::bgv::modswitch::recommended_rns_factors_to_drop;
 use rand::{SeedableRng, rngs::StdRng};
 use std::alloc::Global;
 use std::marker::PhantomData;

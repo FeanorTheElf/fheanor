@@ -3,7 +3,7 @@ use feanor_math::ring::*;
 
 ///
 /// A convolution as in [`PreparedConvolutionAlgorithm`], that can additionally be created for
-/// a given ring and length. This is required in many use cases within HE-Ring.
+/// a given ring and length. This is required in many use cases within Fheanor.
 /// 
 pub trait HERingConvolution<R>: PreparedConvolutionAlgorithm<R::Type>
     where R: RingStore

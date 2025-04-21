@@ -238,10 +238,10 @@ pub trait AsBGVPlaintext<Params: BGVCiphertextParams>: RingBase {
 /// # Example
 /// ```
 /// # use feanor_math::seq::*;
-/// # use he_ring::gadget_product::*;
-/// # use he_ring::bgv::KeySwitchKeyParams;
-/// # use he_ring::bgv::modswitch::recommended_rns_factors_to_drop;
-/// # use he_ring::gadget_product::digits::*;
+/// # use fheanor::gadget_product::*;
+/// # use fheanor::bgv::KeySwitchKeyParams;
+/// # use fheanor::bgv::modswitch::recommended_rns_factors_to_drop;
+/// # use fheanor::gadget_product::digits::*;
 /// let digits = RNSGadgetVectorDigitIndices::from([0..3, 3..5].clone_els());
 /// let params = KeySwitchKeyParams {
 ///     digits_without_special: digits,

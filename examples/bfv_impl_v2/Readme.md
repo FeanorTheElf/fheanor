@@ -1,4 +1,4 @@
-# Implementing BFV using HE-Ring, version 2
+# Implementing BFV using Fheanor, version 2
 
 In this example, we will again implement the BFV scheme, but this time aiming for good performance.
 Perhaps unsurprisingly, the result will look quite similar to [`crate::bfv`] - the main difference is that [`crate::bfv`] is defined more generically, and allows more configuration and different parameters.
@@ -73,10 +73,10 @@ Anyway, we can now define our ring types
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::ciphertext_ring::double_rns_ring::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::ciphertext_ring::double_rns_ring::*;
+# use fheanor::number_ring::quotient::*;
 type NumberRing = Pow2CyclotomicNumberRing;
 type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -88,10 +88,10 @@ Creating this ring is not completely trivial, since we need to find a suitable `
 # use feanor_math::rings::zn::*;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::StaticRing;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::ciphertext_ring::double_rns_ring::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::ciphertext_ring::double_rns_ring::*;
+# use fheanor::number_ring::quotient::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -121,7 +121,7 @@ fn create_plaintext_ring(ring_degree: usize, t: u64) -> PlaintextRing {
 #     ); 
 }
 ```
-Note that HE-Ring provides the convenience function [`crate::number_ring::sample_primes()`] and [`crate::number_ring::extend_sampled_primes()`] to simplify this:
+Note that Fheanor provides the convenience function [`crate::number_ring::sample_primes()`] and [`crate::number_ring::extend_sampled_primes()`] to simplify this:
 ```rust
 # use feanor_math::algorithms::miller_rabin::*;
 # use feanor_math::ring::*;
@@ -129,10 +129,10 @@ Note that HE-Ring provides the convenience function [`crate::number_ring::sample
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::ordered::OrderedRingStore;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::ciphertext_ring::double_rns_ring::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::ciphertext_ring::double_rns_ring::*;
+# use fheanor::number_ring::quotient::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -175,10 +175,10 @@ Instead, we will use similar (but more impactful) techniques when implementing h
 # use feanor_math::primitive_int::StaticRing;
 # use rand::{Rng, RngCore, thread_rng};
 # use rand_distr::StandardNormal;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::ciphertext_ring::double_rns_ring::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::ciphertext_ring::double_rns_ring::*;
+# use fheanor::number_ring::quotient::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -293,10 +293,10 @@ Since creating a double-RNS ring is somewhat expensive, we do this once and reus
 # use feanor_math::primitive_int::StaticRing;
 # use rand::{Rng, RngCore, thread_rng};
 # use rand_distr::StandardNormal;
-# use he_ring::number_ring::*;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::ciphertext_ring::double_rns_ring::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::ciphertext_ring::double_rns_ring::*;
+# use fheanor::number_ring::quotient::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -322,7 +322,7 @@ While we could do it in the same way as before, i.e. take the shortest lift of e
 
 Instead we use a technique that was propsed by <https://ia.cr/2016/510>.
 More concretely, they show how to implement the necessary operations as "RNS conversions", which directly operate on the RNS values, and don't involve big integers.
-The details are not overly complicated, but would go beyond the scope of this introduction, so we just describe how to use the RNS conversion implementations that are implemented in HE-Ring.
+The details are not overly complicated, but would go beyond the scope of this introduction, so we just describe how to use the RNS conversion implementations that are implemented in Fheanor.
 In particular, we are interested in [`crate::rnsconv::lift::AlmostExactBaseConversion`] and [`crate::rnsconv::bfv_rescale::AlmostExactRescalingConvert`], since they implement the two operations that we require for BFV multiplication.
 The first one takes care of the conversion `Z/(q) -> Z/(qq')`, and the second one does the downscaling at the end, which scales elements of `Z/(qq')` by `t/q` and maps them back to `Z/(q)`.
 All implemented RNS conversions take the input in the form of the following matrix:
@@ -360,13 +360,13 @@ This leaves us to implement BFV multiplication as follows.
 # use feanor_math::primitive_int::StaticRing;
 # use rand::{Rng, RngCore, thread_rng};
 # use rand_distr::StandardNormal;
-# use he_ring::number_ring::*;
-# use he_ring::rnsconv::bfv_rescale::AlmostExactRescalingConvert;
-# use he_ring::rnsconv::RNSOperation;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::ciphertext_ring::double_rns_ring::*;
-# use he_ring::number_ring::quotient::*;
-# use he_ring::rnsconv::lift::AlmostExactBaseConversion;
+# use fheanor::number_ring::*;
+# use fheanor::rnsconv::bfv_rescale::AlmostExactRescalingConvert;
+# use fheanor::rnsconv::RNSOperation;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::ciphertext_ring::double_rns_ring::*;
+# use fheanor::number_ring::quotient::*;
+# use fheanor::rnsconv::lift::AlmostExactBaseConversion;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -465,12 +465,12 @@ We arrive at:
 # use feanor_math::primitive_int::StaticRing;
 # use rand::{Rng, RngCore, thread_rng};
 # use rand_distr::StandardNormal;
-# use he_ring::number_ring::*;
-# use he_ring::gadget_product::*;
-# use he_ring::rnsconv::RNSOperation;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::ciphertext_ring::double_rns_ring::*;
-# use he_ring::number_ring::quotient::*;
+# use fheanor::number_ring::*;
+# use fheanor::gadget_product::*;
+# use fheanor::rnsconv::RNSOperation;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::ciphertext_ring::double_rns_ring::*;
+# use fheanor::number_ring::quotient::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -537,14 +537,14 @@ Finally, let's test this implementation again!
 # use feanor_math::ordered::OrderedRingStore;
 # use rand::{Rng, RngCore, thread_rng};
 # use rand_distr::StandardNormal;
-# use he_ring::number_ring::*;
-# use he_ring::rnsconv::bfv_rescale::AlmostExactRescalingConvert;
-# use he_ring::gadget_product::*;
-# use he_ring::rnsconv::RNSOperation;
-# use he_ring::number_ring::pow2_cyclotomic::*;
-# use he_ring::ciphertext_ring::double_rns_ring::*;
-# use he_ring::number_ring::quotient::*;
-# use he_ring::rnsconv::lift::AlmostExactBaseConversion;
+# use fheanor::number_ring::*;
+# use fheanor::rnsconv::bfv_rescale::AlmostExactRescalingConvert;
+# use fheanor::gadget_product::*;
+# use fheanor::rnsconv::RNSOperation;
+# use fheanor::number_ring::pow2_cyclotomic::*;
+# use fheanor::ciphertext_ring::double_rns_ring::*;
+# use fheanor::number_ring::quotient::*;
+# use fheanor::rnsconv::lift::AlmostExactBaseConversion;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -752,7 +752,7 @@ In fact, a little more benchmarking shows that our implementation almost matches
 For example, for `N = 32768` and `q ~ 800`, I get 0.88 seconds, which is close to the 0.5 seconds that SEAL version 4.1.2 takes on my system.
 
 Nevertheless, there does remain some optimization potential:
- - Currently, the native NTT of HE-Ring is the same as in `feanor-math`, and it is not quite as fast as others.
+ - Currently, the native NTT of Fheanor is the same as in `feanor-math`, and it is not quite as fast as others.
    You can use the HEXL library (using the `feanor-math-hexl` library), which will give you an even faster NTT!
  - Apart from multiplication, decryption can also profit from a careful use of RNS conversions.
  - When doing the first RNS conversion `q -> qq'` during multiplication, note that the `mod q` part of the result is the same as the input.

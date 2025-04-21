@@ -1,9 +1,9 @@
-# Homomorphic operations using the BGV scheme in HE-Ring
+# Homomorphic operations using the BGV scheme in Fheanor
 
 BGV was proposed in "Leveled fully homomorphic encryption without bootstrapping" by Z. Brakerski, C. Gentry, and V. Vaikuntanathan (<https://dl.acm.org/doi/10.1145/2090236.2090262>), and is the foundation of the family of "second generation" HE schemes.
 In this example, we will show how to use the provided implementation of BGV, without going deep into the mathematical details of the scheme.
 In comparison to BFV (for a short introduction, see [`crate::examples::bfv_basics`]), BGV allows for a somewhat more efficient implementation, but the necessity for the user to manually manage the modulus chain introduces significant additional complexity.
-We note that some libraries (like HElib) support automatic management of the modulus chain, but this is not implemented in HE-Ring.
+We note that some libraries (like HElib) support automatic management of the modulus chain, but this is not implemented in Fheanor.
 
 ## Some BGV basics, modulus-switching and the modulus chain
 
@@ -22,24 +22,24 @@ When done correctly, the relative noise of a homomorphic multiplication result b
 
 This is great, but means we have to manage the "chain" of ciphertext moduli `q > q' > q'' > ...`, and perform modulus-switching at the right places.
 In most cases, this means we modulus-switch before every multiplication (except the first one), but this is not always the optimal strategy.
-In HE-Ring, this task is currently left to the user, which means that using BGV introduces more complexity than BFV.
+In Fheanor, this task is currently left to the user, which means that using BGV introduces more complexity than BFV.
 
 ## Setting up BGV
 
 In many libraries, there is a central context object that stores all parameters and data associated to the currently used HE scheme.
-In HE-Ring, we intentionally avoid this approach, and instead have the use manage these parts themselves.
+In Fheanor, we intentionally avoid this approach, and instead have the use manage these parts themselves.
 More concretely, an instantiation of BGV consists of the following:
  - One Ciphertext ring for each modulus `q` in the ciphertext modulus chain `q > q' > q'' > ...`
  - One (or multiple) plaintext rings
  - Keys, possibly including a secret key, a relinearization key and Galois keys
 
-While there is no central object storing all of this, HE-Ring does provide a simple way of creating these objects from a set of parameters.
+While there is no central object storing all of this, Fheanor does provide a simple way of creating these objects from a set of parameters.
 There are multiple structs that represent a set of parameters for BGV each, since each of them will lead to a different type for the involved rings.
 For example, to setup BGV in a power-of-two cyclotomic number ring `Z[X]/(X^N + 1)`, we could proceed as follows:
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bgv::*;
-# use he_ring::DefaultNegacyclicNTT;
+# use fheanor::bgv::*;
+# use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 type ChosenBGVParamType = Pow2BGV;
@@ -61,8 +61,8 @@ This works, since `q` is chosen as a product of many approximately 57 bit long p
 Using this, we can now create the plaintext ring and initial ciphertext ring via
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bgv::*;
-# use he_ring::DefaultNegacyclicNTT;
+# use fheanor::bgv::*;
+# use fheanor::DefaultNegacyclicNTT;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::alloc::Global;
 # use std::marker::PhantomData;
@@ -94,9 +94,9 @@ Since the type of the ciphertext ring depends on the type of the chosen paramete
 While it would be preferable for the BFV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVCiphertextParams`].
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bgv::*;
-# use he_ring::DefaultNegacyclicNTT;
-# use he_ring::gadget_product::digits::*;
+# use fheanor::bgv::*;
+# use fheanor::DefaultNegacyclicNTT;
+# use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::alloc::Global;
 # use std::marker::PhantomData;
@@ -124,7 +124,7 @@ let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
 let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
 ```
 To generate the keys (as well as for encryption), we require a source of randomness.
-HE-Ring is internally completely deterministic, hence it takes this source as parameter - in form of a [`rand::CryptoRng`].
+Fheanor is internally completely deterministic, hence it takes this source as parameter - in form of a [`rand::CryptoRng`].
 Furthermore, there are two parameters that influence performance and noise growth of key-switching:
  - the number of "digits" used for the gadget decomposition. A high number will cause low noise growth, but larger key-switching keys and slower key-switching.
  - the number of RNS factors that constitute the "special modulus". This should be at most the size of the largest involved digit. In the simplest case, this is zero (no "hybrid key switching" is used), which means that the "special ciphertext ring" is equal to the normal ciphertext ring. However, this will negatively affect noise growth of key-switching after the first key-switch.
@@ -136,9 +136,9 @@ The plaintext space of BGV is the ring `R_t = Z[X]/(Phi_n(X), t)`, which we alre
 To encrypt, we now need to encode whatever data we have as an element of this ring (e.g. via [`feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()`] ), and can then encrypt it as follows:
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bgv::*;
-# use he_ring::DefaultNegacyclicNTT;
-# use he_ring::gadget_product::digits::*;
+# use fheanor::bgv::*;
+# use fheanor::DefaultNegacyclicNTT;
+# use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::alloc::Global;
 # use std::marker::PhantomData;
@@ -186,9 +186,9 @@ BGV supports three types of homomorphic operations on ciphertexts:
 Since we already have a relinearization key, we can perform a homomorphic multiplication.
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bgv::*;
-# use he_ring::DefaultNegacyclicNTT;
-# use he_ring::gadget_product::digits::*;
+# use fheanor::bgv::*;
+# use fheanor::DefaultNegacyclicNTT;
+# use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::alloc::Global;
 # use std::marker::PhantomData;
@@ -233,9 +233,9 @@ Let's assume we want to compute a fourth power, i.e. square `enc_x_sqr` again.
 The naive way would be to compute
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bgv::*;
-# use he_ring::DefaultNegacyclicNTT;
-# use he_ring::gadget_product::digits::*;
+# use fheanor::bgv::*;
+# use fheanor::DefaultNegacyclicNTT;
+# use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::alloc::Global;
 # use std::marker::PhantomData;
@@ -285,11 +285,11 @@ Once we decided on the number of factors to drop, we can use the convenience fun
 Alternatively, these can also determined manually: [`crate::bgv::BGVCiphertextParams::mod_switch_down_ct()`] takes a list of indices, which refer to the indices of the factors of `q` that will be dropped.
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bgv::*;
-# use he_ring::DefaultNegacyclicNTT;
-# use he_ring::ciphertext_ring::BGFVCiphertextRing;
-# use he_ring::gadget_product::digits::*;
-# use he_ring::bgv::modswitch::recommended_rns_factors_to_drop;
+# use fheanor::bgv::*;
+# use fheanor::DefaultNegacyclicNTT;
+# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::gadget_product::digits::*;
+# use fheanor::bgv::modswitch::recommended_rns_factors_to_drop;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::alloc::Global;
 # use std::marker::PhantomData;
@@ -341,19 +341,19 @@ assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);
 ## Automatic modulus switching
 
 Since deciding when (and how) to modulus-switch, and the manual management of ciphertext moduli, is quite a difficult task, it is extremely helpful for many applications if this is done automatically (like e.g. in HElib).
-This is also planned for HE-Ring, and a WIP implementation is available as [`crate::bgv::modswitch::BGVModswitchStrategy`] and [`crate::bgv::modswitch::DefaultModswitchStrategy`].
+This is also planned for Fheanor, and a WIP implementation is available as [`crate::bgv::modswitch::BGVModswitchStrategy`] and [`crate::bgv::modswitch::DefaultModswitchStrategy`].
 The main difficulty here is that a good strategy for modulus-switching requires good estimates on the noise of ciphertexts, and the only current noise estimator [`crate::bgv::noise_estimator::NaiveBGVNoiseEstimator`] does not provide very high quality estimates.
 Nevertheless, I have already used this system with some success.
 For example, we could implement the above evaluation instead as follows:
 ```rust
 #![feature(allocator_api)]
-# use he_ring::bgv::*;
-# use he_ring::bgv::modswitch::*;
-# use he_ring::bgv::noise_estimator::NaiveBGVNoiseEstimator;
-# use he_ring::DefaultNegacyclicNTT;
-# use he_ring::circuit::*;
-# use he_ring::ciphertext_ring::BGFVCiphertextRing;
-# use he_ring::gadget_product::digits::*;
+# use fheanor::bgv::*;
+# use fheanor::bgv::modswitch::*;
+# use fheanor::bgv::noise_estimator::NaiveBGVNoiseEstimator;
+# use fheanor::DefaultNegacyclicNTT;
+# use fheanor::circuit::*;
+# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::alloc::Global;
 # use std::marker::PhantomData;
