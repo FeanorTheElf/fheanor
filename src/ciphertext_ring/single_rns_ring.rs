@@ -26,7 +26,7 @@ use tracing::instrument;
 use crate::number_ring::HECyclotomicNumberRing;
 use crate::ciphertext_ring::poly_remainder::CyclotomicPolyReducer;
 use crate::cyclotomic::*;
-use crate::ciphertext_ring::double_rns_ring::{DoubleRNSRing, DoubleRNSRingBase};
+use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ntt::HERingConvolution;
 use crate::ntt::ntt_convolution::NTTConv;
 
@@ -54,17 +54,22 @@ use super::{BGFVCiphertextRing, PreparedMultiplicationRing};
 /// The reduction modulo `Phi_n` is only done when necessary, e.g. in [`RingBase::eq_el()`] or
 /// in [`SingleRNSRingBase::to_matrix()`].
 /// 
+/// # Why require `NumberRing` to be cyclotomic?
+/// 
+/// Because otherwise I haven't thought about how to efficiently perform reductions modulo the
+/// generating polynomial of the number ring. In particular, for cyclotomic rings, we can just reduce
+/// modulo `X^n - 1` (and only compute the full reduction modulo `Phi_n(X)` when necessary), which
+/// is extremely cheap. I don't know if there is something similar that we can do for general number
+/// rings.
+/// 
 pub struct SingleRNSRingBase<NumberRing, A, C> 
     where NumberRing: HECyclotomicNumberRing,
         A: Allocator + Clone,
         C: PreparedConvolutionAlgorithm<ZnBase>
 {
-    // we have to store the double-RNS ring as well, since we need double-RNS representation
-    // for computing Galois operations. This is because I don't think there is any good way
-    // of efficiently computing the galois action image using only coefficient representation;
-    // TODO: this is wrong, I think we can compute galois automorphisms just by mapping X^i -> X^(ik mod n),
-    // especially since we don't reduce modulo `Phi_n` but only modulo `X^n - 1`
-    base: DoubleRNSRing<NumberRing, A>,
+    number_ring: NumberRing,
+    element_allocator: A,
+    rns_base: zn_rns::Zn<Zn, BigIntRing>,
     /// Convolution algorithms to use to compute convolutions over each `Fp` in the RNS base
     convolutions: Vec<Arc<C>>,
     /// Used to compute the polynomial division by `Phi_n` when necessary
@@ -125,7 +130,9 @@ impl<NumberRing, A, C> Clone for SingleRNSRingBase<NumberRing, A, C>
 {
     fn clone(&self) -> Self {
         Self {
-            base: self.base.clone(),
+            rns_base: self.rns_base.clone(),
+            element_allocator: self.element_allocator.clone(),
+            number_ring: self.number_ring.clone(),
             convolutions: self.convolutions.clone(),
             poly_moduli: self.poly_moduli.clone()
         }
@@ -152,14 +159,12 @@ impl<NumberRing, A, C> SingleRNSRingBase<NumberRing, A, C>
         for i in 0..rns_base.len() {
             assert!(convolutions[i].supports_ring(rns_base.at(i)));
         }
-
-        let base = DoubleRNSRingBase::new_with(number_ring, rns_base, allocator);
-        let number_ring = base.get_ring().number_ring();
-        let rns_base = base.base_ring();
         
         RingValue::from(Self {
             poly_moduli: rns_base.as_iter().zip(convolutions.iter()).map(|(Zp, conv)| CyclotomicPolyReducer::new(*Zp, number_ring.n() as i64, conv.clone())).map(Arc::new).collect::<Vec<_>>(),
-            base: base,
+            rns_base: rns_base,
+            element_allocator: allocator,
+            number_ring: number_ring,
             convolutions: convolutions,
         })
     }
@@ -205,7 +210,7 @@ impl<NumberRing, A, C> SingleRNSRingBase<NumberRing, A, C>
     }
 
     pub fn allocator(&self) -> &A {
-        self.base.get_ring().allocator()
+        &self.element_allocator
     }
 
     pub fn convolutions<'a>(&'a self) -> impl VectorFn<&'a C> + use<'a, NumberRing, A, C> {
@@ -280,13 +285,15 @@ impl<NumberRing, A, C> BGFVCiphertextRing for SingleRNSRingBase<NumberRing, A, C
     type NumberRing = NumberRing;
     
     fn number_ring(&self) -> &NumberRing {
-        self.base.get_ring().number_ring()
+        &self.number_ring
     }
 
     #[instrument(skip_all)]
     fn drop_rns_factor(&self, drop_rns_factors: &[usize]) -> Self {
         Self {
-            base: self.base.get_ring().drop_rns_factor(drop_rns_factors),
+            rns_base: zn_rns::Zn::new(self.base_ring().as_iter().enumerate().filter(|(i, _)| !drop_rns_factors.contains(i)).map(|(_, x)| x.clone()).collect(), BigIntRing::RING),
+            element_allocator: self.allocator().clone(),
+            number_ring: self.number_ring.clone(),
             convolutions: self.convolutions.iter().enumerate().filter(|(i, _)| !drop_rns_factors.contains(i)).map(|(_, conv)| conv.clone()).collect(),
             poly_moduli: self.poly_moduli.iter().enumerate().filter(|(i, _)| !drop_rns_factors.contains(i)).map(|(_, modulus)| modulus.clone()).collect()
         }
@@ -626,7 +633,7 @@ impl<NumberRing, A, C> RingExtension for SingleRNSRingBase<NumberRing, A, C>
     type BaseRing = zn_rns::Zn<Zn, BigIntRing>;
 
     fn base_ring<'a>(&'a self) -> &'a Self::BaseRing {
-        self.base.base_ring()
+        &self.rns_base
     }
 
     #[instrument(skip_all)]
@@ -707,29 +714,29 @@ impl<NumberRing, A, C> CyclotomicRing for SingleRNSRingBase<NumberRing, A, C>
         C: PreparedConvolutionAlgorithm<ZnBase>
 {
     fn n(&self) -> usize {
-        self.base.n()
+        self.number_ring.n()
     }
 
     fn galois_group(&self) -> CyclotomicGaloisGroup {
-        self.base.galois_group()
+        self.number_ring.galois_group()
     }
 
     #[instrument(skip_all)]
     fn apply_galois_action(&self, el: &Self::Element, s: CyclotomicGaloisGroupEl) -> Self::Element {
-        let self_ref = RingRef::new(self);
-        let iso = self.base.can_iso(&self_ref).unwrap();
-        let el_double_rns = iso.inv().map_ref(el);
-        let result_double_rns = self.base.apply_galois_action(&el_double_rns, s);
-        return iso.map(result_double_rns);
-    }
-    
-    #[instrument(skip_all)]
-    fn apply_galois_action_many<'a>(&'a self, el: &Self::Element, gs: &'a [CyclotomicGaloisGroupEl]) -> Vec<Self::Element> {
-        let self_ref = RingRef::new(self);
-        let iso = (&self.base).into_can_iso(self_ref).ok().unwrap();
-        let el_double_rns = iso.inv().map_ref(el);
-        let result_double_rns = self.base.apply_galois_action_many(&el_double_rns, gs);
-        return result_double_rns.into_iter().map(|x| iso.map(x)).collect::<Vec<_>>();
+        let Gal = self.galois_group();
+        let Gal_Zn = Gal.underlying_ring();
+        let s = Gal.to_ring_el(s);
+        let mut result = self.zero();
+        let mut result_matrix = self.coefficients_as_matrix_mut(&mut result);
+        let el_matrix = self.coefficients_as_matrix(el);
+        for j in 0..self.n() {
+            let in_j = j;
+            let out_j: usize = Gal_Zn.smallest_positive_lift(Gal_Zn.mul(s, Gal_Zn.get_ring().from_int_promise_reduced(in_j as i64))).try_into().unwrap();
+            for i in 0..self.base_ring().len() {
+                *result_matrix.at_mut(i, out_j) = *el_matrix.at(i, in_j);
+            }
+        }
+        return result;
     }
 }
 
@@ -974,6 +981,12 @@ impl<NumberRing, A1, A2, C1, C2> CanIsoFromTo<SingleRNSRingBase<NumberRing, A2, 
 use crate::number_ring::odd_cyclotomic::OddCyclotomicNumberRing;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
+#[cfg(test)]
+use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
+#[cfg(test)]
+use feanor_math::rings::poly::PolyRingStore;
+#[cfg(test)]
+use crate::number_ring::odd_cyclotomic::CompositeCyclotomicNumberRing;
 
 #[cfg(any(test, feature = "generic_tests"))]
 pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_ring: NumberRing) {
@@ -983,7 +996,7 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
 
     let required_root_of_unity = signed_lcm(
         number_ring.mod_p_required_root_of_unity() as i64, 
-        1 << StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.n() as i64)).unwrap() + 2, 
+        1 << (StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.n() as i64)).unwrap() + 2), 
         StaticRing::<i64>::RING
     );
     let p1 = largest_prime_leq_congruent_to_one(20000, required_root_of_unity).unwrap();
@@ -1090,7 +1103,7 @@ fn test_multiple_representations() {
 
 #[test]
 fn test_two_by_two_convolution() {
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(2113), Zn::new(2689)], BigIntRing::RING);
+    let rns_base = zn_rns::Zn::new(vec![Zn::new(65537), Zn::new(2689)], BigIntRing::RING);
     let ring: SingleRNSRing<_> = SingleRNSRingBase::new(OddCyclotomicNumberRing::new(3), rns_base.clone());
 
     let a = ring.from_canonical_basis([1, 2].into_iter().map(|c| ring.base_ring().int_hom().map(c)));
@@ -1108,6 +1121,27 @@ fn test_two_by_two_convolution() {
                     assert_el_eq!(&ring, ring.mul_ref(lhs1, rhs1), res2);
                 }
             }
+        }
+    }
+}
+
+#[test]
+fn test_galois_automorphisms() {
+    let rns_base = zn_rns::Zn::new(vec![Zn::new(65537), Zn::new(4481)], BigIntRing::RING);
+    let ring: SingleRNSRing<_> = SingleRNSRingBase::new(CompositeCyclotomicNumberRing::new(5, 7), rns_base.clone());
+    let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
+    let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
+    let Phi_n = poly_ring.coerce(&ZZX, cyclotomic_polynomial(&ZZX, 35));
+    let Gal = ring.galois_group();
+    let g = Gal.from_representative(4);
+    let from_poly = |f| ring.from_canonical_basis_extended((0..=poly_ring.degree(&f).unwrap()).map(|k| poly_ring.base_ring().clone_el(poly_ring.coefficient_at(&f, k))));
+
+    for i in 0..24 {
+        for j in 0..24 {
+            let input = poly_ring.from_terms([(poly_ring.base_ring().one(), i), (poly_ring.base_ring().int_hom().map(10), j)]);
+            let expected = from_poly(poly_ring.div_rem_monic(poly_ring.evaluate(&input, &poly_ring.pow(poly_ring.indeterminate(), 4), poly_ring.inclusion()), &Phi_n).1);
+            let actual = ring.apply_galois_action(&from_poly(input), g);
+            assert_el_eq!(&ring, &expected, &actual);
         }
     }
 }

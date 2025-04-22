@@ -347,16 +347,16 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
         let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
-        let Cmul = ManagedDoubleRNSRingBase::new_with(
+        let C_mul = ManagedDoubleRNSRingBase::new_with(
             number_ring,
             Cmul_rns_base,
             self.ciphertext_allocator.clone()
         );
 
-        let dropped_indices = (0..Cmul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != Cmul.base_ring().at(*i).get_ring())).collect::<Vec<_>>();
-        let C = RingValue::from(Cmul.get_ring().drop_rns_factor(&dropped_indices));
+        let dropped_indices = (0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())).collect::<Vec<_>>();
+        let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
         debug_assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
-        return (C, Cmul);
+        return (C, C_mul);
     }
 }
 
@@ -389,16 +389,16 @@ impl<A: Allocator + Clone + Send + Sync> CLPXCiphertextParams for CompositeCLPX<
         let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
-        let Cmul = ManagedDoubleRNSRingBase::new_with(
+        let C_mul = ManagedDoubleRNSRingBase::new_with(
             number_ring,
             Cmul_rns_base,
             self.ciphertext_allocator.clone()
         );
 
-        let dropped_indices = (0..Cmul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != Cmul.base_ring().at(*i).get_ring())).collect::<Vec<_>>();
-        let C = RingValue::from(Cmul.get_ring().drop_rns_factor(&dropped_indices));
+        let dropped_indices = (0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())).collect::<Vec<_>>();
+        let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
         debug_assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
-        return (C, Cmul);
+        return (C, C_mul);
     }
 }
 

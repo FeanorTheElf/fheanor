@@ -332,7 +332,7 @@ fn test_digit_extract_homomorphic() {
     
     let P1 = params.create_plaintext_ring(17 * 17);
     let P2 = params.create_plaintext_ring(17 * 17 * 17);
-    let (C, Cmul) = params.create_ciphertext_rings();
+    let (C, C_mul) = params.create_ciphertext_rings();
 
     let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
     let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, digits);
@@ -342,7 +342,7 @@ fn test_digit_extract_homomorphic() {
 
     let digitextract = DigitExtract::new_default(17, 2, 1);
 
-    let (ct_high, ct_low) = digitextract.evaluate_bfv::<Pow2BFV>(&P1, std::slice::from_ref(&P2), &C, &Cmul, ct, &rk);
+    let (ct_high, ct_low) = digitextract.evaluate_bfv::<Pow2BFV>(&P1, std::slice::from_ref(&P2), &C, &C_mul, ct, &rk);
 
     let m_high = Pow2BFV::dec(&P1, &C, Pow2BFV::clone_ct(&C, &ct_high), &sk);
     assert!(P1.wrt_canonical_basis(&m_high).iter().skip(1).all(|x| P1.base_ring().is_zero(&x)));

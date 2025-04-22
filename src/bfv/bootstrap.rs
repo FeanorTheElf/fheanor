@@ -135,7 +135,7 @@ impl<Params: BFVCiphertextParams> ThinBootstrapData<Params> {
     pub fn bootstrap_thin<'a, const LOG: bool>(
         &self,
         C: &CiphertextRing<Params>, 
-        Cmul: &CiphertextRing<Params>, 
+        C_mul: &CiphertextRing<Params>, 
         P_base: &PlaintextRing<Params>,
         ct: Ciphertext<Params>,
         rk: &RelinKey<'a, Params>,
@@ -190,7 +190,7 @@ impl<Params: BFVCiphertextParams> ThinBootstrapData<Params> {
         }
         let rounding_divisor_half = P_main.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(int_cast(self.p(), ZZbig, ZZ), self.v()), &ZZbig.int_hom().map(2)));
         let digit_extraction_input = Params::hom_add_plain(P_main, C, &P_main.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots);
-        let result = self.digit_extract.evaluate_bfv::<Params>(P_base, &self.plaintext_ring_hierarchy, C, Cmul, digit_extraction_input, rk).0;
+        let result = self.digit_extract.evaluate_bfv::<Params>(P_base, &self.plaintext_ring_hierarchy, C, C_mul, digit_extraction_input, rk).0;
 
         return result;
     }
@@ -208,7 +208,7 @@ impl DigitExtract {
         P_base: &PlaintextRing<Params>, 
         P: &[PlaintextRing<Params>], 
         C: &CiphertextRing<Params>, 
-        Cmul: &CiphertextRing<Params>, 
+        C_mul: &CiphertextRing<Params>, 
         input: Ciphertext<Params>, 
         rk: &RelinKey<'a, Params>
     ) -> (Ciphertext<Params>, Ciphertext<Params>) {
@@ -228,7 +228,7 @@ impl DigitExtract {
             |exp, params, circuit| circuit.evaluate_bfv::<Params>(
                 get_P(exp),
                 C,
-                Some(Cmul),
+                Some(C_mul),
                 params,
                 Some(rk),
                 &[],
@@ -262,7 +262,7 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
     let bootstrapper = bootstrap_params.build_pow2::<true>();
     
     let P = params.create_plaintext_ring(t);
-    let (C, Cmul) = params.create_ciphertext_rings();
+    let (C, C_mul) = params.create_ciphertext_rings();
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BFV::gen_gk(&C, &mut rng, &sk, g, digits))).collect::<Vec<_>>();
@@ -272,7 +272,7 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
     let ct = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk);
     let res_ct = bootstrapper.bootstrap_thin::<true>(
         &C, 
-        &Cmul, 
+        &C_mul, 
         &P, 
         ct, 
         &rk, 
@@ -305,7 +305,7 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
     let bootstrapper = bootstrap_params.build_pow2::<true>();
     
     let P = params.create_plaintext_ring(t);
-    let (C, Cmul) = params.create_ciphertext_rings();
+    let (C, C_mul) = params.create_ciphertext_rings();
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BFV::gen_gk(&C, &mut rng, &sk, g, digits))).collect::<Vec<_>>();
@@ -315,7 +315,7 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
     let ct = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk);
     let res_ct = bootstrapper.bootstrap_thin::<true>(
         &C, 
-        &Cmul, 
+        &C_mul, 
         &P, 
         ct, 
         &rk, 
@@ -351,7 +351,7 @@ fn test_composite_bfv_thin_bootstrapping_2() {
     let bootstrapper = bootstrap_params.build_odd::<true>();
     
     let P = params.create_plaintext_ring(t);
-    let (C, Cmul) = params.create_ciphertext_rings();
+    let (C, C_mul) = params.create_ciphertext_rings();
     
     let sk = CompositeBFV::gen_sk(&C, &mut rng, None);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBFV::gen_gk(&C, &mut rng, &sk, g, digits))).collect::<Vec<_>>();
@@ -361,7 +361,7 @@ fn test_composite_bfv_thin_bootstrapping_2() {
     let ct = CompositeBFV::enc_sym(&P, &C, &mut rng, &m, &sk);
     let res_ct = bootstrapper.bootstrap_thin::<true>(
         &C, 
-        &Cmul, 
+        &C_mul, 
         &P, 
         ct, 
         &rk, 
