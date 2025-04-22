@@ -176,6 +176,11 @@ assert_el_eq!(&P, &x, &dec_x);
 ```
 For more info on how to create and operate on ring elements, see `feanor-math`.
 
+**Note:** As opposed to other HE libraries, initial ciphertexts are created w.r.t. the modulus of the ring passed to `enc_sym()`.
+In particular, if created as shown above, fresh encryptions will be defined modulo the whole ciphertext modulus, including the "special modulus".
+Fheanor can also be used with a special modulus (by using a nonzero `special_modulus_factor_count` when creating key-switching keys).
+In this case, you either have to pass a ciphertext ring whose RNS base does not include the special modulus to `enc_sym()`, or modulus-switch ciphertexts to such an RNS base before performing key-switching.
+
 ## Homomorphic operations
 
 BGV supports three types of homomorphic operations on ciphertexts:
