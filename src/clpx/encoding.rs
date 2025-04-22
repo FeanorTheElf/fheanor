@@ -234,7 +234,6 @@ impl CLPXEncoding {
             debug_assert_eq!(euler_phi(&factor(StaticRing::<i64>::RING, k2)), FpX.degree(&tensor_part).unwrap() as i64);
             FpX.from_terms(FpX.terms(&tensor_part).map(|(c, i)| (FpX.base_ring().clone_el(c), i * k1 as usize)))
         });
-        FpX.println(&G);
         let mut x_pow_rank = SparseMapVector::new(FpX.degree(&G).unwrap(), (*FpX.base_ring()).clone());
         for (c, i) in FpX.terms(&G) {
             if i < x_pow_rank.len() {
