@@ -17,6 +17,10 @@ use crate::cyclotomic::*;
 use crate::number_ring::HENumberRing;
 use crate::rnsconv::{lift, RNSOperation};
 
+///
+/// Contains the two basic types [`digits::RNSFactorIndexList`] and [`digits::RNSGadgetVectorDigitIndices`]
+/// that are used to parameterize gadget products.
+/// 
 pub mod digits;
 
 type UsedBaseConversion<A> = lift::AlmostExactBaseConversion<A>;

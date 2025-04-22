@@ -19,6 +19,9 @@ use crate::rnsconv::RNSOperation;
 /// 
 pub mod poly_remainder;
 
+///
+/// Contains utilities to serialize/deserialize elements of rings that are based on RNS bases.
+/// 
 pub mod serialization;
 
 ///
@@ -37,6 +40,10 @@ pub mod single_rns_ring;
 ///  
 pub mod double_rns_managed;
 
+///
+/// A ring whose elements have a "prepared multiplication"-representation, such that elements
+/// in this representation can be multiplied faster than in their standard representation.
+/// 
 pub trait PreparedMultiplicationRing: RingBase {
 
     type PreparedMultiplicant;

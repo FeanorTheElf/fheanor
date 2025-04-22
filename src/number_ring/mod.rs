@@ -10,9 +10,27 @@ use feanor_math::seq::*;
 
 use crate::cyclotomic::*;
 
+///
+/// Contains [`quotient::NumberRingQuotient`] which represents the ring `R/tR` for
+/// some integer `t` and a number ring `R` given as a [`HENumberRing`].
+/// 
 pub mod quotient;
+///
+/// Contains [`pow2_cyclotomic::Pow2CyclotomicNumberRing`], an implementation of
+/// [`HENumberRing`] for `Z[X]/(X^n + 1)` with `n` a power of two.
+/// 
 pub mod pow2_cyclotomic;
+///
+/// Contains [`odd_cyclotomic::OddCyclotomicNumberRing`] and [`odd_cyclotomic::CompositeCyclotomicNumberRing`],
+/// two implementations of [`HENumberRing`] for `Z[X]/(Phi_n(X))` with `n` odd. Note that
+/// [`odd_cyclotomic::CompositeCyclotomicNumberRing`] additionally requires `n` to be composite,
+/// but will give better performance in this case.
+/// 
 pub mod odd_cyclotomic;
+///
+/// Contains various types to represent the isomorphism `Fp[X]/(Phi_n(X)) ~ F_(p^d)^(phi(n) / d)`
+/// via "hypercube structures".
+/// 
 pub mod hypercube;
 
 ///

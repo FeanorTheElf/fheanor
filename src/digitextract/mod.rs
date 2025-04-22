@@ -11,6 +11,10 @@ use tracing::instrument;
 
 use crate::circuit::PlaintextCircuit;
 
+///
+/// Contains various tools to digit extraction polynomials and convert them into circuits,
+/// in particular [`polys::poly_to_circuit()`].
+/// 
 pub mod polys;
 
 ///

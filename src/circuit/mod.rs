@@ -9,7 +9,15 @@ use feanor_math::ring::*;
 
 use crate::cyclotomic::*;
 
+///
+/// Contains [`serialization::DeserializeSeedPlaintextCircuit`], a [`serde::de::DeserializeSeed`] that
+/// can deserialize a circuit when given the ring over which its coefficients are defined.
+/// 
 pub mod serialization;
+///
+/// Contains the trait [`evaluator::CircuitEvaluator`] and different implementations, which describe
+/// how to evaluate an arithmetic circuit.
+/// 
 pub mod evaluator;
 
 ///
