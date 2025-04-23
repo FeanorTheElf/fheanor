@@ -22,6 +22,7 @@
 use std::alloc::Global;
 use std::time::Instant;
 
+use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 use feanor_math::integer::BigIntRing;
 use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
@@ -66,11 +67,11 @@ pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
 /// It is also a good choice when instantiating homomorphic encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of convolution (currently
-/// [`crate::ntt::ntt_convolution::NTTConv`]), but can be changed by using the feature
-/// `use_hexl`.
+/// [`feanor_math::algorithms::convolution::ntt::NTTConvolution`]), but can be changed 
+/// by using the feature `use_hexl`.
 /// 
 #[cfg(not(feature = "use_hexl"))]
-pub type DefaultConvolution = crate::ntt::ntt_convolution::NTTConv<Zn>;
+pub type DefaultConvolution = NTTConvolution<Zn>;
 
 ///
 /// The default algorithm for computing negacyclic NTTs that will be used by 

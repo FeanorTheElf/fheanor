@@ -224,7 +224,7 @@ use feanor_math::rings::zn::zn_64::*;
 #[cfg(test)]
 use feanor_math::rings::zn::*;
 #[cfg(test)]
-use crate::ntt::ntt_convolution::NTTConv;
+use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 #[cfg(test)]
 use crate::ntt::HERingConvolution;
 
@@ -254,7 +254,7 @@ fn test_sparse_poly_remainder() {
 #[test]
 fn test_barett_poly_remainder() {
     let ring = Zn::new(65537).as_field().ok().unwrap();
-    let convolution = NTTConv::new(ring.clone(), 10);
+    let convolution = NTTConvolution::new(ring.clone(), 10);
     let poly_ring = DensePolyRing::new(ring.clone(), "X");
     let poly = cyclotomic_polynomial(&poly_ring, 4 * 5 * 7);
     let reducer = BarettPolyReducer::new(&poly_ring, &poly, ring.clone(), 200, convolution);
@@ -268,7 +268,7 @@ fn test_barett_poly_remainder() {
     }
 
     let poly = poly_ring.add(cyclotomic_polynomial(&poly_ring, 25), cyclotomic_polynomial(&poly_ring, 23 * 5));
-    let convolution = NTTConv::new(ring.clone(), 10);
+    let convolution = NTTConvolution::new(ring.clone(), 10);
     let reducer = BarettPolyReducer::new(&poly_ring, &poly, &ring, 150, convolution);
     let expected = poly_ring.div_rem_monic(poly_ring.from_terms((1..=151).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))), &poly).1;
 
@@ -283,7 +283,7 @@ fn test_barett_poly_remainder() {
 #[test]
 fn test_cyclotomic_poly_remainder() {
     let ring = Zn::new(65537).as_field().ok().unwrap();
-    let convolution = NTTConv::new(ring.clone(), 10);
+    let convolution = NTTConvolution::new(ring.clone(), 10);
     let poly_ring = DensePolyRing::new(ring.clone(), "X");
     let reducer = CyclotomicPolyReducer::new(ring.clone(), 3, convolution);
     let expected = [ring.zero(), ring.zero()];
@@ -295,7 +295,7 @@ fn test_cyclotomic_poly_remainder() {
         assert_el_eq!(&ring, &expected[i], &actual[i]);
     }
 
-    let convolution = NTTConv::new(ring.clone(), 10);
+    let convolution = NTTConvolution::new(ring.clone(), 10);
     let poly = cyclotomic_polynomial(&poly_ring, 5);
     let reducer = CyclotomicPolyReducer::new(ring.clone(), 5, convolution);
     let expected = poly_ring.div_rem_monic(poly_ring.from_terms((1..6).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))), &poly).1;
@@ -308,7 +308,7 @@ fn test_cyclotomic_poly_remainder() {
     }
 
     let poly = cyclotomic_polynomial(&poly_ring, 4 * 5 * 7);
-    let convolution = NTTConv::new(ring.clone(), 10);
+    let convolution = NTTConvolution::new(ring.clone(), 10);
     let reducer = CyclotomicPolyReducer::new(ring.clone(), 4 * 5 * 7, convolution);
     let expected = poly_ring.div_rem_monic(poly_ring.from_terms((1..200).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))), &poly).1;
 

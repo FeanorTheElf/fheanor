@@ -1,15 +1,22 @@
 
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
+
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::homomorphism::*;
 use feanor_math::integer::{int_cast, IntegerRingStore};
 use feanor_math::ring::*;
 use feanor_math::rings::zn::ZnRingStore;
 
+use serde::Serialize;
+use serde::de::DeserializeSeed;
+
 use crate::cyclotomic::CyclotomicRingStore;
 use crate::lintransform::matmul::MatmulTransform;
 use crate::digitextract::*;
 use crate::lintransform::pow2;
 use crate::lintransform::composite;
+use crate::circuit::serialization::{DeserializeSeedPlaintextCircuit, SerializablePlaintextCircuit};
 
 use super::*;
 
@@ -36,7 +43,32 @@ pub struct ThinBootstrapData<Params: BFVCiphertextParams> {
 impl<Params: BFVCiphertextParams> ThinBootstrapParams<Params>
     where NumberRing<Params>: Clone
 {
-    pub fn build_pow2<const LOG: bool>(&self) -> ThinBootstrapData<Params> {
+    fn read_or_create_circuit<F, const LOG: bool>(H: &DefaultHypercube<NumberRing<Params>>, base_name: &str, cache_dir: Option<&str>, create: F) -> PlaintextCircuit<<PlaintextRing<Params> as RingStore>::Type>
+        where F: FnOnce() -> PlaintextCircuit<<PlaintextRing<Params> as RingStore>::Type>
+    {
+        if let Some(cache_dir) = cache_dir {
+            let filename = format!("{}/{}_n{}_p{}_e{}.json", cache_dir, base_name, H.hypercube().n(), H.p(), H.e());
+            if let Ok(file) = File::open(filename.as_str()) {
+                if LOG {
+                    println!("Reading {} from file {}", base_name, filename);
+                }
+                let reader = serde_json::de::IoRead::new(BufReader::new(file));
+                let mut deserializer = serde_json::Deserializer::new(reader);
+                let deserialized = DeserializeSeedPlaintextCircuit::new(H.ring(), H.galois_group()).deserialize(&mut deserializer).unwrap();
+                return deserialized;
+            }
+            let result = log_time::<_, _, LOG, _>(format!("Creating circuit {}", base_name).as_str(), |[]| create());
+            let file = File::create(filename.as_str()).unwrap();
+            let writer = BufWriter::new(file);
+            let mut serializer = serde_json::Serializer::new(writer);
+            SerializablePlaintextCircuit::new(H.ring(), H.galois_group(), &result).serialize(&mut serializer).unwrap();
+            return result;
+        } else {
+            return create();
+        }
+    }
+
+    pub fn build_pow2<const LOG: bool>(&self, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
         let log2_n = ZZ.abs_log2_ceil(&(self.scheme_params.number_ring().n() as i64)).unwrap();
         assert_eq!(self.scheme_params.number_ring().n(), 1 << log2_n);
 
@@ -54,10 +86,14 @@ impl<Params: BFVCiphertextParams> ThinBootstrapParams<Params>
         let digit_extract = DigitExtract::new_default(p, e, r);
 
         let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.n() as u64), p);
-        let H = HypercubeIsomorphism::new::<LOG>(&plaintext_ring, hypercube);
+        let H = if let Some(cache_dir) = cache_dir {
+            HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
+        } else {
+            HypercubeIsomorphism::new::<LOG>(&plaintext_ring, hypercube)
+        };
         let original_H = H.change_modulus(&original_plaintext_ring);
-        let slots_to_coeffs = log_time::<_, _, LOG, _>("Creating Slots-to-Coeffs transform", |[]| MatmulTransform::to_circuit_many(pow2::slots_to_coeffs_thin(&original_H), &original_H));
-        let coeffs_to_slots = log_time::<_, _, LOG, _>("Creating Coeffs-to-Slots transform", |[]| pow2::coeffs_to_slots_thin(&H));
+        let slots_to_coeffs = Self::read_or_create_circuit::<_, LOG>(&original_H, "slots_to_coeffs", cache_dir, || MatmulTransform::to_circuit_many(pow2::slots_to_coeffs_thin(&original_H), &original_H));
+        let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&H, "coeffs_to_slots", cache_dir, || pow2::coeffs_to_slots_thin(&H));
         let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZ.pow(p, k))).collect();
 
         return ThinBootstrapData {
@@ -68,7 +104,7 @@ impl<Params: BFVCiphertextParams> ThinBootstrapParams<Params>
         };
     }
 
-    pub fn build_odd<const LOG: bool>(&self) -> ThinBootstrapData<Params> {
+    pub fn build_odd<const LOG: bool>(&self, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
         assert!(self.scheme_params.number_ring().n() % 2 != 0);
 
         let (p, r) = is_prime_power(&ZZ, &self.t).unwrap();
@@ -89,10 +125,14 @@ impl<Params: BFVCiphertextParams> ThinBootstrapParams<Params>
         };
 
         let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.n() as u64), p);
-        let H = HypercubeIsomorphism::new::<LOG>(&plaintext_ring, hypercube);
+        let H = if let Some(cache_dir) = cache_dir {
+            HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
+        } else {
+            HypercubeIsomorphism::new::<LOG>(&plaintext_ring, hypercube)
+        };
         let original_H = H.change_modulus(&original_plaintext_ring);
-        let slots_to_coeffs = log_time::<_, _, LOG, _>("Creating Slots-to-Coeffs transform", |[]| MatmulTransform::to_circuit_many(composite::slots_to_powcoeffs_thin(&original_H), &original_H));
-        let coeffs_to_slots = log_time::<_, _, LOG, _>("Creating Coeffs-to-Slots transform", |[]| MatmulTransform::to_circuit_many(composite::powcoeffs_to_slots_thin(&H), &H));
+        let slots_to_coeffs = Self::read_or_create_circuit::<_, LOG>(&original_H, "slots_to_coeffs", cache_dir, || MatmulTransform::to_circuit_many(composite::slots_to_powcoeffs_thin(&original_H), &original_H));
+        let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&H, "coeffs_to_slots", cache_dir, || MatmulTransform::to_circuit_many(composite::powcoeffs_to_slots_thin(&H), &H));
         let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZ.pow(p, k))).collect();
 
         return ThinBootstrapData {
@@ -259,7 +299,7 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
         v: 2,
         t: t
     };
-    let bootstrapper = bootstrap_params.build_pow2::<true>();
+    let bootstrapper = bootstrap_params.build_pow2::<true>(Some("."));
     
     let P = params.create_plaintext_ring(t);
     let (C, C_mul) = params.create_ciphertext_rings();
@@ -302,7 +342,7 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
         v: 2,
         t: t
     };
-    let bootstrapper = bootstrap_params.build_pow2::<true>();
+    let bootstrapper = bootstrap_params.build_pow2::<true>(Some("."));
     
     let P = params.create_plaintext_ring(t);
     let (C, C_mul) = params.create_ciphertext_rings();
@@ -348,7 +388,7 @@ fn test_composite_bfv_thin_bootstrapping_2() {
         v: 9,
         t: t
     };
-    let bootstrapper = bootstrap_params.build_odd::<true>();
+    let bootstrapper = bootstrap_params.build_odd::<true>(Some("."));
     
     let P = params.create_plaintext_ring(t);
     let (C, C_mul) = params.create_ciphertext_rings();
@@ -370,4 +410,102 @@ fn test_composite_bfv_thin_bootstrapping_2() {
     );
 
     assert_el_eq!(P, P.int_hom().map(2), CompositeBFV::dec(&P, &C, res_ct, &sk));
+}
+
+#[test]
+#[ignore]
+fn measure_time_composite_bfv_thin_bootstrapping() {
+    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    tracing_subscriber::registry().with(filtered_chrome_layer).init();
+    
+    let mut rng = thread_rng();
+    
+    let params = CompositeBFV {
+        log2_q_min: 805,
+        log2_q_max: 820,
+        n1: 37,
+        n2: 949,
+        ciphertext_allocator: DefaultCiphertextAllocator::default()
+    };
+    let t = 4;
+    let sk_hwt = Some(256);
+    let digits = 7;
+    let bootstrap_params = ThinBootstrapParams {
+        scheme_params: params.clone(),
+        v: 7,
+        t: t
+    };
+    let bootstrapper = bootstrap_params.build_odd::<true>(Some("."));
+    
+    let P = params.create_plaintext_ring(t);
+    let (C, C_mul) = params.create_ciphertext_rings();
+    
+    let sk = CompositeBFV::gen_sk(&C, &mut rng, sk_hwt);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBFV::gen_gk(&C, &mut rng, &sk, g, digits))).collect::<Vec<_>>();
+    let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, digits);
+    
+    let m = P.int_hom().map(2);
+    let ct = CompositeBFV::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let res_ct = bootstrapper.bootstrap_thin::<true>(
+        &C, 
+        &C_mul, 
+        &P, 
+        ct, 
+        &rk, 
+        &gk,
+        None
+    );
+
+    assert_el_eq!(P, P.int_hom().map(2), CompositeBFV::dec(&P, &C, res_ct, &sk));
+}
+
+#[test]
+#[ignore]
+fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
+    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    tracing_subscriber::registry().with(filtered_chrome_layer).init();
+    
+    let mut rng = thread_rng();
+    
+    let params = CompositeSingleRNSBFV {
+        log2_q_min: 805,
+        log2_q_max: 820,
+        n1: 37,
+        n2: 949,
+        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        convolution: PhantomData::<DefaultConvolution>
+    };
+    let t = 4;
+    let sk_hwt = Some(256);
+    let digits = 7;
+    let bootstrap_params = ThinBootstrapParams {
+        scheme_params: params,
+        v: 7,
+        t: t
+    };
+    let params = &bootstrap_params.scheme_params;
+    let bootstrapper = bootstrap_params.build_odd::<true>(Some("."));
+    
+    let P = params.create_plaintext_ring(t);
+    let (C, C_mul) = params.create_ciphertext_rings();
+    
+    let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, sk_hwt);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, g, digits))).collect::<Vec<_>>();
+    let rk = CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, digits);
+    
+    let m = P.int_hom().map(2);
+    let ct = CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let res_ct = bootstrapper.bootstrap_thin::<true>(
+        &C, 
+        &C_mul, 
+        &P, 
+        ct, 
+        &rk, 
+        &gk,
+        None
+    );
+
+    assert_el_eq!(P, P.int_hom().map(2), CompositeSingleRNSBFV::dec(&P, &C, res_ct, &sk));
 }

@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 use feanor_math::algorithms::convolution::*;
 use feanor_math::iters::{multi_cartesian_product, MultiProduct};
 use feanor_math::primitive_int::*;
@@ -28,7 +29,6 @@ use crate::ciphertext_ring::poly_remainder::CyclotomicPolyReducer;
 use crate::cyclotomic::*;
 use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ntt::HERingConvolution;
-use crate::ntt::ntt_convolution::NTTConv;
 
 use super::serialization::{deserialize_rns_data, serialize_rns_data};
 use super::{BGFVCiphertextRing, PreparedMultiplicationRing};
@@ -79,7 +79,7 @@ pub struct SingleRNSRingBase<NumberRing, A, C>
 ///
 /// [`RingStore`] for [`SingleRNSRingBase`]
 /// 
-pub type SingleRNSRing<NumberRing, A = Global, C = NTTConv<Zn, Global>> = RingValue<SingleRNSRingBase<NumberRing, A, C>>;
+pub type SingleRNSRing<NumberRing, A = Global, C = NTTConvolution<Zn, Global>> = RingValue<SingleRNSRingBase<NumberRing, A, C>>;
 
 ///
 /// Type of elements of [`SingleRNSRingBase`]
@@ -1004,7 +1004,7 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
     assert!(p1 != p2);
     let rank = number_ring.rank();
     let base_ring = zn_rns::Zn::new(vec![Zn::new(p1 as u64), Zn::new(p2 as u64)], BigIntRing::RING);
-    let ring = SingleRNSRingBase::<_, _, NTTConv<_>>::new(number_ring.clone(), base_ring.clone());
+    let ring = SingleRNSRingBase::<_, _, NTTConvolution<_>>::new(number_ring.clone(), base_ring.clone());
 
     let base_ring = ring.base_ring();
     let elements = vec![

@@ -1,5 +1,11 @@
+use std::alloc::Global;
+
+use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 use feanor_math::algorithms::convolution::PreparedConvolutionAlgorithm;
 use feanor_math::ring::*;
+use feanor_math::integer::IntegerRingStore;
+use feanor_math::pid::EuclideanRingStore;
+use feanor_math::rings::zn::*;
 
 ///
 /// A convolution as in [`PreparedConvolutionAlgorithm`], that can additionally be created for
@@ -13,10 +19,24 @@ pub trait HERingConvolution<R>: PreparedConvolutionAlgorithm<R::Type>
     fn new(ring: R, max_log2_len: usize) -> Self;
 }
 
-#[cfg(feature = "use_hexl")]
-impl HERingConvolution<feanor_math::rings::zn::zn_64::Zn> for feanor_math_hexl::conv::HEXLConvolution {
+impl<R> HERingConvolution<R> for NTTConvolution<R, Global>
+    where R: RingStore + Clone,
+        R::Type: ZnRing
+{
+    fn new(ring: R, max_log2_len: usize) -> Self {
+        assert!(ring.integer_ring().is_one(&ring.integer_ring().euclidean_rem(ring.integer_ring().clone_el(ring.modulus()), &ring.integer_ring().power_of_two(max_log2_len))));
+        NTTConvolution::new_with(ring, Global)
+    }
 
-    fn new(ring: feanor_math::rings::zn::zn_64::Zn, max_log2_len: usize) -> Self {
+    fn ring(&self) -> &R {
+        NTTConvolution::ring(self)
+    }
+}
+
+#[cfg(feature = "use_hexl")]
+impl HERingConvolution<zn_64::Zn> for feanor_math_hexl::conv::HEXLConvolution {
+
+    fn new(ring: zn_64::Zn, max_log2_len: usize) -> Self {
         Self::new(ring, max_log2_len)
     }
 
@@ -47,11 +67,6 @@ pub trait HERingNegacyclicNTT<R>: PartialEq
 
     fn new(ring: R, log2_rank: usize) -> Self;
 }
-
-///
-/// Contains an implementation of [`HERingConvolution`] based on NTTs.
-/// 
-pub mod ntt_convolution;
 
 ///
 /// Contains a dyn-compatible variant of [`PreparedConvolutionAlgorithm`].

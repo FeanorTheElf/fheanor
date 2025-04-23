@@ -1197,11 +1197,10 @@ impl<NumberRing, A1, A2> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A2>> for Dou
 
 #[cfg(any(test, feature = "generic_tests"))]
 pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_ring: NumberRing) {
+    use feanor_math::algorithms::convolution::ntt::NTTConvolution;
     use feanor_math::algorithms::eea::signed_lcm;
     use feanor_math::assert_el_eq;
     use feanor_math::primitive_int::*;
-
-    use crate::ntt::ntt_convolution::NTTConv;
 
     let required_root_of_unity = signed_lcm(
         number_ring.mod_p_required_root_of_unity() as i64, 
@@ -1233,7 +1232,7 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
     feanor_math::ring::generic_tests::test_self_iso(&ring, elements.iter().map(|x| ring.clone_el(x)));
     feanor_math::rings::extension::generic_tests::test_free_algebra_axioms(&ring);
 
-    let single_rns_ring = SingleRNSRingBase::<_, _, NTTConv<_>>::new(number_ring.clone(), base_ring.clone());
+    let single_rns_ring = SingleRNSRingBase::<_, _, NTTConvolution<_>>::new(number_ring.clone(), base_ring.clone());
     feanor_math::ring::generic_tests::test_hom_axioms(&ring, &single_rns_ring, elements.iter().map(|x| ring.clone_el(x)));
 
     let dropped_rns_factor_ring = DoubleRNSRingBase::new(number_ring.clone(), zn_rns::Zn::new(vec![Zn::new(p2 as u64)], BigIntRing::RING));
