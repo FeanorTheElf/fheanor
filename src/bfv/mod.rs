@@ -6,9 +6,9 @@ use std::alloc::Global;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::ops::Range;
+use std::cell::RefCell;
 use std::fmt::Display;
 
-use feanor_math::algorithms::eea::signed_lcm;
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::primitive_int::StaticRingBase;
 use feanor_math::ring::*;
@@ -645,7 +645,7 @@ impl<NumberRing> PlaintextCircuit<NumberRingQuotientBase<NumberRing, Zn>>
         inputs: &[Ciphertext<Params>], 
         rk: Option<&RelinKey<Params>>, 
         gks: &[(CyclotomicGaloisGroupEl, KeySwitchKey<Params>)], 
-        _key_switches: &mut usize
+        key_switches: &mut usize
     ) -> Vec<Ciphertext<Params>> 
         where Params: BFVCiphertextParams,
             Params::CiphertextRing: BGFVCiphertextRing<NumberRing = NumberRing>
@@ -653,6 +653,7 @@ impl<NumberRing> PlaintextCircuit<NumberRingQuotientBase<NumberRing, Zn>>
         assert!(!self.has_multiplication_gates() || C_mul.is_some());
         assert_eq!(C_mul.is_some(), rk.is_some());
         let galois_group = C.galois_group();
+        let key_switches = RefCell::new(key_switches);
         return self.evaluate_generic(
             inputs,
             DefaultCircuitEvaluator::new(
@@ -661,17 +662,19 @@ impl<NumberRing> PlaintextCircuit<NumberRingQuotientBase<NumberRing, Zn>>
                     x => Params::hom_add_plain(P, C, &x.clone(P).to_ring_el(P), Params::transparent_zero(C))
                 },
                 |dst, x, ct| Params::hom_add(C, dst, &Params::hom_mul_plain(P, C, &x.clone(P).to_ring_el(P), Params::clone_ct(C, ct))),
-            ).with_mul(
-                |lhs, rhs| Params::hom_mul(P, C, C_mul.unwrap(), lhs, rhs, rk.unwrap()),
-            ).with_square(
-                |x| Params::hom_square(P, C, C_mul.unwrap(), x, rk.unwrap()),
-            ).with_gal(
-                |x, gs| if gs.len() == 1 {
-                    vec![Params::hom_galois(C, x, gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, gs[0])).next().unwrap().1)]
-                } else {
-                    Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, *expected_g)).next().unwrap().1))
-                }
-            )
+            ).with_mul(|lhs, rhs| {
+                **key_switches.borrow_mut() += 1;
+                Params::hom_mul(P, C, C_mul.unwrap(), lhs, rhs, rk.unwrap())
+            }).with_square(|x| {
+                **key_switches.borrow_mut() += 1;
+                Params::hom_square(P, C, C_mul.unwrap(), x, rk.unwrap())
+            }).with_gal(|x, gs| if gs.len() == 1 {
+                **key_switches.borrow_mut() += 1;
+                vec![Params::hom_galois(C, x, gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, gs[0])).next().unwrap().1)]
+            } else {
+                **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(**g)).count();
+                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, *expected_g)).next().unwrap().1))
+            })
         );
     }
 }
@@ -686,7 +689,7 @@ impl PlaintextCircuit<StaticRingBase<i64>> {
         inputs: &[Ciphertext<Params>], 
         rk: Option<&RelinKey<Params>>, 
         gks: &[(CyclotomicGaloisGroupEl, KeySwitchKey<Params>)], 
-        _key_switches: &mut usize
+        key_switches: &mut usize
     ) -> Vec<Ciphertext<Params>> 
         where Params: BFVCiphertextParams
     {
@@ -694,6 +697,7 @@ impl PlaintextCircuit<StaticRingBase<i64>> {
         assert_eq!(C_mul.is_some(), rk.is_some());
         const ZZ: StaticRing<i64> = StaticRing::<i64>::RING;
         let galois_group = C.galois_group();
+        let key_switches = RefCell::new(key_switches);
         return self.evaluate_generic(
             inputs,
             DefaultCircuitEvaluator::new(
@@ -702,17 +706,19 @@ impl PlaintextCircuit<StaticRingBase<i64>> {
                     x => Params::hom_add_plain(P, C, &P.int_hom().map(x.clone(ZZ).to_ring_el(ZZ) as i32), Params::transparent_zero(C))
                 },
                 |dst, x, ct| Params::hom_add(C, dst, &Params::hom_mul_plain_i64(P, C, x.to_ring_el(ZZ), Params::clone_ct(C, ct))),
-            ).with_mul(
-                |lhs, rhs| Params::hom_mul(P, C, C_mul.unwrap(), lhs, rhs, rk.unwrap())
-            ).with_square(
-                |x| Params::hom_square(P, C, C_mul.unwrap(), x, rk.unwrap()),
-            ).with_gal(
-                |x, gs| if gs.len() == 1 {
-                    vec![Params::hom_galois(C, x, gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, gs[0])).next().unwrap().1)]
-                } else {
-                    Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, *expected_g)).next().unwrap().1))
-                }
-            )
+            ).with_mul(|lhs, rhs| {
+                **key_switches.borrow_mut() += 1;
+                Params::hom_mul(P, C, C_mul.unwrap(), lhs, rhs, rk.unwrap())
+            }).with_square(|x| {
+                **key_switches.borrow_mut() += 1;
+                Params::hom_square(P, C, C_mul.unwrap(), x, rk.unwrap())
+            }).with_gal(|x, gs| if gs.len() == 1 {
+                **key_switches.borrow_mut() += 1;
+                vec![Params::hom_galois(C, x, gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, gs[0])).next().unwrap().1)]
+            } else {
+                **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(**g)).count();
+                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, *expected_g)).next().unwrap().1))
+            })
         );
     }
 }
@@ -928,11 +934,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>>
     fn create_ciphertext_rings(&self) -> (CiphertextRing<Self>, CiphertextRing<Self>) {
         let log2_q = self.ciphertext_modulus_bits();
         let number_ring = self.number_ring();
-        let required_root_of_unity = signed_lcm(
-            number_ring.mod_p_required_root_of_unity() as i64,
-            1 << ZZ.abs_log2_ceil(&(number_ring.n() as i64 * 2)).unwrap(),
-            ZZ
-        );
+        let required_root_of_unity = 1 << ZZ.abs_log2_ceil(&(number_ring.n() as i64 * 4)).unwrap();
 
         let mut C_rns_base = sample_primes(log2_q.start, log2_q.end, 56, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZ, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZ))).unwrap();
         C_rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));

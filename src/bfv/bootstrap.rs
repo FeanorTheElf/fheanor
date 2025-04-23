@@ -225,13 +225,11 @@ impl<Params: BFVCiphertextParams> ThinBootstrapData<Params> {
             Params::dec_println_slots(P_main, C, &noisy_decryption_in_slots, sk);
         }
 
-        if LOG {
-            println!("4. Performing digit extraction");
-        }
-        let rounding_divisor_half = P_main.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(int_cast(self.p(), ZZbig, ZZ), self.v()), &ZZbig.int_hom().map(2)));
-        let digit_extraction_input = Params::hom_add_plain(P_main, C, &P_main.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots);
-        let result = self.digit_extract.evaluate_bfv::<Params>(P_base, &self.plaintext_ring_hierarchy, C, C_mul, digit_extraction_input, rk).0;
-
+        let result = log_time::<_, _, LOG, _>("4. Performing digit extraction", |[key_switches]| {
+            let rounding_divisor_half = P_main.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(int_cast(self.p(), ZZbig, ZZ), self.v()), &ZZbig.int_hom().map(2)));
+            let digit_extraction_input = Params::hom_add_plain(P_main, C, &P_main.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots);
+            self.digit_extract.evaluate_bfv::<Params>(P_base, &self.plaintext_ring_hierarchy, C, C_mul, digit_extraction_input, rk, key_switches).0
+        });
         return result;
     }
 }
@@ -250,7 +248,8 @@ impl DigitExtract {
         C: &CiphertextRing<Params>, 
         C_mul: &CiphertextRing<Params>, 
         input: Ciphertext<Params>, 
-        rk: &RelinKey<'a, Params>
+        rk: &RelinKey<'a, Params>,
+        key_switches: &mut usize
     ) -> (Ciphertext<Params>, Ciphertext<Params>) {
         let (p, actual_r) = is_prime_power(StaticRing::<i64>::RING, P_base.base_ring().modulus()).unwrap();
         assert_eq!(self.p(), p);
@@ -272,7 +271,7 @@ impl DigitExtract {
                 params,
                 Some(rk),
                 &[],
-                &mut 0
+                key_switches
             ),
             |_, _, x| x
         );

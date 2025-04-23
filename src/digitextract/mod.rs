@@ -346,7 +346,7 @@ fn test_digit_extract_homomorphic() {
 
     let digitextract = DigitExtract::new_default(17, 2, 1);
 
-    let (ct_high, ct_low) = digitextract.evaluate_bfv::<Pow2BFV>(&P1, std::slice::from_ref(&P2), &C, &C_mul, ct, &rk);
+    let (ct_high, ct_low) = digitextract.evaluate_bfv::<Pow2BFV>(&P1, std::slice::from_ref(&P2), &C, &C_mul, ct, &rk, &mut 0);
 
     let m_high = Pow2BFV::dec(&P1, &C, Pow2BFV::clone_ct(&C, &ct_high), &sk);
     assert!(P1.wrt_canonical_basis(&m_high).iter().skip(1).all(|x| P1.base_ring().is_zero(&x)));

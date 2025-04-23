@@ -37,6 +37,7 @@ impl<R> HERingConvolution<R> for NTTConvolution<R, Global>
 impl HERingConvolution<zn_64::Zn> for feanor_math_hexl::conv::HEXLConvolution {
 
     fn new(ring: zn_64::Zn, max_log2_len: usize) -> Self {
+        assert!(ring.integer_ring().is_one(&ring.integer_ring().euclidean_rem(ring.integer_ring().clone_el(ring.modulus()), &ring.integer_ring().power_of_two(max_log2_len + 1))));
         Self::new(ring, max_log2_len)
     }
 

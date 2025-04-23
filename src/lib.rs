@@ -22,11 +22,9 @@
 use std::alloc::Global;
 use std::time::Instant;
 
-use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 use feanor_math::integer::BigIntRing;
 use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
-use feanor_math::rings::zn::zn_64::Zn;
 
 extern crate feanor_math;
 #[cfg(feature = "use_hexl")]
@@ -71,7 +69,7 @@ pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
 /// by using the feature `use_hexl`.
 /// 
 #[cfg(not(feature = "use_hexl"))]
-pub type DefaultConvolution = NTTConvolution<Zn>;
+pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConvolution<feanor_math::rings::zn::zn_64::Zn>;
 
 ///
 /// The default algorithm for computing negacyclic NTTs that will be used by 
@@ -95,7 +93,7 @@ pub type DefaultNegacyclicNTT = feanor_math_hexl::hexl::HEXLNegacyclicNTT;
 /// changed by using the feature `use_hexl`.
 /// 
 #[cfg(not(feature = "use_hexl"))]
-pub type DefaultNegacyclicNTT = crate::number_ring::pow2_cyclotomic::RustNegacyclicNTT<Zn>;
+pub type DefaultNegacyclicNTT = crate::number_ring::pow2_cyclotomic::RustNegacyclicNTT<feanor_math::rings::zn::zn_64::Zn>;
 
 ///
 /// The default allocator for ciphertext ring elements, which will be used by all tests and
