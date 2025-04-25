@@ -37,8 +37,7 @@ tracing-chrome = "0.7.2"
 [features]
 use_hexl = ["dep:feanor-math-hexl"]
 generic_tests = []
-# a tiny bit faster RNS conversion, at the cost of lots of compile time; most noticable for BFV
-fastest_rnsconv = ["feanor-math/unrolled_strassen"]
+strassen_rnsconv = ["feanor-math/unrolled_strassen"]
 
 [profile.profiling]
 inherits = "bench"

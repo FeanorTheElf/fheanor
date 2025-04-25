@@ -8,6 +8,9 @@ use tracing::instrument;
 
 use super::RNSOperation;
 
+#[cfg(feature = "strassen_rnsconv")]
+type UsedBaseConversion<A> = super::matrix_lift::AlmostExactMatrixBaseConversion<A>;
+#[cfg(not(feature = "strassen_rnsconv"))]
 type UsedBaseConversion<A> = super::lift::AlmostExactBaseConversion<A>;
 
 ///

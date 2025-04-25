@@ -19,6 +19,11 @@ use super::RNSOperation;
 
 const ZZbig: BigIntRing = BigIntRing::RING;
 
+///
+/// We don't use Strassen-based [`super::matrix_lift::AlmostExactMatrixBaseConversion`], since
+/// for BGV, usually we just use lifts from very small RNS bases (i.e. `t` or a single RNS factor
+/// of `q`).
+/// 
 type UsedBaseConversion<A> = super::lift::AlmostExactBaseConversion<A>;
 
 ///
