@@ -73,6 +73,16 @@ pub trait CLPXCiphertextParams {
      
     fn create_ciphertext_rings(&self) -> (CiphertextRing<Self>, CiphertextRing<Self>);
 
+    ///
+    /// Creates a new [`CLPXEncoding`], which plays the same role for CLPX as the
+    /// plaintext ring does for BGV or BFV.
+    /// 
+    /// Here `t(X)` is a polynomial, interpreted as an element of the `n1`-th cyclotomic
+    /// number ring `Z[X]/(Phi_n1(X))` (`n1` must divide `n`). Furthermore `p` should be
+    /// a prime dividing `Res(t(X), Phi_n1(X))` exactly once. The returned encoding then
+    /// represents CLPX with plaintext modulus `(p, t(X^n2))` with `n2 = n/n1`, which means
+    /// plaintexts can be represented as polynomials modulo `Fp` of degree `< phi(n2)`.
+    /// 
     #[instrument(skip_all)]
     fn create_encoding<const LOG: bool>(&self, n1: usize, ZZi64X: DensePolyRing<StaticRing<i64>>, t: El<DensePolyRing<StaticRing<i64>>>, p: El<BigIntRing>) -> CLPXEncoding {
         let number_ring = self.number_ring();
@@ -82,6 +92,18 @@ pub trait CLPXCiphertextParams {
         return CLPXEncoding::new::<LOG>(n2, base_encoding);
     }
     
+    ///
+    /// Generates a secret key, using the randomness of the given rng.
+    /// 
+    /// If `hwt` is set, the secret will be a random ring element with
+    /// exactly `hwt` entries (w.r.t. coefficient basis) in `{-1, 1}`, 
+    /// and the others as `0`. If `hwt` is not set, the secret will be
+    /// a ring element whose coefficient basis coefficients are drawn
+    /// uniformly at random from `{-1, 0, 1}`.
+    /// 
+    /// If you need another kind of secret, consider creating the ring
+    /// element yourself using `C.from_canonical_basis()`.
+    /// 
     #[instrument(skip_all)]
     fn gen_sk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, hwt: Option<usize>) -> SecretKey<Self> {
         assert!(hwt.is_none() || hwt.unwrap() * 3 <= C.rank() * 2, "it does not make sense to take more than 2/3 of secret key entries in {{-1, 1}}");
@@ -101,7 +123,10 @@ pub trait CLPXCiphertextParams {
             return result;
         }
     }
-
+    
+    ///
+    /// Generates a new encryption of zero using the secret key and the randomness of the given rng.
+    /// 
     #[instrument(skip_all)]
     fn enc_sym_zero<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, sk: &SecretKey<Self>) -> Ciphertext<Self> {
         let a = C.random_element(|| rng.next_u64());
@@ -111,16 +136,32 @@ pub trait CLPXCiphertextParams {
         return (b, a);
     }
     
+    ///
+    /// Creates a transparent encryption of zero, i.e. a noiseless encryption that does not hide
+    /// the encrypted value - everyone can read it, even without access to the secret key.
+    /// 
+    /// Often used to initialize an accumulator (or similar) during algorithms. 
+    /// 
     #[instrument(skip_all)]
     fn transparent_zero(C: &CiphertextRing<Self>) -> Ciphertext<Self> {
         (C.zero(), C.zero())
     }
 
+    ///
+    /// Encrypts the given value, using the randomness of the given rng.
+    /// 
     #[instrument(skip_all)]
     fn enc_sym<R: Rng + CryptoRng>(P: &CLPXEncoding, C: &CiphertextRing<Self>, rng: R, m: &El<IsomorphicRing>, sk: &SecretKey<Self>) -> Ciphertext<Self> {
         Self::hom_add_plain(P, C, m, Self::enc_sym_zero(C, rng, sk))
     }
 
+    ///
+    /// Decrypts a given ciphertext.
+    /// 
+    /// This function does perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertext is defined over the given ring, and is a valid
+    /// BFV encryption w.r.t. the given plaintext modulus.
+    /// 
     #[instrument(skip_all)]
     fn dec(P: &CLPXEncoding, C: &CiphertextRing<Self>, ct: Ciphertext<Self>, sk: &SecretKey<Self>) -> El<IsomorphicRing> {
         let (c0, c1) = ct;
@@ -128,6 +169,10 @@ pub trait CLPXCiphertextParams {
         return P.decode(C, &noisy_m);
     }
 
+    ///
+    /// Decrypts a given ciphertext and prints its value to stdout.
+    /// Designed for debugging purposes.
+    /// 
     #[instrument(skip_all)]
     fn dec_println(P: &CLPXEncoding, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>) {
         let m = Self::dec(P, C, Self::clone_ct(C, ct), sk);
@@ -136,6 +181,13 @@ pub trait CLPXCiphertextParams {
         println!();
     }
 
+    ///
+    /// Computes an encryption of the sum of two encrypted messages.
+    /// 
+    /// This function does perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertexts are defined over the given ring, and are
+    /// BFV encryptions w.r.t. compatible plaintext moduli.
+    /// 
     #[instrument(skip_all)]
     fn hom_add(C: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: &Ciphertext<Self>) -> Ciphertext<Self> {
         let (lhs0, lhs1) = lhs;
@@ -143,6 +195,13 @@ pub trait CLPXCiphertextParams {
         return (C.add_ref(&lhs0, &rhs0), C.add_ref(&lhs1, &rhs1));
     }
     
+    ///
+    /// Computes an encryption of the difference of two encrypted messages.
+    /// 
+    /// This function does perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertexts are defined over the given ring, and are
+    /// BFV encryptions w.r.t. compatible plaintext moduli.
+    /// 
     #[instrument(skip_all)]
     fn hom_sub(C: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: &Ciphertext<Self>) -> Ciphertext<Self> {
         let (lhs0, lhs1) = lhs;
@@ -150,17 +209,34 @@ pub trait CLPXCiphertextParams {
         return (C.sub_ref(&lhs0, rhs0), C.sub_ref(&lhs1, rhs1));
     }
     
+    ///
+    /// Copies a ciphertext.
+    /// 
     #[instrument(skip_all)]
     fn clone_ct(C: &CiphertextRing<Self>, ct: &Ciphertext<Self>) -> Ciphertext<Self> {
         (C.clone_el(&ct.0), C.clone_el(&ct.1))
     }
 
+    ///
+    /// Computes an encryption of the sum of an encrypted message and a plaintext.
+    /// 
+    /// This function does perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertext is defined over the given ring, and is
+    /// BFV encryption w.r.t. the given plaintext modulus.
+    /// 
     #[instrument(skip_all)]
     fn hom_add_plain(P: &CLPXEncoding, C: &CiphertextRing<Self>, m: &El<IsomorphicRing>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
         let m = P.encode(C, m);
         return (C.add(ct.0, m), ct.1);
     }
     
+    ///
+    /// Computes an encryption of the product of an encrypted message and a plaintext.
+    /// 
+    /// This function does perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertext is defined over the given ring, and is
+    /// BFV encryption w.r.t. the given plaintext modulus.
+    /// 
     #[instrument(skip_all)]
     fn hom_mul_plain(P: &CLPXEncoding, C: &CiphertextRing<Self>, m: &El<IsomorphicRing>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
         let m = P.small_preimage(m);
@@ -173,6 +249,13 @@ pub trait CLPXCiphertextParams {
         return (C.mul_ref_snd(ct.0, &m_in_C), C.mul(ct.1, m_in_C));
     }
 
+    ///
+    /// Computes the "noise budget" of a given ciphertext.
+    /// 
+    /// Concretely, the noise budget is `log(q/(t|e|))`, where `t` is the plaintext modulus
+    /// and `|e|` is the `l_inf`-norm of the noise term. This will decrease during homomorphic
+    /// operations, and if it reaches zero, decryption may yield incorrect results.
+    /// 
     #[instrument(skip_all)]
     fn noise_budget(P: &CLPXEncoding, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>) -> usize {
         let (c0, c1) = Self::clone_ct(C, ct);
@@ -185,6 +268,15 @@ pub trait CLPXCiphertextParams {
         return ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap().saturating_sub(log2_size_of_noise + log2_can_norm_t_estimate);
     }
 
+    ///
+    /// Generates a relinearization key, necessary to compute homomorphic multiplications.
+    /// 
+    /// The parameter `digits` refers to the number of "digits" to use for the gadget product
+    /// during relinearization. More concretely, when performing relinearization, the ciphertext
+    /// will be decomposed into multiple small parts, which are then multiplied with the components
+    /// of the relinearization key. Thus, a larger value for `digits` will result in lower (additive)
+    /// noise growth during relinearization, at the cost of higher performance.
+    /// 
     #[instrument(skip_all)]
     fn gen_rk<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: usize) -> RelinKey<'a, Self>
         where Self: 'a
@@ -192,6 +284,17 @@ pub trait CLPXCiphertextParams {
         Self::gen_switch_key(C, rng, &C.pow(C.clone_el(sk), 2), sk, digits)
     }
 
+    ///
+    /// Generates a key-switch key. 
+    /// 
+    /// In particular, this is used to generate relinearization keys (via [`CLPXCiphertextParams::gen_rk()`]).
+    /// 
+    /// The parameter `digits` refers to the number of "digits" to use for the gadget product
+    /// during key-switching. More concretely, when performing key-switching, the ciphertext
+    /// will be decomposed into multiple small parts, which are then multiplied with the components
+    /// of the key-switching key. Thus, a larger value for `digits` will result in lower (additive)
+    /// noise growth during key-switching, at the cost of higher performance.
+    /// 
     #[instrument(skip_all)]
     fn gen_switch_key<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: usize) -> KeySwitchKey<'a, Self>
         where Self: 'a
@@ -214,6 +317,13 @@ pub trait CLPXCiphertextParams {
         return (res0, res1);
     }
     
+    ///
+    /// Computes an encryption of the product of two encrypted messages.
+    /// 
+    /// This function does perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertexts are defined over the given ring, and are
+    /// BFV encryptions w.r.t. the given plaintext modulus.
+    /// 
     #[instrument(skip_all)]
     fn hom_mul<'a>(P: &CLPXEncoding, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
@@ -246,6 +356,13 @@ pub trait CLPXCiphertextParams {
         return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
     }
     
+    ///
+    /// Computes an encryption of the square of an encrypted messages.
+    /// 
+    /// This function does perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertexts are defined over the given ring, and are
+    /// BFV encryptions w.r.t. the given plaintext modulus.
+    /// 
     #[instrument(skip_all)]
     fn hom_square<'a>(P: &CLPXEncoding, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
@@ -275,6 +392,10 @@ pub trait CLPXCiphertextParams {
         return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
     }
 
+    ///
+    /// Using a key-switch key, computes an encryption encrypting the same message as the given ciphertext
+    /// under a different secret key.
+    /// 
     #[instrument(skip_all)]
     fn key_switch<'a>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a

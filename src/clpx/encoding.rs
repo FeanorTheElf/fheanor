@@ -271,6 +271,9 @@ impl CLPXEncoding {
         self.n1() * self.n2()
     }
 
+    ///
+    /// Returns `Fp[X]/(G(X))`
+    /// 
     pub fn plaintext_ring(&self) -> &IsomorphicRing {
         &self.plaintext_ring
     }
@@ -279,10 +282,16 @@ impl CLPXEncoding {
         self.encoding.ZZX()
     }
 
+    ///
+    /// Returns the representation of `t(𝝵^n2)` as a polynomial in `𝝵`.
+    /// 
     pub fn t(&self) -> &El<DensePolyRing<BigIntRing>> {
         &self.t
     }
 
+    ///
+    /// Returns the representation of `t(𝝵^n2)` as a polynomial in `𝝵^n2`.
+    /// 
     pub fn base_t(&self) -> &El<DensePolyRing<StaticRing<i64>>> {
         &self.encoding.t
     }
