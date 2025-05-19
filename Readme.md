@@ -71,11 +71,12 @@ I did not have practical considerations (like side-channel resistance) in mind, 
 
 Please use the following bibtex entry to cite Fheanor:
 ```text
-@misc{fheanor,
-    title = {{Fheanor}, a new, modular FHE library for designing and optimising schemes: General cyclotomics, RNS representations, BFV/BGV bootstrapping, and more},
-    url = {https://github.com/FeanorTheElf/fheanor},
+@misc{cryptoeprint:2025/864,
     author = {Hiroki Okada and Rachel Player and Simon Pohmann},
-    year = {2025}
+    title = {Fheanor: a new, modular {FHE} library for designing and optimising schemes},
+    howpublished = {Cryptology {ePrint} Archive, Paper 2025/864},
+    year = {2025},
+    url = {https://eprint.iacr.org/2025/864}
 }
 ```
 
