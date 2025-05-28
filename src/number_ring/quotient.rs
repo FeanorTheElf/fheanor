@@ -541,8 +541,8 @@ impl<NumberRing, ZnTy, A> FiniteRingSpecializable for NumberRingQuotientBase<Num
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone
 {
-    fn specialize<O: FiniteRingOperation<Self>>(op: O) -> Result<O::Output, ()> {
-        Ok(op.execute())
+    fn specialize<O: FiniteRingOperation<Self>>(op: O) -> O::Output {
+        op.execute()
     }
 }
 
@@ -588,7 +588,7 @@ impl<NumberRing, ZnTy, A> DivisibilityRing for NumberRingQuotientBase<NumberRing
         A: Allocator + Clone
 {
     fn checked_left_div(&self, lhs: &Self::Element, rhs: &Self::Element) -> Option<Self::Element> {
-        let mut mul_matrix: OwnedMatrix<_> = create_multiplication_matrix(RingRef::new(self), rhs);
+        let mut mul_matrix: OwnedMatrix<_> = create_multiplication_matrix(RingRef::new(self), rhs, Global);
         let data = self.wrt_canonical_basis(&lhs);
         let mut lhs_matrix: OwnedMatrix<_> = OwnedMatrix::from_fn(self.rank(), 1, |i, _| data.at(i));
 

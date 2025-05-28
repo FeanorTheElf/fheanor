@@ -96,7 +96,7 @@ impl<R> SparsePolyReducer<R>
 
 struct BarettPolyReducer<R, C>
     where R: RingStore,
-        C: PreparedConvolutionAlgorithm<R::Type>
+        C: ConvolutionAlgorithm<R::Type>
 {
     /// degree of polynomial to reduce
     f_deg: usize,
@@ -110,7 +110,7 @@ struct BarettPolyReducer<R, C>
 
 impl<R, C> BarettPolyReducer<R, C>
     where R: RingStore,
-        C: PreparedConvolutionAlgorithm<R::Type>
+        C: ConvolutionAlgorithm<R::Type>
 {
     #[instrument(skip_all)]
     fn new<P>(poly_ring: P, poly: &El<P>, ring: R, f_deg: usize, convolution: C) -> Self
@@ -143,10 +143,17 @@ impl<R, C> BarettPolyReducer<R, C>
         quotient.resize_with(2 * (self.f_deg - self.q_deg + 1), || self.ring.zero());
         self.convolution.compute_convolution(&data[self.q_deg..=self.f_deg], &self.neg_Xn_over_q, &mut quotient, &self.ring);
         let quotient = &quotient[(self.f_deg - self.q_deg)..(2 * (self.f_deg - self.q_deg) + 1)];
-        let quotient = self.convolution.prepare_convolution_operand(&quotient, &self.ring);
+        let quotient_prep = self.convolution.prepare_convolution_operand(&quotient, None, &self.ring);
         let step = 1 << StaticRing::<i64>::RING.abs_log2_ceil(&((self.f_deg - self.q_deg + 1) as i64)).unwrap();
         for i in (0..=self.q_deg).step_by(step) {
-            self.convolution.compute_convolution_rhs_prepared(&self.q[i..min(self.q.len(), i + step)], &quotient, &mut data[i..min(self.f_deg + 2, i + 2 * step)], &self.ring);
+            self.convolution.compute_convolution_prepared(
+                &self.q[i..min(self.q.len(), i + step)], 
+                None,
+                &quotient, 
+                Some(&quotient_prep),
+                &mut data[i..min(self.f_deg + 2, i + 2 * step)], 
+                &self.ring
+            );
         }
     }
 }
@@ -158,7 +165,7 @@ impl<R, C> BarettPolyReducer<R, C>
 /// 
 pub struct CyclotomicPolyReducer<R, C>
     where R: RingStore + Clone,
-        C: PreparedConvolutionAlgorithm<R::Type>
+        C: ConvolutionAlgorithm<R::Type>
 {
     sparse_reducers: Vec<SparsePolyReducer<R>>,
     final_reducer: Option<BarettPolyReducer<R, C>>
@@ -166,7 +173,7 @@ pub struct CyclotomicPolyReducer<R, C>
 
 impl<R, C> CyclotomicPolyReducer<R, C>
     where R: RingStore + Clone,
-        C: PreparedConvolutionAlgorithm<R::Type>
+        C: ConvolutionAlgorithm<R::Type>
 {
     #[instrument(skip_all)]
     pub fn new(ring: R, n: i64, convolution: C) -> Self {
@@ -225,8 +232,6 @@ use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 #[cfg(test)]
 use feanor_math::algorithms::convolution::ntt::NTTConvolution;
-#[cfg(test)]
-use crate::ntt::HERingConvolution;
 
 #[test]
 fn test_sparse_poly_remainder() {
@@ -254,7 +259,7 @@ fn test_sparse_poly_remainder() {
 #[test]
 fn test_barett_poly_remainder() {
     let ring = Zn::new(65537).as_field().ok().unwrap();
-    let convolution = NTTConvolution::new(ring.clone(), 10);
+    let convolution = NTTConvolution::new(ring.clone());
     let poly_ring = DensePolyRing::new(ring.clone(), "X");
     let poly = cyclotomic_polynomial(&poly_ring, 4 * 5 * 7);
     let reducer = BarettPolyReducer::new(&poly_ring, &poly, ring.clone(), 200, convolution);
@@ -268,7 +273,7 @@ fn test_barett_poly_remainder() {
     }
 
     let poly = poly_ring.add(cyclotomic_polynomial(&poly_ring, 25), cyclotomic_polynomial(&poly_ring, 23 * 5));
-    let convolution = NTTConvolution::new(ring.clone(), 10);
+    let convolution = NTTConvolution::new(ring.clone());
     let reducer = BarettPolyReducer::new(&poly_ring, &poly, &ring, 150, convolution);
     let expected = poly_ring.div_rem_monic(poly_ring.from_terms((1..=151).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))), &poly).1;
 
@@ -283,7 +288,7 @@ fn test_barett_poly_remainder() {
 #[test]
 fn test_cyclotomic_poly_remainder() {
     let ring = Zn::new(65537).as_field().ok().unwrap();
-    let convolution = NTTConvolution::new(ring.clone(), 10);
+    let convolution = NTTConvolution::new(ring.clone());
     let poly_ring = DensePolyRing::new(ring.clone(), "X");
     let reducer = CyclotomicPolyReducer::new(ring.clone(), 3, convolution);
     let expected = [ring.zero(), ring.zero()];
@@ -295,7 +300,7 @@ fn test_cyclotomic_poly_remainder() {
         assert_el_eq!(&ring, &expected[i], &actual[i]);
     }
 
-    let convolution = NTTConvolution::new(ring.clone(), 10);
+    let convolution = NTTConvolution::new(ring.clone());
     let poly = cyclotomic_polynomial(&poly_ring, 5);
     let reducer = CyclotomicPolyReducer::new(ring.clone(), 5, convolution);
     let expected = poly_ring.div_rem_monic(poly_ring.from_terms((1..6).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))), &poly).1;
@@ -308,7 +313,7 @@ fn test_cyclotomic_poly_remainder() {
     }
 
     let poly = cyclotomic_polynomial(&poly_ring, 4 * 5 * 7);
-    let convolution = NTTConvolution::new(ring.clone(), 10);
+    let convolution = NTTConvolution::new(ring.clone());
     let reducer = CyclotomicPolyReducer::new(ring.clone(), 4 * 5 * 7, convolution);
     let expected = poly_ring.div_rem_monic(poly_ring.from_terms((1..200).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))), &poly).1;
 

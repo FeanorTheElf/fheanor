@@ -69,7 +69,7 @@ pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
 /// by using the feature `use_hexl`.
 /// 
 #[cfg(not(feature = "use_hexl"))]
-pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConvolution<feanor_math::rings::zn::zn_64::Zn>;
+pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConvolution<feanor_math::rings::zn::zn_64::ZnBase, feanor_math::rings::zn::zn_64::ZnBase, feanor_math::homomorphism::Identity<feanor_math::rings::zn::zn_64::Zn>>;
 
 ///
 /// The default algorithm for computing negacyclic NTTs that will be used by 

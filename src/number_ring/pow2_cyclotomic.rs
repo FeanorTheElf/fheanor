@@ -20,11 +20,12 @@ use feanor_math::rings::zn::zn_64::Zn;
 
 use crate::cyclotomic::*;
 use crate::ntt::HERingNegacyclicNTT;
+use crate::DefaultNegacyclicNTT;
 use crate::ZZi64;
 
 use super::{HECyclotomicNumberRing, HECyclotomicNumberRingMod, HENumberRing, HENumberRingMod};
 
-pub struct Pow2CyclotomicNumberRing<N = RustNegacyclicNTT<Zn>> {
+pub struct Pow2CyclotomicNumberRing<N = DefaultNegacyclicNTT> {
     log2_n: usize,
     ntt: PhantomData<N>
 }

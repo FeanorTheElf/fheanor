@@ -923,8 +923,8 @@ impl<NumberRing, A> FiniteRingSpecializable for ManagedDoubleRNSRingBase<NumberR
     where NumberRing: HENumberRing,
         A: Allocator + Clone
 {
-    fn specialize<O: FiniteRingOperation<Self>>(op: O) -> Result<O::Output, ()> {
-        Ok(op.execute())
+    fn specialize<O: FiniteRingOperation<Self>>(op: O) -> O::Output {
+        op.execute()
     }
 }
 
@@ -1067,7 +1067,7 @@ impl<NumberRing, A1, A2, C> CanHomFrom<SingleRNSRingBase<NumberRing, A1, C>> for
     where NumberRing: HECyclotomicNumberRing,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
-        C: PreparedConvolutionAlgorithm<zn_64::ZnBase>
+        C: ConvolutionAlgorithm<zn_64::ZnBase>
 {
     type Homomorphism = <DoubleRNSRingBase<NumberRing, A2> as CanHomFrom<SingleRNSRingBase<NumberRing, A1, C>>>::Homomorphism;
 
@@ -1130,7 +1130,7 @@ impl<NumberRing, A1, A2, C> CanIsoFromTo<SingleRNSRingBase<NumberRing, A1, C>> f
     where NumberRing: HECyclotomicNumberRing,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
-        C: PreparedConvolutionAlgorithm<zn_64::ZnBase>
+        C: ConvolutionAlgorithm<zn_64::ZnBase>
 {
     type Isomorphism = <DoubleRNSRingBase<NumberRing, A2> as CanIsoFromTo<SingleRNSRingBase<NumberRing, A1, C>>>::Isomorphism;
 

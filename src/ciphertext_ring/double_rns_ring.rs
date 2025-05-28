@@ -3,7 +3,7 @@ use std::alloc::Global;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use feanor_math::algorithms::convolution::PreparedConvolutionAlgorithm;
+use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::algorithms::matmul::ComputeInnerProduct;
 use feanor_math::divisibility::*;
 use feanor_math::integer::*;
@@ -453,7 +453,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     pub fn map_in_from_singlerns<A2, C>(&self, from: &SingleRNSRingBase<NumberRing, A2, C>, mut el: El<SingleRNSRing<NumberRing, A2, C>>, hom: &<Self as CanHomFrom<SingleRNSRingBase<NumberRing, A2, C>>>::Homomorphism) -> SmallBasisEl<NumberRing, A>
         where NumberRing: HECyclotomicNumberRing,
             A2: Allocator + Clone,
-            C: PreparedConvolutionAlgorithm<ZnBase>
+            C: ConvolutionAlgorithm<ZnBase>
     {
         let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
         let el_as_matrix = from.to_matrix(&mut el);
@@ -481,7 +481,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     pub fn map_out_to_singlerns<A2, C>(&self, to: &SingleRNSRingBase<NumberRing, A2, C>, el: SmallBasisEl<NumberRing, A>, iso: &<Self as CanIsoFromTo<SingleRNSRingBase<NumberRing, A2, C>>>::Isomorphism) -> El<SingleRNSRing<NumberRing, A2, C>>
         where NumberRing: HECyclotomicNumberRing,
             A2: Allocator + Clone,
-            C: PreparedConvolutionAlgorithm<ZnBase>
+            C: ConvolutionAlgorithm<ZnBase>
     {
         let mut result = to.zero();
         let mut result_matrix = to.coefficients_as_matrix_mut(&mut result);
@@ -946,8 +946,8 @@ impl<NumberRing, A> FiniteRingSpecializable for DoubleRNSRingBase<NumberRing, A>
     where NumberRing: HENumberRing,
         A: Allocator + Clone
 {
-    fn specialize<O: FiniteRingOperation<Self>>(op: O) -> Result<O::Output, ()> {
-        Ok(op.execute())
+    fn specialize<O: FiniteRingOperation<Self>>(op: O) -> O::Output {
+        op.execute()
     }
 }
 
@@ -1127,7 +1127,7 @@ impl<NumberRing, A1, A2, C2> CanHomFrom<SingleRNSRingBase<NumberRing, A2, C2>> f
     where NumberRing: HECyclotomicNumberRing,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
-        C2: PreparedConvolutionAlgorithm<ZnBase>
+        C2: ConvolutionAlgorithm<ZnBase>
 {
     type Homomorphism = Vec<<ZnBase as CanHomFrom<ZnBase>>::Homomorphism>;
 
@@ -1148,7 +1148,7 @@ impl<NumberRing, A1, A2, C2> CanIsoFromTo<SingleRNSRingBase<NumberRing, A2, C2>>
     where NumberRing: HECyclotomicNumberRing,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
-        C2: PreparedConvolutionAlgorithm<ZnBase>
+        C2: ConvolutionAlgorithm<ZnBase>
 {
     type Isomorphism = Vec<<ZnBase as CanIsoFromTo<ZnBase>>::Isomorphism>;
 
@@ -1197,7 +1197,6 @@ impl<NumberRing, A1, A2> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A2>> for Dou
 
 #[cfg(any(test, feature = "generic_tests"))]
 pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_ring: NumberRing) {
-    use feanor_math::algorithms::convolution::ntt::NTTConvolution;
     use feanor_math::algorithms::eea::signed_lcm;
     use feanor_math::assert_el_eq;
     use feanor_math::primitive_int::*;
@@ -1232,7 +1231,7 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
     feanor_math::ring::generic_tests::test_self_iso(&ring, elements.iter().map(|x| ring.clone_el(x)));
     feanor_math::rings::extension::generic_tests::test_free_algebra_axioms(&ring);
 
-    let single_rns_ring = SingleRNSRingBase::<_, _, NTTConvolution<_>>::new(number_ring.clone(), base_ring.clone());
+    let single_rns_ring = <SingleRNSRing<NumberRing> as RingStore>::Type::new(number_ring.clone(), base_ring.clone());
     feanor_math::ring::generic_tests::test_hom_axioms(&ring, &single_rns_ring, elements.iter().map(|x| ring.clone_el(x)));
 
     let dropped_rns_factor_ring = DoubleRNSRingBase::new(number_ring.clone(), zn_rns::Zn::new(vec![Zn::new(p2 as u64)], BigIntRing::RING));

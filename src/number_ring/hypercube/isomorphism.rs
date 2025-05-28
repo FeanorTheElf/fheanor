@@ -10,7 +10,7 @@ use feanor_math::algorithms::convolution::{ConvolutionAlgorithm, STANDARD_CONVOL
 use feanor_math::algorithms::eea::signed_gcd;
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::algorithms::poly_gcd::hensel::hensel_lift_factorization;
-use feanor_math::algorithms::poly_gcd::local::PolyGCDLocallyIntermediateReductionMap;
+use feanor_math::reduce_lift::poly_factor_gcd::PolyGCDLocallyIntermediateReductionMap;
 use feanor_math::computation::DontObserve;
 use feanor_math::field::Field;
 use feanor_math::rings::poly::sparse_poly::SparsePolyRing;

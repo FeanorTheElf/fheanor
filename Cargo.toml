@@ -15,7 +15,7 @@ crate-type = ["rlib"]
 bench = true
 
 [dependencies]
-feanor-math = { version = "3.1.4", features = ["generic_tests", "unstable-enable"] }
+feanor-math = { version = "3.3.2", features = ["generic_tests", "unstable-enable"] }
 feanor-math-hexl = { version = "0.2.4", optional = true }
 oorandom = "11.1.3"
 serde = { version = "1.0.207", features = ["derive"] }
@@ -37,7 +37,7 @@ tracing-chrome = "0.7.2"
 [features]
 use_hexl = ["dep:feanor-math-hexl"]
 generic_tests = []
-strassen_rnsconv = ["feanor-math/unrolled_strassen"]
+strassen_rnsconv = ["feanor-math/optimized_matmul"]
 
 [profile.profiling]
 inherits = "bench"
