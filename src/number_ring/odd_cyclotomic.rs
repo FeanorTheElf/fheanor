@@ -24,7 +24,7 @@ use feanor_mempool::dynsize::DynLayoutMempool;
 use feanor_mempool::fixedsize::FixedLayoutMempool;
 use feanor_mempool::AllocArc;
 use subvector::SubvectorView;
-use tracing::{instrument, Level};
+use tracing::instrument;
 use feanor_math::seq::*;
 
 use crate::euler_phi_squarefree;
@@ -559,16 +559,12 @@ impl<F, A> HENumberRingMod for CompositeCyclotomicDecomposedNumberRing<F, A>
     fn small_basis_to_mult_basis<V>(&self, mut data: V)
         where V: SwappableVectorViewMut<ZnEl>
     {
-        tracing::span!(Level::TRACE, "first_tensor_factor").in_scope(|| {
-            for i in 0..self.tensor_factor2.rank() {
-                self.tensor_factor1.small_basis_to_mult_basis(SubvectorView::new(&mut data).restrict((i * self.tensor_factor1.rank())..((i + 1) * self.tensor_factor1.rank())));
-            }
-        });
-        tracing::span!(Level::TRACE, "second_tensor_factor").in_scope(|| {
-            for j in 0..self.tensor_factor1.rank() {
-                self.tensor_factor2.small_basis_to_mult_basis(SubvectorView::new(&mut data).restrict(j..).step_by_view(self.tensor_factor1.rank()));
-            }
-        });
+        for i in 0..self.tensor_factor2.rank() {
+            self.tensor_factor1.small_basis_to_mult_basis(SubvectorView::new(&mut data).restrict((i * self.tensor_factor1.rank())..((i + 1) * self.tensor_factor1.rank())));
+        }
+        for j in 0..self.tensor_factor1.rank() {
+            self.tensor_factor2.small_basis_to_mult_basis(SubvectorView::new(&mut data).restrict(j..).step_by_view(self.tensor_factor1.rank()));
+        }
     }
 
     #[instrument(skip_all)]
