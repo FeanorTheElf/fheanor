@@ -41,7 +41,7 @@ fn main() {
     assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 
     println!("N        = {}", C_initial.rank());
-    println!("n        = {}", C_initial.n());
+    println!("m        = {}", C_initial.m());
     println!("log2(q)  = {}", BigIntRing::RING.abs_log2_ceil(C_initial.base_ring().modulus()).unwrap());
 
     let mut rng = StdRng::from_seed([1; 32]);

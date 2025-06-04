@@ -31,7 +31,7 @@ use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::ntt::{HERingConvolution, HERingNegacyclicNTT};
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
-use crate::number_ring::odd_cyclotomic::CompositeCyclotomicNumberRing;
+use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 use crate::number_ring::{sample_primes, largest_prime_leq_congruent_to_one, HECyclotomicNumberRing, HENumberRing};
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::number_ring::quotient::{NumberRingQuotient, NumberRingQuotientBase};
@@ -191,7 +191,7 @@ pub struct Ciphertext<Params: ?Sized + BGVCiphertextParams> {
 }
 
 ///
-/// Computes small `a, b` such that `a/b = implicit_scale_bound` modulo `t`.
+/// Computes small `a, b` such that `a/b = implicit_scale_quotient` modulo `t`.
 /// 
 pub fn equalize_implicit_scale(Zt: &Zn, implicit_scale_quotient: El<Zn>) -> (i64, i64) {
     let (u, v) = reduce_2d_modular_relation_basis(Zt, implicit_scale_quotient);
@@ -358,7 +358,7 @@ pub trait BGVCiphertextParams {
     #[instrument(skip_all)]
     fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>, cache_dir: Option<&str>) {
         let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(P.n() as u64), p);
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.galois_group(), p);
         let H = if let Some(dir) = cache_dir {
             HypercubeIsomorphism::new_cache_file::<false>(P, hypercube, dir)
         } else {
@@ -1071,7 +1071,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> Display for Pow2BGV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BGV(n = 2^{}, log2(q) in {}..{})", self.log2_N + 1, self.log2_q_min, self.log2_q_max)
+        write!(f, "BGV(m = 2^{}, log2(q) in {}..{})", self.log2_N + 1, self.log2_q_min, self.log2_q_max)
     }
 }
 
@@ -1127,15 +1127,15 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
 pub struct CompositeBGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator> {
     pub log2_q_min: usize,
     pub log2_q_max: usize,
-    pub n1: usize,
-    pub n2: usize,
+    pub m1: usize,
+    pub m2: usize,
     pub ciphertext_allocator: A
 }
 
 impl<A: Allocator + Clone + Send + Sync> Display for CompositeBGV<A> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BGV(n = {} * {}, log2(q) in {}..{})", self.n1, self.n2, self.log2_q_min, self.log2_q_max)
+        write!(f, "BGV(m = {} * {}, log2(q) in {}..{})", self.m1, self.m2, self.log2_q_min, self.log2_q_max)
     }
 }
 
@@ -1156,7 +1156,7 @@ impl<A: Allocator + Clone + Send + Sync> BGVCiphertextParams for CompositeBGV<A>
     }
 
     fn number_ring(&self) -> CompositeCyclotomicNumberRing {
-        CompositeCyclotomicNumberRing::new(self.n1, self.n2)
+        CompositeCyclotomicNumberRing::new(self.m1, self.m2)
     }
 
     fn max_rns_base(&self) -> zn_rns::Zn<Zn, BigIntRing> {
@@ -1228,8 +1228,8 @@ pub fn double_rns_repr<Params, NumberRing, A>(_P: &PlaintextRing<Params>, C: &Ci
 pub struct SingleRNSCompositeBGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: HERingConvolution<Zn> = DefaultConvolution> {
     pub log2_q_min: usize,
     pub log2_q_max: usize,
-    pub n1: usize,
-    pub n2: usize,
+    pub m1: usize,
+    pub m2: usize,
     pub ciphertext_allocator: A,
     pub convolution: PhantomData<C>
 }
@@ -1239,7 +1239,7 @@ impl<A: Allocator + Clone + Send + Sync, C: HERingConvolution<Zn>> BGVCiphertext
     type CiphertextRing = SingleRNSRingBase<CompositeCyclotomicNumberRing, A, C>;
 
     fn number_ring(&self) -> CompositeCyclotomicNumberRing {
-        CompositeCyclotomicNumberRing::new(self.n1, self.n2)
+        CompositeCyclotomicNumberRing::new(self.m1, self.m2)
     }
 
     fn max_rns_base(&self) -> zn_rns::Zn<Zn, BigIntRing> {
@@ -1254,7 +1254,7 @@ impl<A: Allocator + Clone + Send + Sync, C: HERingConvolution<Zn>> BGVCiphertext
 
     #[instrument(skip_all)]
     fn create_ciphertext_ring(&self, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> CiphertextRing<Self> {
-        let max_log2_n = 1 + ZZ.abs_log2_ceil(&((self.n1 * self.n2) as i64)).unwrap();
+        let max_log2_n = 1 + ZZ.abs_log2_ceil(&((self.m1 * self.m2) as i64)).unwrap();
         let convolutions = rns_base.as_iter().map(|Zp| C::new(*Zp, max_log2_n)).map(Arc::new).collect::<Vec<_>>();
         return SingleRNSRingBase::new_with(
             self.number_ring(),
@@ -1563,7 +1563,7 @@ fn test_pow2_bgv_drop_special_modulus() {
 
 #[test]
 #[ignore]
-fn measure_time_pow2_bgv() {
+fn measure_time_pow2_bgv_basic_ops() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1625,7 +1625,7 @@ fn measure_time_pow2_bgv() {
 
 #[test]
 #[ignore]
-fn measure_time_double_rns_composite_bgv() {
+fn measure_time_double_rns_composite_bgv_basic_ops() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1634,8 +1634,8 @@ fn measure_time_double_rns_composite_bgv() {
     let params = CompositeBGV {
         log2_q_min: 1090,
         log2_q_max: 1100,
-        n1: 127,
-        n2: 337,
+        m1: 127,
+        m2: 337,
         ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
     };
     let t = 4;
@@ -1672,9 +1672,11 @@ fn measure_time_double_rns_composite_bgv() {
         CompositeBGV::gen_rk(&P, &C, &mut rng, &sk, &KeySwitchKeyParams::default(digits, 0, C.base_ring().len()))
     );
     let ct2 = CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk);
-    let res = log_time::<_, _, true, _>("HomMul", |[]| 
-        CompositeBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
-    );
+    let res = log_time::<_, _, true, _>("HomMul", |[]| { for _ in 0..40 {
+        std::hint::black_box(CompositeBGV::hom_mul(&P, &C, &C, std::hint::black_box(CompositeBGV::clone_ct(&P, &C, &ct)), std::hint::black_box(CompositeBGV::clone_ct(&P, &C, &ct2)), &rk));
+    }
+    CompositeBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
+    });
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &res), &sk));
 
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
@@ -1688,7 +1690,7 @@ fn measure_time_double_rns_composite_bgv() {
 
 #[test]
 #[ignore]
-fn measure_time_single_rns_composite_bgv() {
+fn measure_time_single_rns_composite_bgv_basic_ops() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1697,8 +1699,8 @@ fn measure_time_single_rns_composite_bgv() {
     let params = SingleRNSCompositeBGV {
         log2_q_min: 1090,
         log2_q_max: 1100,
-        n1: 127,
-        n2: 337,
+        m1: 127,
+        m2: 337,
         ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
         convolution: PhantomData::<DefaultConvolution>
     };

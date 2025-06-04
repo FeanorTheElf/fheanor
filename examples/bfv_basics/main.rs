@@ -33,7 +33,7 @@ fn main() {
     let (C, C_for_multiplication): (CiphertextRing<ChosenBFVParamType>, CiphertextRing<ChosenBFVParamType>) = params.create_ciphertext_rings();
 
     println!("N        = {}", C.rank());
-    println!("n        = {}", C.n());
+    println!("m        = {}", C.m());
     println!("log2(q)  = {}", BigIntRing::RING.abs_log2_ceil(C.base_ring().modulus()).unwrap());
     println!("log2(q') = {}", BigIntRing::RING.abs_log2_ceil(C_for_multiplication.base_ring().modulus()).unwrap());
 

@@ -35,24 +35,24 @@ When it comes to implementation, `feanor-math` already provides the ring [`feano
 ### The Number-Theoretic Transform
 
 On a mathematical level, the Number-Theoretic Transform (NTT) is quite similar to what we did before - it just refers to the Chinese Remainder theorem, with prime numbers replaced by prime ideals in a cyclotomic number ring modulo a prime that splits completely.
-In more down-to-the-earth terms, the NTT is the evaluation of a polynomial at all `n`-th roots of unity.
+In more down-to-the-earth terms, the NTT is the evaluation of a polynomial at all `m`-th roots of unity.
 In other words, we say it is the map
 ```text
-  NTT: Fp^n  ->  Fp^n,  (a[0], ..., a[n - 1])  ->  (sum_i a[i] ξ_n^i)
+  NTT: Fp^m  ->  Fp^m,  (a[0], ..., a[m - 1])  ->  (sum_i a[i] ξ_n^i)
 ```
-where `ξ` is a `n`-th root of unity in the finite field `Fp` - note that for `ξ` to exist, we require `p = 1 mod n`.
+where `ξ` is a `m`-th root of unity in the finite field `Fp` - note that for `ξ` to exist, we require `p = 1 mod m`.
 
 The NTT is important, because of two well-known facts:
- - The NTT can be computed very fast using a "Fast Fourier Transform" (FFT), in time `O(n log n)`; The same holds for the inverse map, which we call `InvNTT()`.
- - Addition and multiplication are component-wise for elements in NTT form. With NTT form, we refer to the values `NTT(x[0], ..., x[n - 1])` of an element `x = sum_i x[i] X^n` in the ring `R_p = Z[X]/(Phi_n(X), p)`.
+ - The NTT can be computed very fast using a "Fast Fourier Transform" (FFT), in time `O(m log m)`; The same holds for the inverse map, which we call `InvNTT()`.
+ - Addition and multiplication are component-wise for elements in NTT form. With NTT form, we refer to the values `NTT(x[0], ..., x[m - 1])` of an element `x = sum_i x[i] X^i` in the ring `R_p = Z[X]/(Phi_m(X), p)`.
 
-In other words, if we store each element `x` in `R/(p)` using the values `(x'[0], ..., x'[n - 1]) = NTT(x[0], ..., x[n - 1])`, we can compute the multiplication of elements `x, y` by
+In other words, if we store each element `x` in `R/(p)` using the values `(x'[0], ..., x'[m - 1]) = NTT(x[0], ..., x[m - 1])`, we can compute the multiplication of elements `x, y` by
 ```text
-  z'[0] = x'[0] * y'[0],  ...,  z'[n - 1] = x'[n - 1] * y'[n - 1]
+  z'[0] = x'[0] * y'[0],  ...,  z'[m - 1] = x'[m - 1] * y'[m - 1]
 ```
 The individual multiplications here are very fast, since they are performed on values of `Fp`.
 
-Note here a little mismatch: We can actually represent an element `x` in `R/(p)` by a sum `x[0] + x[1] X + ... + x[phi(n) - 1] X^(phi(n) - 1)` of only `phi(n)` summands. However, padding this to `n` when necessary does not pose a significant problem.
+Note here a little mismatch: We can actually represent an element `x` in `R/(p)` by a sum `x[0] + x[1] X + ... + x[phi(m) - 1] X^(phi(m) - 1)` of only `n = phi(m)` summands. However, padding this to `m` when necessary does not pose a significant problem.
 
 ### The Double-RNS representation
 
@@ -65,8 +65,8 @@ This representation allows for very fast arithmetic, and is implemented by [`cra
 ## Implementing Encryption and Decryption
 
 Ok, so let's use [`crate::ciphertext_ring::double_rns_ring::DoubleRNSRing`] for the ciphertext ring.
-We cannot use it for the plaintext ring, since to use the double-RNS representation, we need to have `p = 1 mod n` for each prime divisor `p | q` of `q`.
-We also remark that due to technical details, we sometimes additionally require `p = 1 mod 2^k n` for some `k > log2(n) + 1`.
+We cannot use it for the plaintext ring, since to use the double-RNS representation, we need to have `p = 1 mod m` for each prime divisor `p | q` of `q`.
+We also remark that due to technical details, we sometimes additionally require `p = 1 mod 2^k m` for some `k > log2(m) + 1`.
 
 Anyway, we can now define our ring types
 ```rust
@@ -96,19 +96,19 @@ Creating this ring is not completely trivial, since we need to find a suitable `
 # type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
 fn create_ciphertext_ring(ring_degree: usize, mut number_of_rns_factors: usize) -> CiphertextRing {
-    let n = ring_degree * 2;
+    let m = ring_degree * 2;
     let mut rns_factors = Vec::new();
-    // `current` should always be `= 1 mod n`
-    let mut current = (1 << 57) - ((1 << 57) % n) + 1;
+    // `current` should always be `= 1 mod m`
+    let mut current = (1 << 57) - ((1 << 57) % m) + 1;
     while number_of_rns_factors > 0 {
         if is_prime(StaticRing::<i64>::RING, &(current as i64), 10) {
             rns_factors.push(current);
             number_of_rns_factors -= 1;
         }
-        current -= n;
+        current -= m;
     }
     return <CiphertextRing as RingStore>::Type::new(
-        Pow2CyclotomicNumberRing::new(n),
+        Pow2CyclotomicNumberRing::new(m),
         zn_rns::Zn::new(rns_factors.iter().map(|p| zn_64::Zn::new(*p as u64)).collect(), BigIntRing::RING)
     );
 }
@@ -275,7 +275,7 @@ fn hom_add(
 
 As in [`crate::examples::bfv_impl_v1`], homomorphic multiplication is the most interesting operation.
 The first question is, which ring do we use to evaluate `c0 * c0'` etc. without wrapping around `q`?
-Previously, we worked without any modulus in `Z[X]/(Phi_n(X))`, which certainly works, but means we cannot use the double-RNS representation.
+Previously, we worked without any modulus in `Z[X]/(Phi_m(X))`, which certainly works, but means we cannot use the double-RNS representation.
 Instead, it makes sense to choose a larger modulus - say `qq'` - and perform the multiplication in `R_(qq')`.
 If `qq'` is larger than the coefficients of `c0 * c0'` in `R`, this means we still get the correct result.
 Since creating a double-RNS ring is somewhat expensive, we do this once and reuse the ring.
@@ -327,17 +327,17 @@ In particular, we are interested in [`crate::rnsconv::lift::AlmostExactBaseConve
 The first one takes care of the conversion `Z/(q) -> Z/(qq')`, and the second one does the downscaling at the end, which scales elements of `Z/(qq')` by `t/q` and maps them back to `Z/(q)`.
 All implemented RNS conversions take the input in the form of the following matrix:
 ```text
-   /  x[1] mod p1   x[2] mod p1   ...   x[m] mod p1   \
-  |   x[1] mod p2   x[2] mod p2   ...   x[m] mod p2    |
+   /  x[1] mod p1   x[2] mod p1   ...   x[r] mod p1   \
+  |   x[1] mod p2   x[2] mod p2   ...   x[r] mod p2    |
   |         ⋮              ⋮                   ⋮        |
-   \  x[1] mod pr   x[2] mod pr   ...   x[m] mod pr   /
+   \  x[1] mod pr   x[2] mod pr   ...   x[r] mod pr   /
 ```
-where `x[1], ..., x[m]` are an arbitrary number of elements of `Z/(q)`.
+where `x[1], ..., x[r]` are an arbitrary number of elements of `Z/(q)`.
 The output is returned in the same format.
 
 If we now want to apply such an RNS conversion to an element of `R_q`, we need to first convert this element back from double-RNS basis, to "single-RNS" representation.
 This requires a relatively costly NTT, but no way of avoiding this is known.
-Note however that it actually is not required to get the actual coefficients `x[i]` in the representatation `x = x[0] + x[1] X + ... + x[phi(n) - 1] X^(phi(n) - 1)`, but the coefficients w.r.t. any basis that consists of "short" elements suffice.
+Note however that it actually is not required to get the actual coefficients `x[i]` in the representatation `x = x[0] + x[1] X + ... + x[phi(m) - 1] X^(phi(m) - 1)`, but the coefficients w.r.t. any basis that consists of "short" elements suffice.
 The reason for this is that the noise growth during multiplication depends on the size of `c0, c1, c0', c1'` w.r.t. the *canonical norm* of the number ring `R`.
 More details on the mathematical background can be found in the original BFV paper.
 

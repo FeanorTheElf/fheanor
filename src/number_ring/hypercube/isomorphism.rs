@@ -136,17 +136,17 @@ pub type DecoratedBaseRing<R> = AsLocalPIR<RingValue<BaseRing<R>>>;
 ///
 /// Represents the isomorphism
 /// ```text
-///   Fp[X]/(Phi_n(X)) -> F_(p^d)^((Z/nZ)*/<p>)
+///   Fp[X]/(Phi_m(X)) -> F_(p^d)^((Z/mZ)*/<p>)
 /// ```
-/// where `d` is the order of `p` in `(Z/nZ)*`.
-/// The group `(Z/nZ)*/<p>` is represented by a [`HypercubeStructure`].
+/// where `d` is the order of `p` in `(Z/mZ)*`.
+/// The group `(Z/mZ)*/<p>` is represented by a [`HypercubeStructure`].
 /// 
-/// In fact, the more general case of `(Z/p^eZ)[X]/(Phi_n(X))` is supported.
+/// In fact, the more general case of `(Z/p^eZ)[X]/(Phi_m(X))` is supported.
 /// 
 /// # Serialization
 /// 
 /// There are two ways of serializing/deserializing a [`HypercubeIsomorphism`]
-///  - you can serialize the isomorphism including the implementation of `Fp[X]/(Phi_n(X))`
+///  - you can serialize the isomorphism including the implementation of `Fp[X]/(Phi_m(X))`
 ///    (if the latter is serializable) using the implementation of [`serde::Serialize`] and
 ///    [`serde::Deserialize`]
 ///  - alternatively, you can serialize the isomorphism without the ring implementation
@@ -177,7 +177,7 @@ impl<R> HypercubeIsomorphism<R>
         where BaseRing<R>: SerializableElementRing
     {
         let (p, e) = is_prime_power(&ZZi64, &ring.characteristic(&ZZi64).unwrap()).unwrap();
-        let filename = format!("{}/hypercube_n{}_p{}_e{}.json", dir, ring.n(), p, e);
+        let filename = format!("{}/hypercube_m{}_p{}_e{}.json", dir, ring.m(), p, e);
         if let Ok(file) = File::open(filename.as_str()) {
             if LOG {
                 println!("Reading from file {}", filename);
@@ -198,7 +198,7 @@ impl<R> HypercubeIsomorphism<R>
 
     pub fn new<const LOG: bool>(ring: R, hypercube_structure: HypercubeStructure) -> Self {      
         let d = hypercube_structure.d();  
-        if d * d < hypercube_structure.n() {
+        if d * d < hypercube_structure.m() {
             return Self::new_small_slot_ring::<LOG>(ring, hypercube_structure);
         } else {
             return Self::new_large_slot_ring::<LOG>(ring, hypercube_structure);
@@ -211,21 +211,21 @@ impl<R> HypercubeIsomorphism<R>
     /// 
     #[instrument(skip_all)]
     fn new_large_slot_ring<const LOG: bool>(ring: R, hypercube_structure: HypercubeStructure) -> Self {
-        let n = ring.n() as usize;
+        let m = ring.m() as usize;
         let d = hypercube_structure.d();
         let (p, _) = is_prime_power(&ZZi64, &ring.characteristic(&ZZi64).unwrap()).unwrap();
-        assert!(signed_gcd(n as i64, p, ZZi64) == 1, "currently the ramified case is not implemented");
+        assert!(signed_gcd(m as i64, p, ZZi64) == 1, "currently the ramified case is not implemented");
         let galois_group = hypercube_structure.galois_group();
-        assert_eq!(n, galois_group.n());
+        assert_eq!(m, galois_group.m());
         assert!(galois_group.eq_el(hypercube_structure.p(), galois_group.from_representative(p)));
 
         let decorated_base_ring: DecoratedBaseRing<R> = AsLocalPIR::from_zn(RingValue::from(ring.base_ring().get_ring().clone())).unwrap();
         let ZpeX = DensePolyRing::new_with(decorated_base_ring, "X", Global, STANDARD_CONVOLUTION);
-        let FpX = DensePolyRing::new_with(Zn::new(p as u64).as_field().ok().unwrap(), "X", Global, create_convolution(n as usize, ZZi64.abs_log2_ceil(&p).unwrap()));
+        let FpX = DensePolyRing::new_with(Zn::new(p as u64).as_field().ok().unwrap(), "X", Global, create_convolution(m as usize, ZZi64.abs_log2_ceil(&p).unwrap()));
         let ZZX = SparsePolyRing::new(ZZi64, "X");
-        let Phi_n = cyclotomic_polynomial(&ZZX, n);
-        let Phi_n_mod_pe = ZpeX.lifted_hom(&ZZX, ZpeX.base_ring().can_hom(ZZX.base_ring()).unwrap()).map_ref(&Phi_n);
-        let Phi_n_mod_p = FpX.lifted_hom(&ZZX, FpX.base_ring().can_hom(ZZX.base_ring()).unwrap()).map(Phi_n);
+        let Phi_m = cyclotomic_polynomial(&ZZX, m);
+        let Phi_n_mod_pe = ZpeX.lifted_hom(&ZZX, ZpeX.base_ring().can_hom(ZZX.base_ring()).unwrap()).map_ref(&Phi_m);
+        let Phi_n_mod_p = FpX.lifted_hom(&ZZX, FpX.base_ring().can_hom(ZZX.base_ring()).unwrap()).map(Phi_m);
 
         let tmp_slot_ring = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Creating temporary slot ring", |[]| {
             let base_ring = Zn::new(p as u64).as_field().ok().unwrap();
@@ -242,7 +242,7 @@ impl<R> HypercubeIsomorphism<R>
         });
 
         let root_of_unity = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Computing root of unity", |[]| 
-            get_prim_root_of_unity(&tmp_slot_ring, n)
+            get_prim_root_of_unity(&tmp_slot_ring, m)
         );
 
         let slot_ring_modulus = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Computing single factor of cyclotomic polynomial", |[]| {
@@ -273,7 +273,7 @@ impl<R> HypercubeIsomorphism<R>
                 let slot_ring_modulus_mod_p = FpX.from_terms(
                     FpX.terms(&slot_ring_modulus).map(|(c, i)| (
                         *c,
-                        (galois_group.representative(g) * i as usize) % n
+                        (galois_group.representative(g) * i as usize) % m
                     ))
                 );
                 result.push(hensel_lift_factor(&ZpeX, &FpX, &Phi_n_mod_pe, FpX.normalize(FpX.ideal_gen(&slot_ring_modulus_mod_p, &Phi_n_mod_p))));
@@ -290,21 +290,21 @@ impl<R> HypercubeIsomorphism<R>
     /// 
     #[instrument(skip_all)]
     fn new_small_slot_ring<const LOG: bool>(ring: R, hypercube_structure: HypercubeStructure) -> Self {
-        let n = ring.n() as usize;
+        let m = ring.m() as usize;
         let d = hypercube_structure.d();
         let (p, _) = is_prime_power(&ZZi64, &ring.characteristic(&ZZi64).unwrap()).unwrap();
         let galois_group = hypercube_structure.galois_group();
-        assert_eq!(n, galois_group.n());
+        assert_eq!(m, galois_group.m());
         assert!(galois_group.eq_el(hypercube_structure.p(), galois_group.from_representative(p)));
 
         // in this case, we use an "internal" approach, i.e. work only within
         // the slot ring; since the slot ring is small, this is fast;
         // The main idea is that we already know how the slot ring should look like,
         // namely it is `GR(p, e, d)`. Once we find a root of unity in the slot
-        // ring, we can compute its minimal polynomial and find a factor of `Phi_n`, 
-        // without ever even computing `Phi_n`. Note however that this requires
+        // ring, we can compute its minimal polynomial and find a factor of `Phi_m`, 
+        // without ever even computing `Phi_m`. Note however that this requires
         // a lot of operations within the slot ring, and if that is large, this
-        // will be more expensive than an explicit factorization of `Phi_n`.
+        // will be more expensive than an explicit factorization of `Phi_m`.
 
         let tmp_slot_ring = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Creating temporary slot ring", |[]| {
             let base_ring = Zn::new(p as u64).as_field().ok().unwrap();
@@ -321,7 +321,7 @@ impl<R> HypercubeIsomorphism<R>
         });
 
         let root_of_unity = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Computing root of unity", |[]| 
-            get_prim_root_of_unity(&tmp_slot_ring, n)
+            get_prim_root_of_unity(&tmp_slot_ring, m)
         );
 
         let decorated_base_ring: DecoratedBaseRing<R> = AsLocalPIR::from_zn(RingValue::from(ring.base_ring().get_ring().clone())).unwrap();
@@ -356,7 +356,7 @@ impl<R> HypercubeIsomorphism<R>
 
     #[instrument(skip_all)]
     pub fn create<const LOG: bool>(ring: R, hypercube_structure: HypercubeStructure, ZpeX: DensePolyRing<AsLocalPIR<RingValue<BaseRing<R>>>>, slot_ring_moduli: Vec<El<DensePolyRing<AsLocalPIR<RingValue<BaseRing<R>>>>>>) -> Self {
-        assert_eq!(ring.n(), hypercube_structure.n());
+        assert_eq!(ring.m(), hypercube_structure.m());
         let (p, e) = is_prime_power(&ZZi64, &ring.characteristic(&ZZi64).unwrap()).unwrap();
         assert!(hypercube_structure.galois_group().eq_el(hypercube_structure.galois_group().from_representative(p), hypercube_structure.frobenius(1)));
         let d = hypercube_structure.d();
@@ -516,7 +516,7 @@ impl<R> HypercubeIsomorphism<R>
 #[cfg(test)]
 use feanor_math::rings::finite::*;
 #[cfg(test)]
-use crate::number_ring::odd_cyclotomic::CompositeCyclotomicNumberRing;
+use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 #[cfg(test)]
@@ -684,11 +684,11 @@ fn test_hypercube_isomorphism_rotation() {
         input[0] = slot_ring.clone_el(&a);
 
         let mut expected = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
-        expected[hypercube.m(0) - 1] = slot_ring.clone_el(&a);
+        expected[hypercube.dim_length(0) - 1] = slot_ring.clone_el(&a);
 
         let actual = ring.apply_galois_action(
             &isomorphism.from_slot_values(input.into_iter()),
-            hypercube.galois_group().pow(hypercube.g(0), hypercube.m(0) as i64 - 1)
+            hypercube.galois_group().pow(hypercube.dim_generator(0), hypercube.dim_length(0) as i64 - 1)
         );
         let actual = isomorphism.get_slot_values(&actual);
         for (expected, actual) in expected.iter().zip(actual) {
@@ -708,11 +708,11 @@ fn test_hypercube_isomorphism_rotation() {
         input[0] = slot_ring.clone_el(&a);
 
         let mut expected = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
-        expected[(hypercube.m(0) - 1) * hypercube.m(1)] = slot_ring.clone_el(&a);
+        expected[(hypercube.dim_length(0) - 1) * hypercube.dim_length(1)] = slot_ring.clone_el(&a);
 
         let actual = ring.apply_galois_action(
             &isomorphism.from_slot_values(input.into_iter()),
-            hypercube.galois_group().pow(hypercube.g(0), hypercube.m(0) as i64 - 1)
+            hypercube.galois_group().pow(hypercube.dim_generator(0), hypercube.dim_length(0) as i64 - 1)
         );
         let actual = isomorphism.get_slot_values(&actual).collect::<Vec<_>>();
         for (expected, actual) in expected.iter().zip(actual.iter()) {
@@ -732,11 +732,11 @@ fn test_hypercube_isomorphism_rotation() {
         input[0] = slot_ring.clone_el(&a);
 
         let mut expected = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
-        expected[(hypercube.m(0) - 1) * hypercube.m(1)] = slot_ring.clone_el(&a);
+        expected[(hypercube.dim_length(0) - 1) * hypercube.dim_length(1)] = slot_ring.clone_el(&a);
 
         let actual = ring.apply_galois_action(
             &isomorphism.from_slot_values(input.into_iter()),
-            hypercube.galois_group().pow(hypercube.g(0), hypercube.m(0) as i64 - 1)
+            hypercube.galois_group().pow(hypercube.dim_generator(0), hypercube.dim_length(0) as i64 - 1)
         );
         let actual = isomorphism.get_slot_values(&actual);
         for (expected, actual) in expected.iter().zip(actual) {

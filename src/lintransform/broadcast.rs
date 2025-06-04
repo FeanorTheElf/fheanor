@@ -102,13 +102,13 @@ fn test_broadcast() {
     assert_eq!(5, H.hypercube().factor_of_n(1).unwrap());
     assert_eq!(4, H.hypercube().m(1));
 
-    let input = H.from_slot_values((0..8).map(|n| H.slot_ring().int_hom().map(n)));
-    let expected = H.from_slot_values((0..8).map(|n| H.slot_ring().int_hom().map(n % 4)));
+    let input = H.from_slot_values((0..8).map(|i| H.slot_ring().int_hom().map(i)));
+    let expected = H.from_slot_values((0..8).map(|i| H.slot_ring().int_hom().map(i % 4)));
     let broadcast = Broadcast1d::new(&H, 0);
     let actual = broadcast.evaluate(&ring, ring.clone_el(&input));
     assert_el_eq!(H.ring(), expected, actual);
 
-    let expected = H.from_slot_values((0..8).map(|n| H.slot_ring().int_hom().map((n / 4) * 4)));
+    let expected = H.from_slot_values((0..8).map(|i| H.slot_ring().int_hom().map((i / 4) * 4)));
     let broadcast = Broadcast1d::new(&H, 1);
     let actual = broadcast.evaluate(&ring, input);
     assert_el_eq!(H.ring(), expected, actual);

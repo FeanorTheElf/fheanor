@@ -75,7 +75,7 @@ impl<NumberRing, ZnTy> NumberRingQuotientBase<NumberRing, ZnTy>
         let max_product_size = ZZbig.mul(ZZbig.pow(max_lift_size, 2), max_product_expansion_factor);
         let required_bits = ZZbig.abs_log2_ceil(&max_product_size).unwrap();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity();
-        let rns_base_primes = sample_primes(required_bits, required_bits + 57, 57, |n| largest_prime_leq_congruent_to_one(int_cast(n, StaticRing::RING, BigIntRing::RING), required_root_of_unity as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::RING))).unwrap();
+        let rns_base_primes = sample_primes(required_bits, required_bits + 57, 57, |i| largest_prime_leq_congruent_to_one(int_cast(i, StaticRing::RING, BigIntRing::RING), required_root_of_unity as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::RING))).unwrap();
         let rns_base = zn_rns::Zn::new(rns_base_primes.into_iter().map(|p| zn_64::Zn::new(int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING) as u64)).collect(), ZZbig);
         return Self::new_with(number_ring, base_ring, rns_base, Global);
     }
@@ -205,8 +205,8 @@ impl<NumberRing, ZnTy, A> CyclotomicRing for NumberRingQuotientBase<NumberRing, 
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone
 {
-    fn n(&self) -> usize {
-        self.ring_decompositions()[0].n()
+    fn m(&self) -> usize {
+        self.ring_decompositions()[0].m()
     }
 
     fn apply_galois_action(&self, el: &<Self as RingBase>::Element, g: CyclotomicGaloisGroupEl) -> <Self as RingBase>::Element {

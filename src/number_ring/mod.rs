@@ -17,18 +17,14 @@ use crate::cyclotomic::*;
 pub mod quotient;
 ///
 /// Contains [`pow2_cyclotomic::Pow2CyclotomicNumberRing`], an implementation of
-/// [`HENumberRing`] for `Z[X]/(X^n + 1)` with `n` a power of two.
+/// [`HENumberRing`] for `Z[X]/(X^m + 1)` with `m` a power of two.
 /// 
 pub mod pow2_cyclotomic;
+
+pub mod composite_cyclotomic;
+pub mod general_cyclotomic;
 ///
-/// Contains [`odd_cyclotomic::OddCyclotomicNumberRing`] and [`odd_cyclotomic::CompositeCyclotomicNumberRing`],
-/// two implementations of [`HENumberRing`] for `Z[X]/(Phi_n(X))` with `n` odd. Note that
-/// [`odd_cyclotomic::CompositeCyclotomicNumberRing`] additionally requires `n` to be composite,
-/// but will give better performance in this case.
-/// 
-pub mod odd_cyclotomic;
-///
-/// Contains various types to represent the isomorphism `Fp[X]/(Phi_n(X)) ~ F_(p^d)^(phi(n) / d)`
+/// Contains various types to represent the isomorphism `Fp[X]/(Phi_m(X)) ~ F_(p^d)^(phi(m) / d)`
 /// via "hypercube structures".
 /// 
 pub mod hypercube;
@@ -110,13 +106,13 @@ pub trait HECyclotomicNumberRing: HENumberRing<Decomposed: HECyclotomicNumberRin
 
     ///
     /// The cyclotomic order, i.e. the multiplicative order of the canonical generator of this ring.
-    /// The degree of this ring extension is `phi(self.n())` where `phi` is Euler's totient
+    /// The degree of this ring extension is `phi(m)` where `phi` is Euler's totient
     /// function. This is sometimes also called the conductor of this cyclotomic ring.
     ///
-    fn n(&self) -> usize;
+    fn m(&self) -> usize;
 
     fn galois_group(&self) -> CyclotomicGaloisGroup {
-        CyclotomicGaloisGroup::new(self.n() as u64)
+        CyclotomicGaloisGroup::new(self.m() as u64)
     }
 }
 
@@ -127,22 +123,23 @@ pub trait HECyclotomicNumberRing: HENumberRing<Decomposed: HECyclotomicNumberRin
 /// properties:
 ///  - the "small basis" should consist of elements whose shortest lift to `R` has small
 ///    canonical norm
-///  - the "multiplicative basis" should allow for component-wise multiplication, i.e. `bi * bi = bi`
-///    and `bi * bj = 0` for `i != j`
+///  - the "multiplicative basis" should allow for component-wise multiplication, i.e. `b_i * b_i = b_i`
+///    and `b_i * b_j = 0` for `i != j`
 ///  - the "coeff basis" should consist of powers of a generator of the ring, which for
 ///    cyclotomic rings should be the root of unity.
+/// 
 /// Both "small basis" and "coeff basis" should be the reduction of a corresponding
 /// canonical basis of `R`.
 /// 
 /// Note that it is valid for any of these basis to coincide, and then implement the 
 /// corresponding conversions as no-ops.
 /// 
-/// This design is motivated by the example of `Z[𝝵_n]` for a composite `n`, since in
+/// This design is motivated by the example of `Z[𝝵_m]` for a composite `m`, since in
 /// this case, we need three different basis.
-///  - The "small basis" is the powerful basis `𝝵^(n/n1 * i1 + ... + n/nr * ir)` with
-///    `0 <= ij < phi(nj)`, where `nj` runs through pairwise coprime factors of `n`
-///  - The "multiplicative basis" is the preimage of the unit vector basis under `Fp[𝝵] -> Fp^phi(n)`
-///  - The "coeff basis" is the basis `1, 𝝵, 𝝵^2, ..., 𝝵^phi(n)`
+///  - The "small basis" is the powerful basis `𝝵^(m/m_1 * i_1 + ... + m/m_r * i_r)` with
+///    `0 <= i_j < phi(m_j)`, where `m_j` runs through pairwise coprime factors of `m`
+///  - The "multiplicative basis" is the preimage of the unit vector basis under `Fp[𝝵] -> Fp^phi(m)`
+///  - The "coeff basis" is the basis `1, 𝝵, 𝝵^2, ..., 𝝵^phi(m)`
 /// While one could choose "small basis" and "coeff basis" to be equal (after all, the
 /// elements `𝝵^i` are all "small"), staying in "small basis" whenever possible has
 /// performance benefits, because of the tensor-decomposition.
@@ -170,13 +167,13 @@ pub trait HECyclotomicNumberRingMod: HENumberRingMod {
 
     ///
     /// The cyclotomic order, i.e. the multiplicative order of the canonical generator of this ring.
-    /// The degree of this ring extension is `phi(self.n())` where `phi` is Euler's totient
+    /// The degree of this ring extension is `phi(m)` where `phi` is Euler's totient
     /// function. This is sometimes also called the conductor of this cyclotomic ring.
     ///
-    fn n(&self) -> usize;
+    fn m(&self) -> usize;
 
     fn galois_group(&self) -> CyclotomicGaloisGroup {
-        CyclotomicGaloisGroup::new(self.n() as u64)
+        CyclotomicGaloisGroup::new(self.m() as u64)
     }
 
     ///
@@ -209,7 +206,7 @@ pub fn largest_prime_leq_congruent_to_one(leq_than: i64, congruent_to_one_mod: i
 /// product is between `2^min_bits` and `2^max_bits`.
 /// 
 /// Only primes that are returned by the given function are used, which allows the caller to sample
-/// a list of primes that satisfy additional constraints, like being `= 1 mod n` for some integer `n`.
+/// a list of primes that satisfy additional constraints, like being `= 1 mod m` for some integer `m`.
 /// More concretely, the given function `largest_prime_leq` should, on input `B`, return the largest
 /// prime that satisfies all desired constraint and is `<= B`, or `None` if no such prime exists.
 /// 
@@ -228,7 +225,7 @@ pub fn sample_primes<F>(min_bits: usize, max_bits: usize, max_bits_each_modulus:
 /// from every prime that is already in the starting list.
 /// 
 /// Only primes that are returned by the given function are used, which allows the caller to sample
-/// a list of primes that satisfy additional constraints, like being `= 1 mod n` for some integer `n`.
+/// a list of primes that satisfy additional constraints, like being `= 1 mod m` for some integer `m`.
 /// More concretely, the given function `largest_prime_leq` should, on input `B`, return the largest
 /// prime that satisfies all desired constraint and is `<= B`, or `None` if no such prime exists.
 /// 
@@ -243,7 +240,7 @@ pub fn extend_sampled_primes<F>(begin_with: &[El<BigIntRing>], min_bits: usize, 
     assert!(max_bits > min_bits);
 
     let mut result = begin_with.iter().map(|p| ZZbig.clone_el(p)).collect::<Vec<_>>();
-    let mut current_bits = result.iter().map(|n| ZZbig.to_float_approx(n).log2()).sum::<f64>();
+    let mut current_bits = result.iter().map(|i| ZZbig.to_float_approx(i).log2()).sum::<f64>();
     assert!((current_bits.floor() as usize) < max_bits);
     let mut current_upper_bound = ZZbig.power_of_two(max_bits_each_modulus);
 
@@ -268,8 +265,8 @@ pub fn extend_sampled_primes<F>(begin_with: &[El<BigIntRing>], min_bits: usize, 
         current_bits += bits;
         result.push(ZZbig.clone_el(&prime));
     }
-    debug_assert!(ZZbig.is_geq(&ZZbig.prod(result.iter().map(|n| ZZbig.clone_el(n))), &ZZbig.power_of_two(min_bits)));
-    debug_assert!(ZZbig.is_lt(&ZZbig.prod(result.iter().map(|n| ZZbig.clone_el(n))), &ZZbig.power_of_two(max_bits)));
+    debug_assert!(ZZbig.is_geq(&ZZbig.prod(result.iter().map(|i| ZZbig.clone_el(i))), &ZZbig.power_of_two(min_bits)));
+    debug_assert!(ZZbig.is_lt(&ZZbig.prod(result.iter().map(|i| ZZbig.clone_el(i))), &ZZbig.power_of_two(max_bits)));
     return Some(result);
 }
 
@@ -284,24 +281,24 @@ fn test_sample_primes() {
     let ZZbig = BigIntRing::RING;
     let result = sample_primes(60, 62, 58, |b| largest_prime_leq_congruent_to_one(int_cast(b, ZZi64, ZZbig), 422144).map(|x| int_cast(x, ZZbig, ZZi64))).unwrap();
     assert_eq!(result.len(), 2);
-    let prod = ZZbig.prod(result.iter().map(|n| ZZbig.clone_el(n)));
+    let prod = ZZbig.prod(result.iter().map(|i| ZZbig.clone_el(i)));
     assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 60);
     assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 62);
-    assert!(result.iter().all(|n| ZZbig.is_one(&ZZbig.euclidean_rem(ZZbig.clone_el(n), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
+    assert!(result.iter().all(|i| ZZbig.is_one(&ZZbig.euclidean_rem(ZZbig.clone_el(i), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
 
     let ZZbig = BigIntRing::RING;
     let result = sample_primes(135, 138, 58, |b| largest_prime_leq_congruent_to_one(int_cast(b, ZZi64, ZZbig), 422144).map(|x| int_cast(x, ZZbig, ZZi64))).unwrap();
     assert_eq!(result.len(), 3);
-    let prod = ZZbig.prod(result.iter().map(|n| ZZbig.clone_el(n)));
+    let prod = ZZbig.prod(result.iter().map(|i| ZZbig.clone_el(i)));
     assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 135);
     assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 138);
-    assert!(result.iter().all(|n| ZZbig.is_one(&ZZbig.euclidean_rem(ZZbig.clone_el(n), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
+    assert!(result.iter().all(|i| ZZbig.is_one(&ZZbig.euclidean_rem(ZZbig.clone_el(i), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
 
     let ZZbig = BigIntRing::RING;
     let result = sample_primes(115, 118, 58, |b| largest_prime_leq_congruent_to_one(int_cast(b, ZZi64, ZZbig), 422144).map(|x| int_cast(x, ZZbig, ZZi64))).unwrap();
     assert_eq!(result.len(), 2);
-    let prod = ZZbig.prod(result.iter().map(|n| ZZbig.clone_el(n)));
+    let prod = ZZbig.prod(result.iter().map(|i| ZZbig.clone_el(i)));
     assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 115);
     assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 118);
-    assert!(result.iter().all(|n| ZZbig.is_one(&ZZbig.euclidean_rem(ZZbig.clone_el(n), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
+    assert!(result.iter().all(|i| ZZbig.is_one(&ZZbig.euclidean_rem(ZZbig.clone_el(i), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
 }

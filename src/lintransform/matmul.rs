@@ -32,7 +32,7 @@ use crate::number_ring::*;
 use super::trace::extract_linear_map;
 
 ///
-/// A linear transform of the ring `R_t = Z[X]/(Phi_n(X), t)`, written in the form
+/// A linear transform of the ring `R_t = Z[X]/(Phi_m(X), t)`, written in the form
 /// ```text
 ///   x  ->  sum_σ c_σ σ(x)
 /// ```
@@ -102,7 +102,7 @@ impl<NumberRing, A> MatmulTransform<NumberRing, A>
         where G: Sync + Fn(usize, usize, &[usize]) -> El<SlotRingOver<Zn>>,
             A: Send + Sync
     {
-        let m = H.hypercube().m(dim_index) as i64;
+        let m = H.hypercube().dim_length(dim_index) as i64;
         let mut result = MatmulTransform {
             data: ((1 - m)..m).into_par_iter().map(|s| {
                 let coeff = H.from_slot_values(H.hypercube().hypercube_iter(|idxs: &[usize]| if idxs[dim_index] as i64 >= s && idxs[dim_index] as i64 - s < m {
@@ -185,14 +185,14 @@ impl<NumberRing, A> MatmulTransform<NumberRing, A>
         where G: Sync + Fn((usize, usize), (usize, usize), &[usize]) -> El<Zn>,
             A: Send + Sync
     {
-        let m = H.hypercube().m(dim_index) as i64;
+        let m = H.hypercube().dim_length(dim_index) as i64;
         let d = H.slot_ring().rank();
         let Gal = H.galois_group();
         let extract_coeff_factors = (0..d).map(|j| 
             extract_linear_map(H.slot_ring(), |x| H.slot_ring().wrt_canonical_basis(&x).at(j))
         ).collect::<Vec<_>>();
         
-        let canonical_gen_powertable = PowerTable::new(H.slot_ring(), H.slot_ring().canonical_gen(), H.ring().n() as usize);
+        let canonical_gen_powertable = PowerTable::new(H.slot_ring(), H.slot_ring().canonical_gen(), H.ring().m() as usize);
         // this is the map `X -> X^p`, which is the frobenius in our case, since we choose the canonical generator of the slot ring as root of unity
         let apply_frobenius = |x: &El<SlotRingOver<Zn>>, count: i64| H.slot_ring().sum(
             H.slot_ring().wrt_canonical_basis(x).iter().enumerate().map(|(i, c)| H.slot_ring().inclusion().mul_ref_map(
@@ -232,7 +232,7 @@ impl<NumberRing, A> MatmulTransform<NumberRing, A>
 
     pub fn switch_ring(&self, H_from: &DefaultHypercube<NumberRing, A>, to: &NumberRingQuotientBase<NumberRing, Zn, A>) -> Self {
         self.check_valid(H_from);
-        assert_eq!(H_from.ring().n(), to.n());
+        assert_eq!(H_from.ring().m(), to.m());
         let from = H_from.ring();
         let red_map = ZnReductionMap::new(from.base_ring(), to.base_ring()).unwrap();
         let hom = |x: &El<NumberRingQuotient<NumberRing, Zn, A>>| to.from_canonical_basis(H_from.ring().wrt_canonical_basis(x).into_iter().map(|x| red_map.map(x)));
@@ -655,7 +655,9 @@ use super::pow2::slots_to_coeffs_thin;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::*;
 #[cfg(test)]
-use crate::number_ring::odd_cyclotomic::*;
+use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
+#[cfg(test)]
+use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
@@ -667,7 +669,7 @@ fn test_to_circuit_single() {
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), 23);
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
-    assert_eq!(4, hypercube.m(0));
+    assert_eq!(4, hypercube.dim_length(0));
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
     let transform = MatmulTransform::blockmatmul1d(&H, 0, |(i, k), (j, l), _| if j == i + 1 && k == 0 && l == 0 {
         H.slot_ring().base_ring().one()
@@ -675,8 +677,8 @@ fn test_to_circuit_single() {
         H.slot_ring().base_ring().zero()
     });
 
-    let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|n| H.slot_ring().int_hom().map(n)));
-    let expected = H.from_slot_values([2, 3, 4, 0].into_iter().map(|n| H.slot_ring().int_hom().map(n)));
+    let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
+    let expected = H.from_slot_values([2, 3, 4, 0].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
 
     let compiled_transform = transform.to_circuit(&H);
     let actual = compiled_transform.evaluate(&[input], ring.identity()).pop().unwrap();
@@ -690,7 +692,7 @@ fn test_to_circuit_slots_to_coeffs() {
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
     let compiled_transform = MatmulTransform::to_circuit_many(slots_to_coeffs_thin(&H), &H);
 
-    let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|n| H.slot_ring().int_hom().map(n)));
+    let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     let expected = slots_to_coeffs_thin(&H).into_iter().fold(ring.clone_el(&input), |c, T| ring.get_ring().compute_linear_transform(&H, &c, &T));
     assert_el_eq!(&ring, &expected, &compiled_transform.evaluate(&[input], ring.identity()).pop().unwrap());
     
@@ -699,7 +701,7 @@ fn test_to_circuit_slots_to_coeffs() {
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
     let compiled_transform = MatmulTransform::to_circuit_many(slots_to_coeffs_thin(&H), &H);
     
-    let input = H.from_slot_values((1..17).map(|n| H.slot_ring().int_hom().map(n)));
+    let input = H.from_slot_values((1..17).map(|i| H.slot_ring().int_hom().map(i)));
     let expected = slots_to_coeffs_thin(&H).into_iter().fold(ring.clone_el(&input), |c, T| ring.get_ring().compute_linear_transform(&H, &c, &T));
     assert_el_eq!(&ring, &expected, &compiled_transform.evaluate(&[input], ring.identity()).pop().unwrap());
 }
@@ -711,8 +713,8 @@ fn test_compute_automorphisms_per_dimension() {
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
     assert_eq!(2, H.hypercube().dim_count());
     assert_eq!(3, H.slot_ring().rank());
-    assert_eq!(6, H.hypercube().m(0));
-    assert_eq!(2, H.hypercube().m(1));
+    assert_eq!(6, H.hypercube().dim_length(0));
+    assert_eq!(2, H.hypercube().dim_length(1));
 
     let transform = MatmulTransform::blockmatmul1d(&H, 0, |_, _, _| H.slot_ring().base_ring().one());
     let (max, min, gcd, sizes) = transform.compute_automorphisms_per_dimension(&H);
@@ -728,7 +730,7 @@ fn test_compose() {
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), 23);
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
-    assert_eq!(4, hypercube.m(0));
+    assert_eq!(4, hypercube.dim_length(0));
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
 
     let transform1 = MatmulTransform::matmul1d(&H, 0, |i, j, _| if i == j + 1 {
@@ -743,8 +745,8 @@ fn test_compose() {
     });
     let composed_transform = transform1.compose(&transform2, &H);
 
-    let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|n| H.slot_ring().int_hom().map(n)));
-    let expected = H.from_slot_values([0, 2, 3, 4].into_iter().map(|n| H.slot_ring().int_hom().map(n)));
+    let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
+    let expected = H.from_slot_values([0, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     let actual = ring.get_ring().compute_linear_transform(&H, &input, &composed_transform);
 
     assert_el_eq!(&ring, &expected, &actual);
@@ -756,15 +758,15 @@ fn test_invert() {
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), 23);
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
-    assert_eq!(4, hypercube.m(0));
+    assert_eq!(4, hypercube.dim_length(0));
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
 
     // Vandermonde matrix w.r.t. [1, 2, 3, 4]
     let transform = MatmulTransform::matmul1d(&H, 0, |i, j, _| H.slot_ring().int_hom().map(StaticRing::<i32>::RING.pow(i as i32 + 1, j)));
     let inverse_transform = transform.inverse(&H);
 
-    let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|n| H.slot_ring().int_hom().map(n)));
-    let expected = H.from_slot_values([0, 1, 0, 0].into_iter().map(|n| H.slot_ring().int_hom().map(n)));
+    let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
+    let expected = H.from_slot_values([0, 1, 0, 0].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     let actual = ring.get_ring().compute_linear_transform(&H, &input, &inverse_transform);
 
     assert_el_eq!(&ring, &expected, &actual);
@@ -773,7 +775,7 @@ fn test_invert() {
 #[test]
 fn test_blockmatmul1d() {
     // F23[X]/(Phi_5) ~ F_(23^4)
-    let ring = NumberRingQuotientBase::new(OddCyclotomicNumberRing::new(5), Zn::new(23));
+    let ring = NumberRingQuotientBase::new(OddSquarefreeCyclotomicNumberRing::new(5), Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(5), 23);
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
     let matrix = [
@@ -797,7 +799,7 @@ fn test_blockmatmul1d() {
     }
 
     // F23[X]/(Phi_7) ~ F_(23^3)^2
-    let ring = NumberRingQuotientBase::new(OddCyclotomicNumberRing::new(7), Zn::new(23));
+    let ring = NumberRingQuotientBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(7), 23);
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
     let matrix = [

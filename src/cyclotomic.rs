@@ -19,7 +19,7 @@ use crate::euler_phi;
 use crate::ZZi64;
 
 ///
-/// Represents the group `(Z/nZ)^*`, which is isomorphic to the Galois
+/// Represents the group `(Z/mZ)^*`, which is isomorphic to the Galois
 /// group of a cyclotomic number field.
 /// 
 #[derive(Clone, Copy)]
@@ -39,10 +39,10 @@ impl Eq for CyclotomicGaloisGroup {}
 
 impl CyclotomicGaloisGroup {
 
-    pub fn new(n: u64) -> Self {
+    pub fn new(m: u64) -> Self {
         Self {
-            ring: Zn::new(n),
-            order: euler_phi(&factor(ZZi64, n as i64)) as usize
+            ring: Zn::new(m),
+            order: euler_phi(&factor(ZZi64, m as i64)) as usize
         }
     }
 
@@ -98,10 +98,10 @@ impl CyclotomicGaloisGroup {
     }
 
     ///
-    /// Returns `n` such that this group is the Galois group of the `n`-th cyclotomic number
-    /// field `Q[𝝵]`, where `𝝵` is an `n`-th primitive root of unity.
+    /// Returns `m` such that this group is the Galois group of the `m`-th cyclotomic number
+    /// field `Q[𝝵]`, where `𝝵` is an `m`-th primitive root of unity.
     /// 
-    pub fn n(&self) -> usize {
+    pub fn m(&self) -> usize {
         *self.ring.modulus() as usize
     }
 
@@ -178,9 +178,9 @@ impl<'de> Deserialize<'de> for CyclotomicGaloisGroup {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: serde::Deserializer<'de>
     {
-        DeserializeSeedNewtype::new("CyclotomicGaloisGroup", PhantomData::<i64>).deserialize(deserializer).map(|n| Self {
-            ring: Zn::new(n as u64),
-            order: euler_phi(&factor(ZZi64, n as i64)) as usize
+        DeserializeSeedNewtype::new("CyclotomicGaloisGroup", PhantomData::<i64>).deserialize(deserializer).map(|m| Self {
+            ring: Zn::new(m as u64),
+            order: euler_phi(&factor(ZZi64, m as i64)) as usize
         })
     }
 }
@@ -191,7 +191,7 @@ pub struct CyclotomicGaloisGroupEl {
 }
 
 ///
-/// Trait for rings `R[X]/(Phi_n(X))`, for a base ring `R`. Note that `Phi_n` is allowed to factor in `R`, 
+/// Trait for rings `R[X]/(Phi_m(X))`, for a base ring `R`. Note that `Phi_m` is allowed to factor in `R`, 
 /// hence this ring might not be integral. Furthermore, the residue class of `X`, i.e. the root of unity, 
 /// must be given by [`feanor_math::rings::extension::FreeAlgebra::canonical_gen()`].
 /// 
@@ -209,25 +209,25 @@ pub struct CyclotomicGaloisGroupEl {
 /// There is some ambiguity, as for `m` odd, we have `R[X]/(Phi_m) ~ R[X]/(Phi_(2m))` are isomorphic.
 /// It is up to implementations which of these representations should be exposed via this trait.
 /// Naturally, this should be consistent - i.e. `self.canonical_gen()` should always return
-/// a `self.n()`-th root of unity.
+/// a `self.m()`-th root of unity.
 /// 
 pub trait CyclotomicRing: FreeAlgebra {
 
     ///
     /// The cyclotomic order, i.e. the multiplicative order of `self.canonical_gen()`.
-    /// The degree of this ring extension is `phi(self.n())` where `phi` is Euler's totient
+    /// The degree of this ring extension is `phi(self.m())` where `phi` is Euler's totient
     /// function. This is sometimes also called the conductor of this cyclotomic ring.
     ///
-    fn n(&self) -> usize;
+    fn m(&self) -> usize;
 
     ///
     /// Returns the Galois group of this ring, which we define as the Galois group of the number field
-    /// `Q[X]/(Phi_n)`. The ring itself may or may not have more automorphisms (depending on `R`), but ever
+    /// `Q[X]/(Phi_m)`. The ring itself may or may not have more automorphisms (depending on `R`), but ever
     /// Galois group element does induce an automorphism of this ring, which can be accessed via
     /// [`CyclotomicRing::apply_galois_action()`].
     /// 
     fn galois_group(&self) -> CyclotomicGaloisGroup {
-        CyclotomicGaloisGroup::new(self.n() as u64)
+        CyclotomicGaloisGroup::new(self.m() as u64)
     }
 
     ///
@@ -251,7 +251,7 @@ pub trait CyclotomicRing: FreeAlgebra {
 pub trait CyclotomicRingStore: RingStore
     where Self::Type: CyclotomicRing
 {
-    delegate!{ CyclotomicRing, fn n(&self) -> usize }
+    delegate!{ CyclotomicRing, fn m(&self) -> usize }
     delegate!{ CyclotomicRing, fn galois_group(&self) -> CyclotomicGaloisGroup }
     delegate!{ CyclotomicRing, fn apply_galois_action(&self, el: &El<Self>, s: CyclotomicGaloisGroupEl) -> El<Self> }
     delegate!{ CyclotomicRing, fn apply_galois_action_many(&self, el: &El<Self>, gs: &[CyclotomicGaloisGroupEl]) -> Vec<El<Self>> }
@@ -275,16 +275,16 @@ pub fn generic_test_cyclotomic_ring_axioms<R: CyclotomicRingStore>(ring: R)
     use feanor_math::homomorphism::Homomorphism;
 
     let zeta = ring.canonical_gen();
-    let n = ring.n();
+    let m = ring.m();
     
-    assert_el_eq!(&ring, &ring.one(), &ring.pow(ring.clone_el(&zeta), n as usize));
-    for (p, _) in factor(&StaticRing::<i64>::RING, n as i64) {
-        assert!(!ring.eq_el(&ring.one(), &ring.pow(ring.clone_el(&zeta), n as usize / p as usize)));
+    assert_el_eq!(&ring, &ring.one(), &ring.pow(ring.clone_el(&zeta), m as usize));
+    for (p, _) in factor(&StaticRing::<i64>::RING, m as i64) {
+        assert!(!ring.eq_el(&ring.one(), &ring.pow(ring.clone_el(&zeta), m as usize / p as usize)));
     }
 
     // test minimal polynomial of zeta
     let poly_ring = SparsePolyRing::new(&StaticRing::<i64>::RING, "X");
-    let cyclo_poly = cyclotomic_polynomial(&poly_ring, n as usize);
+    let cyclo_poly = cyclotomic_polynomial(&poly_ring, m as usize);
 
     let x = ring.pow(ring.clone_el(&zeta), ring.rank());
     let x_vec = ring.wrt_canonical_basis(&x);

@@ -37,7 +37,7 @@ impl<Params> ThinBootstrapParams<Params>
         where F: FnOnce() -> PlaintextCircuit<<PlaintextRing<Params> as RingStore>::Type>
     {
         if let Some(cache_dir) = cache_dir {
-            let filename = format!("{}/{}_n{}_p{}_e{}.json", cache_dir, base_name, H.hypercube().n(), H.p(), H.e());
+            let filename = format!("{}/{}_m{}_p{}_e{}.json", cache_dir, base_name, H.hypercube().m(), H.p(), H.e());
             if let Ok(file) = File::open(filename.as_str()) {
                 if LOG {
                     println!("Reading {} from file {}", base_name, filename);
@@ -59,14 +59,14 @@ impl<Params> ThinBootstrapParams<Params>
     }
 
     pub fn build_pow2<M: BGVModswitchStrategy<Params>, const LOG: bool>(&self, C: &CiphertextRing<Params>, modswitch_strategy: M, cache_dir: Option<&str>) -> ThinBootstrapData<Params, M> {
-        let log2_n = ZZ.abs_log2_ceil(&(self.scheme_params.number_ring().n() as i64)).unwrap();
-        assert_eq!(self.scheme_params.number_ring().n(), 1 << log2_n);
+        let log2_m = ZZ.abs_log2_ceil(&(self.scheme_params.number_ring().m() as i64)).unwrap();
+        assert_eq!(self.scheme_params.number_ring().m(), 1 << log2_m);
 
         let (p, r) = is_prime_power(&ZZ, &self.t).unwrap();
         let v = self.v;
         let e = r + v;
         if LOG {
-            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", p, r, self.t, <_ as HECyclotomicNumberRing>::n(&self.scheme_params.number_ring()));
+            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", p, r, self.t, self.scheme_params.number_ring().m());
             println!("Choosing e = r + v = {} + {}", r, v);
         }
 
@@ -75,7 +75,7 @@ impl<Params> ThinBootstrapParams<Params>
 
         let digit_extract = DigitExtract::new_default(p, e, r);
 
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.n() as u64), p);
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), p);
         let H = if let Some(cache_dir) = cache_dir {
             HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
         } else {
@@ -98,13 +98,13 @@ impl<Params> ThinBootstrapParams<Params>
     }
 
     pub fn build_odd<M: BGVModswitchStrategy<Params>, const LOG: bool>(&self, C: &CiphertextRing<Params>, modswitch_strategy: M, cache_dir: Option<&str>) -> ThinBootstrapData<Params, M> {
-        assert!(self.scheme_params.number_ring().n() % 2 != 0);
+        assert!(self.scheme_params.number_ring().m() % 2 != 0);
 
         let (p, r) = is_prime_power(&ZZ, &self.t).unwrap();
         let v = self.v;
         let e = r + v;
         if LOG {
-            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", p, r, self.t, self.scheme_params.number_ring().n());
+            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", p, r, self.t, self.scheme_params.number_ring().m());
             println!("Choosing e = r + v = {} + {}", r, v);
         }
 
@@ -117,7 +117,7 @@ impl<Params> ThinBootstrapParams<Params>
             DigitExtract::new_default(p, e, r)
         };
 
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.n() as u64), p);
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), p);
         let H = if let Some(cache_dir) = cache_dir {
             HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
         } else {
@@ -459,7 +459,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
 
 #[ignore]
 #[test]
-fn measure_time_bootstrap() {
+fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
     tracing_subscriber::registry().with(filtered_chrome_layer).init();
@@ -472,8 +472,8 @@ fn measure_time_bootstrap() {
     let params = CompositeBGV {
         log2_q_min: 805,
         log2_q_max: 820,
-        n1: 37,
-        n2: 949,
+        m1: 37,
+        m2: 949,
         ciphertext_allocator: Global
     };
     let bootstrap_params = ThinBootstrapParams {

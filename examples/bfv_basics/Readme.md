@@ -126,7 +126,7 @@ Hence, it is currently not implemented for BFV, and we can't specify a special m
 ## Encryption and Decryption
 
 Next, let's encrypt a message.
-The plaintext space of BFV is the ring `R_t = Z[X]/(Phi_n(X), t)`, which we already have created previously.
+The plaintext space of BFV is the ring `R_t = Z[X]/(Phi_m(X), t)`, which we already have created previously.
 To encrypt, we now need to encode whatever data we have as an element of this ring (e.g. via [`feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()`] ), and can then encrypt it as follows:
 ```rust
 #![feature(allocator_api)]

@@ -132,7 +132,7 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExt
     /// 
     /// Concrete representations:
     ///  - [`single_rns_ring::SingleRNSRing`] will currently return the coefficients of a polynomial
-    ///    of degree `< n` (not necessarily `< phi(n)`) that gives the element when evaluated at `𝝵`
+    ///    of degree `< m` (not necessarily `< phi(m)`) that gives the element when evaluated at `𝝵`
     ///  - [`double_rns_managed::ManagedDoubleRNSRing`] will currently return the coefficients w.r.t.
     ///    the powerful basis representation
     /// 

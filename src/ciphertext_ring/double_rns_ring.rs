@@ -35,7 +35,7 @@ use super::BGFVCiphertextRing;
 use super::PreparedMultiplicationRing;
 
 ///
-/// Implementation of the ring `Z[𝝵_n]/(q)`, where `q = p1 ... pr` is a product of "RNS factors".
+/// Implementation of the ring `Z[𝝵_m]/(q)`, where `q = p1 ... pr` is a product of "RNS factors".
 /// Elements are (by default) stored in double-RNS-representation for efficient arithmetic.
 /// 
 /// As opposed to [`SingleRNSRing`], this means multiplications are very cheap, but non-arithmetic
@@ -47,10 +47,10 @@ use super::PreparedMultiplicationRing;
 /// # Mathematical details
 /// 
 /// The "double-RNS representation" refers to the representation of an element via its value modulo
-/// each prime ideal of `Z[𝝵_n]/(q)`. Since we require each `Z/(pi)` to have a primitive `n`-th root
-/// of unity `z`, these prime ideals are of the form `(pi, 𝝵_n - z^j)` with `j in (Z/nZ)*`.
+/// each prime ideal of `Z[𝝵_m]/(q)`. Since we require each `Z/(pi)` to have a primitive `m`-th root
+/// of unity `z`, these prime ideals are of the form `(pi, 𝝵_m - z^j)` with `j in (Z/mZ)*`.
 /// In other words, the double-RNS representation refers to the evaluation of an element (considered
-/// as polyomial in `𝝵_n`) at all primitive `n`-th roots of unity, modulo each `pi`.
+/// as polyomial in `𝝵_m`) at all primitive `m`-th roots of unity, modulo each `pi`.
 /// This is also the multiplicative basis, as specified by [`HENumberRingMod`].
 /// In particular, multiplication of elements refers to component-wise multiplication of these vectors.
 /// 
@@ -712,8 +712,8 @@ impl<NumberRing, A> CyclotomicRing for DoubleRNSRingBase<NumberRing, A>
     where NumberRing: HECyclotomicNumberRing,
         A: Allocator + Clone
 {
-    fn n(&self) -> usize {
-        self.number_ring.n() as usize
+    fn m(&self) -> usize {
+        self.number_ring.m() as usize
     }
 
     #[instrument(skip_all)]
@@ -1203,7 +1203,7 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
 
     let required_root_of_unity = signed_lcm(
         number_ring.mod_p_required_root_of_unity() as i64, 
-        1 << StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.n() as i64)).unwrap() + 2, 
+        1 << StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.m() as i64)).unwrap() + 2, 
         StaticRing::<i64>::RING
     );
     let p1 = largest_prime_leq_congruent_to_one(20000, required_root_of_unity).unwrap();

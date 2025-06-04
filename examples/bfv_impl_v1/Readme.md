@@ -10,12 +10,12 @@ Together with BGV, BFV is one of the most popular second generation FHE schemes.
 It was proposed in "Somewhat practical fully homomorphic encryption" by Fan and Vercauteren (<https://ia.cr/2012/144>). We give a very short introduction here, but for any details, please refer to this paper. 
 
 The BFV scheme has the following parameters:
- - the cyclotomic ring `R = Z[X]/(Phi_n(X))`
+ - the cyclotomic ring `R = Z[X]/(Phi_m(X))`
  - the ciphertext modulus `q`
  - the plaintext modulus `t`
 
 With these parameters, the scheme can be described as follows:
- - `KeyGen()`: sample and return a small `s` in the ring `R_q = Z[X]/(Phi_n(X), q)`
+ - `KeyGen()`: sample and return a small `s` in the ring `R_q = Z[X]/(Phi_m(X), q)`
  - `SymEnc(x, sk)`: sample a uniform `a in R_q` and a small noise `e in R_q`, and return `(a * sk + e + Δ * x, -a)`, where `Δ = round(q/t)`
  - `Dec((c0, c1), sk)`: return `round(t (c0 + c1 * sk) / q)`
  - `HomAdd((c0, c1), (c0', c1'))`: return `(c0 + c0', c1 + c1')`
@@ -31,7 +31,7 @@ In particular, we will have to perform arithmetic operations in `R_t` and in `R_
 
 Fortunately, there are already various ring implementations available, in both `feanor-math` and `fheanor`.
 For `R_t`, we have the following options:
- - Use [`feanor_math::rings::extension::extension_impl::FreeAlgebraImpl`], this is a general implementation of ring extensions of the form `BaseRing[X]/(f(X))`. By choosing `BaseRing` to be `Z/(t)` and `f(X) = Phi_n(X)`, we get the desired ring.
+ - Use [`feanor_math::rings::extension::extension_impl::FreeAlgebraImpl`], this is a general implementation of ring extensions of the form `BaseRing[X]/(f(X))`. By choosing `BaseRing` to be `Z/(t)` and `f(X) = Phi_m(X)`, we get the desired ring.
  - Use [`crate::number_ring::quotient::NumberRingQuotient`], which is an implementation of `R/(t)` for any integer `t` and ring `R` that is represented abstractly using [`crate::number_ring::HENumberRing`].
  - Implement our own ring!
 
@@ -95,7 +95,7 @@ fn create_plaintext_ring(ring_degree: usize, t: u64) -> PlaintextRing {
 Let's continue and implement key generation, encryption and decryption.
 This is actually quite simple, since the ring objects directly provide arithmetic operations.
 
-Among the non-arithmetic operations, the most important functions are [`feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()`] and [`feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()`], which convert between a ring element `sum_i a[i] X^i` and the list of its coefficients `a` (w.r.t. the basis given by `1, X, X^2, ..., X^(phi(n) - 1)`).
+Among the non-arithmetic operations, the most important functions are [`feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()`] and [`feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()`], which convert between a ring element `sum_i a[i] X^i` and the list of its coefficients `a` (w.r.t. the basis given by `1, X, X^2, ..., X^(n - 1)`).
 
 Using this, we can generate an element of `R_q` with ternary coefficients very easily.
 ```rust
@@ -408,12 +408,12 @@ Multiplication is more interesting.
 The first question is, how do we actually compute the products `c0 * c0'` without wrapping around `q`?
 After all, multiplication in the ciphertext ring will wrap around `q`.
 
-The most natural option is of course to perform arithmetic in the ring `R = Z[X]/(Phi_n)`.
+The most natural option is of course to perform arithmetic in the ring `R = Z[X]/(Phi_m)`.
 This is not supported by `NumberRingQuotient` (which only represents `R/(q)` for some integer `q`), but is supported by `FreeAlgebraImpl`.
-In particular, we could create a `FreeAlgebraImpl` using `BigIntRing::RING` as base ring and the `n`-th cyclotomic polynomial as modulus.
+In particular, we could create a `FreeAlgebraImpl` using `BigIntRing::RING` as base ring and the `m`-th cyclotomic polynomial as modulus.
 
-If we want to try this, note that we have to pass the cyclotomic polynomial `Phi_n` to `FreeAlgebraImpl::new()`.
-In the power-of-two case that we are currently working in, this is just `X^(n/2) + 1`.
+If we want to try this, note that we have to pass the cyclotomic polynomial `Phi_m` to `FreeAlgebraImpl::new()`.
+In the power-of-two case that we are currently working in, this is just `X^(m/2) + 1`.
 ```rust
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
@@ -443,7 +443,7 @@ fn hom_mul_three_component(
     let multiplication_ring = FreeAlgebraImpl::new(
         BigIntRing::RING,
         ciphertext_ring.rank(),
-        // we give the modulus as the coefficients of `X^(phi(n)) mod Phi_n`
+        // we give the modulus as the coefficients of `X^n mod Phi_m = -1`
         [BigIntRing::RING.neg_one()]
     );
 
@@ -544,7 +544,7 @@ We do this by using the formula `round( t (c0 + c1 * sk + c2 * sk^2) / q )` to d
 #     let multiplication_ring = FreeAlgebraImpl::new(
 #         BigIntRing::RING,
 #         ciphertext_ring.rank(),
-#         // we give the modulus as the coefficients of `X^(phi(n)) mod Phi_n`
+#         // we give the modulus as the coefficients of `X^n mod Phi_m = -1`
 #         [BigIntRing::RING.neg_one()]
 #     );
 #     let lift_ciphertext_ring_el = |x: &El<CiphertextRing>| multiplication_ring.from_canonical_basis(
@@ -704,7 +704,7 @@ Putting it all together, we get the following.
 #     let multiplication_ring = FreeAlgebraImpl::new(
 #         BigIntRing::RING,
 #         ciphertext_ring.rank(),
-#         // we give the modulus as the coefficients of `X^(phi(n)) mod Phi_n`
+#         // we give the modulus as the coefficients of `X^n mod Phi_m = -1`
 #         [BigIntRing::RING.neg_one()]
 #     );
 #     let lift_ciphertext_ring_el = |x: &El<CiphertextRing>| multiplication_ring.from_canonical_basis(
@@ -861,7 +861,7 @@ Finally, let's test that decrypting the result of a homomorphic multiplication w
 #     let multiplication_ring = FreeAlgebraImpl::new(
 #         BigIntRing::RING,
 #         ciphertext_ring.rank(),
-#         // we give the modulus as the coefficients of `X^(phi(n)) mod Phi_n`
+#         // we give the modulus as the coefficients of `X^n mod Phi_m = -1`
 #         [BigIntRing::RING.neg_one()]
 #     );
 #     let lift_ciphertext_ring_el = |x: &El<CiphertextRing>| multiplication_ring.from_canonical_basis(

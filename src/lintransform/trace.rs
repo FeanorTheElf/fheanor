@@ -129,7 +129,7 @@ use feanor_math::seq::VectorFn;
 #[cfg(test)]
 use crate::ntt::dyn_convolution::*;
 #[cfg(test)]
-use crate::number_ring::odd_cyclotomic::OddCyclotomicNumberRing;
+use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
 #[cfg(test)]
 use crate::number_ring::quotient::NumberRingQuotientBase;
 #[cfg(test)]
@@ -161,7 +161,7 @@ fn test_extract_coefficient_map() {
 
 #[test]
 fn test_trace_circuit() {
-    let ring = NumberRingQuotientBase::new(OddCyclotomicNumberRing::new(7), Zn::new(3));
+    let ring = NumberRingQuotientBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(3));
     let trace = trace_circuit(ring.get_ring(), &ring.galois_group(), ring.galois_group().from_representative(3), 6);
     for x in ring.elements() {
         let actual = trace.evaluate(std::slice::from_ref(&x), ring.identity()).pop().unwrap();

@@ -37,17 +37,17 @@ fn main() {
     let (C, C_for_multiplication): (CiphertextRing<ChosenCLPXParamType>, CiphertextRing<ChosenCLPXParamType>) = params.create_ciphertext_rings();
     let N = C.rank();
     println!("N        = {}", N);
-    println!("n        = {}", C.n());
+    println!("m        = {}", C.m());
     println!("log2(q)  = {}", BigIntRing::RING.abs_log2_ceil(C.base_ring().modulus()).unwrap());
 
     let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
-    let n1 = 512;
+    let m1 = 512;
     let [t] = ZZX.with_wrapped_indeterminate(|X| [X + 2]);
     let p = BigIntRing::RING.get_ring().parse("93461639715357977769163558199606896584051237541638188580280321", 10).unwrap();
-    println!("t        = {}", ZZX.format(&ZZX.evaluate(&t, &ZZX.pow(ZZX.indeterminate(), 2 * N / n1), ZZX.inclusion())));
+    println!("t        = {}", ZZX.format(&ZZX.evaluate(&t, &ZZX.pow(ZZX.indeterminate(), 2 * N / m1), ZZX.inclusion())));
     println!("p        = {}", BigIntRing::RING.format(&p));
 
-    let P = params.create_encoding::<false>(n1, ZZX, t, p);
+    let P = params.create_encoding::<false>(m1, ZZX, t, p);
 
     let FpX = DensePolyRing::new(P.plaintext_ring().base_ring(), "X");
     println!("G(X)     = {}", FpX.format(&P.plaintext_ring().generating_poly(&FpX, FpX.base_ring().identity())));

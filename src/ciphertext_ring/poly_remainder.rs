@@ -176,8 +176,8 @@ impl<R, C> CyclotomicPolyReducer<R, C>
         C: ConvolutionAlgorithm<R::Type>
 {
     #[instrument(skip_all)]
-    pub fn new(ring: R, n: i64, convolution: C) -> Self {
-        let factorization = factor(StaticRing::<i64>::RING, n);
+    pub fn new(ring: R, m: i64, convolution: C) -> Self {
+        let factorization = factor(StaticRing::<i64>::RING, m);
         let poly_ring = SparsePolyRing::new(StaticRing::<i32>::RING, "X");
         let ring_poly_ring = DensePolyRing::new(&ring, "X");
         let hom = ring_poly_ring.lifted_hom(&poly_ring, ring.int_hom());
@@ -192,7 +192,7 @@ impl<R, C> CyclotomicPolyReducer<R, C>
 
         let mut sparse_reducers = Vec::new();
         let mut current_n = 1;
-        let mut current_stride = n;
+        let mut current_stride = m;
         for i in 0..factorization.len() {
             let cyclotomic_poly = cyclotomic_polynomial(&poly_ring, current_n as usize);
             sparse_reducers.push(SparsePolyReducer::new(&ring_poly_ring, &hom.map(cyclotomic_poly), ring.clone(), current_stride as usize));
@@ -201,7 +201,7 @@ impl<R, C> CyclotomicPolyReducer<R, C>
             current_stride /= p;
         }
 
-        let cyclotomic_poly = cyclotomic_polynomial(&poly_ring, n as usize);
+        let cyclotomic_poly = cyclotomic_polynomial(&poly_ring, m as usize);
         let final_reducer = BarettPolyReducer::new(&ring_poly_ring, &hom.map(cyclotomic_poly), ring.clone(), sparse_reducers.last().unwrap().degree - 1, convolution);
 
         return Self {

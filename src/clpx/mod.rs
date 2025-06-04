@@ -26,7 +26,7 @@ use crate::cyclotomic::*;
 use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::ntt::HERingNegacyclicNTT;
-use crate::number_ring::odd_cyclotomic::*;
+use crate::number_ring::composite_cyclotomic::*;
 use crate::rnsconv::bfv_rescale::AlmostExactRescalingConvert;
 use crate::rnsconv::shared_lift::AlmostExactSharedBaseConversion;
 use crate::bfv::{Pow2BFV, CompositeBFV};
@@ -37,7 +37,7 @@ use rand::{Rng, CryptoRng};
 use rand_distr::StandardNormal;
 
 ///
-/// Implementation of the isomorphism `Z[X]/(Phi_n(X), t(X^n2), p) ~ Fp[X]/(Phi_n2(X))`
+/// Implementation of the isomorphism `Z[X]/(Phi_m(X), t(X^m2), p) ~ Fp[X]/(Phi_m2(X))`
 /// that CLPX/GBFV is based on.
 /// 
 pub mod encoding;
@@ -77,19 +77,19 @@ pub trait CLPXCiphertextParams {
     /// Creates a new [`CLPXEncoding`], which plays the same role for CLPX as the
     /// plaintext ring does for BGV or BFV.
     /// 
-    /// Here `t(X)` is a polynomial, interpreted as an element of the `n1`-th cyclotomic
-    /// number ring `Z[X]/(Phi_n1(X))` (`n1` must divide `n`). Furthermore `p` should be
-    /// a prime dividing `Res(t(X), Phi_n1(X))` exactly once. The returned encoding then
-    /// represents CLPX with plaintext modulus `(p, t(X^n2))` with `n2 = n/n1`, which means
-    /// plaintexts can be represented as polynomials modulo `Fp` of degree `< phi(n2)`.
+    /// Here `t(X)` is a polynomial, interpreted as an element of the `m1`-th cyclotomic
+    /// number ring `Z[X]/(Phi_m1(X))` (`m1` must divide `m`). Furthermore `p` should be
+    /// a prime dividing `Res(t(X), Phi_m1(X))` exactly once. The returned encoding then
+    /// represents CLPX with plaintext modulus `(p, t(X^m2))` with `m2 = m/m1`, which means
+    /// plaintexts can be represented as polynomials modulo `Fp` of degree `< phi(m2)`.
     /// 
     #[instrument(skip_all)]
-    fn create_encoding<const LOG: bool>(&self, n1: usize, ZZi64X: DensePolyRing<StaticRing<i64>>, t: El<DensePolyRing<StaticRing<i64>>>, p: El<BigIntRing>) -> CLPXEncoding {
+    fn create_encoding<const LOG: bool>(&self, m1: usize, ZZi64X: DensePolyRing<StaticRing<i64>>, t: El<DensePolyRing<StaticRing<i64>>>, p: El<BigIntRing>) -> CLPXEncoding {
         let number_ring = self.number_ring();
-        assert!(number_ring.n() % n1 == 0);
-        let n2 = number_ring.n() / n1;
-        let base_encoding = CLPXBaseEncoding::new::<LOG>(n1, ZZi64X, t, p);
-        return CLPXEncoding::new::<LOG>(n2, base_encoding);
+        assert!(number_ring.m() % m1 == 0);
+        let m2 = number_ring.m() / m1;
+        let base_encoding = CLPXBaseEncoding::new::<LOG>(m1, ZZi64X, t, p);
+        return CLPXEncoding::new::<LOG>(m2, base_encoding);
     }
     
     ///
@@ -492,7 +492,7 @@ impl<A: Allocator + Clone + Send + Sync> CLPXCiphertextParams for CompositeCLPX<
     }
 
     fn number_ring(&self) -> CompositeCyclotomicNumberRing {
-        CompositeCyclotomicNumberRing::new(self.n1, self.n2)
+        CompositeCyclotomicNumberRing::new(self.m1, self.m2)
     }
 
     #[instrument(skip_all)]
@@ -540,13 +540,13 @@ fn test_composite_clpx_mul() {
     let params = CompositeCLPX {
         log2_q_min: 400,
         log2_q_max: 420,
-        n1: 17,
-        n2: 5,
+        m1: 17,
+        m2: 5,
         ciphertext_allocator: Global
     };
     let p = ZZbig.int_hom().map(131071);
 
-    let P = params.create_encoding::<false>(params.n1, ZZi64X.clone(), t, p);
+    let P = params.create_encoding::<false>(params.m1, ZZi64X.clone(), t, p);
     let (C, C_mul) = params.create_ciphertext_rings();
 
     let sk = CompositeCLPX::gen_sk(&C, &mut rng, None);
@@ -564,14 +564,14 @@ fn test_composite_clpx_mul() {
     let params = CompositeCLPX {
         log2_q_min: 400,
         log2_q_max: 420,
-        n1: 17,
-        n2: 5,
+        m1: 17,
+        m2: 5,
         ciphertext_allocator: Global
     };
     let p = ZZbig.int_hom().map(43691);
     let mut rng = thread_rng();
 
-    let P = params.create_encoding::<false>(params.n1, ZZi64X, t, p);
+    let P = params.create_encoding::<false>(params.m1, ZZi64X, t, p);
     let (C, C_mul) = params.create_ciphertext_rings();
 
     let sk = CompositeCLPX::gen_sk(&C, &mut rng, None);
@@ -625,15 +625,15 @@ fn measure_time_composite_clpx() {
     let params = CompositeCLPX {
         log2_q_min: 790,
         log2_q_max: 800,
-        n1: 127,
-        n2: 337,
+        m1: 127,
+        m2: 337,
         ciphertext_allocator: Global
     };
     let p = ZZbig.coerce(&StaticRing::<i128>::RING, 56713727820156410577229101238628035243);
     let digits = 3;
     
     let P = log_time::<_, _, true, _>("CreateEncoding", |[]|
-        params.create_encoding::<false>(params.n1, ZZi64X, t, p)
+        params.create_encoding::<false>(params.m1, ZZi64X, t, p)
     );
     let int_to_P = P.plaintext_ring().inclusion().compose(P.plaintext_ring().base_ring().can_hom(&StaticRing::<i128>::RING).unwrap());
     let (C, C_mul) = log_time::<_, _, true, _>("CreateCtxtRing", |[]|

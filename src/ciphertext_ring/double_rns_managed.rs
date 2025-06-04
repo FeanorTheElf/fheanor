@@ -591,8 +591,8 @@ impl<NumberRing, A> CyclotomicRing for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: HECyclotomicNumberRing,
         A: Allocator + Clone
 {
-    fn n(&self) -> usize {
-        self.base.n()
+    fn m(&self) -> usize {
+        self.base.m()
     }
 
     fn apply_galois_action(&self, el: &Self::Element, g: CyclotomicGaloisGroupEl) -> Self::Element {

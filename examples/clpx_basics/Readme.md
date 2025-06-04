@@ -44,15 +44,15 @@ Next, we create the plaintext ring(s).
 let P = params.create_encoding::</* LOG = */ true>(todo!(), todo!(), todo!(), todo!());
 ```
 This time, the relevant function is called `create_encoding()` instead of `create_plaintext_ring()`, and indeed, it does not produce a ring. 
-The reason is that, while CLPX has the "natural" plaintext ring `Z[X]/(Phi_n(X), t(X))` for a polynomial `t(X)`, this is not the representation one usually wants to work with.
+The reason is that, while CLPX has the "natural" plaintext ring `Z[X]/(Phi_m(X), t(X))` for a polynomial `t(X)`, this is not the representation one usually wants to work with.
 The whole point of using CLPX is to perform computations with large integers, and this can indeed be done using this ring, by observing that we have the isomorphism
 ```text
-  Z[X]/(p, Phi_n(X), t(X)) ~ Z[X]/(p, G(X))
+  Z[X]/(p, Phi_m(X), t(X)) ~ Z[X]/(p, G(X))
 ```
-where `p` is a large prime (concretely, it should be a prime factor of `Res(t(X), Phi_n(X))`) and `G(X)` is some (for now irrelevant) polynomial.
-As an example, consider the following possible choices of `n`, `p` and `t(X)`:
+where `p` is a large prime (concretely, it should be a prime factor of `Res(t(X), Phi_m(X))`) and `G(X)` is some (for now irrelevant) polynomial.
+As an example, consider the following possible choices of `m`, `p` and `t(X)`:
 
-| `n`       | `t(X)`      | `p`                                                                |
+| `m`       | `t(X)`      | `p`                                                                |
 | --------- | ----------- | ------------------------------------------------------------------ |
 | `2^12`    | `X^128 + 2` | `65537`                                                            |
 | `2^12`    | `X^32 + 2`  | `67280421310721`                                                   |
@@ -66,7 +66,7 @@ Indeed, as this table shows, a suitable choice of `t` means that we can effectiv
 As users, this means we want to work in the ring `Z[X]/(p, G(X))`, but since the scheme naturally works only over an isomorphic ring with different representation, we need a way to compute this isomorphism - and that is exactly what the "encoding" is for.
 
 More concretely, `create_encoding()` will provide an object of type [`crate::clpx::encoding::CLPXEncoding`], which makes available the ring `Z[X]/(p, G(X))` through the function `plaintext_ring()`.
-It also supports computing the isomorphism `Z[X]/(p, G(X)) ~ Z[X]/(p, Phi_n(X), t(X))`, which will be used when encrypting values of this ring.
+It also supports computing the isomorphism `Z[X]/(p, G(X)) ~ Z[X]/(p, Phi_m(X), t(X))`, which will be used when encrypting values of this ring.
 Hence, we can use CLPX as follows:
 ```rust
 #![feature(allocator_api)]
@@ -93,11 +93,11 @@ Hence, we can use CLPX as follows:
 # let (C, C_for_multiplication): (CiphertextRing<ChosenCLPXParamType>, CiphertextRing<ChosenCLPXParamType>) = params.create_ciphertext_rings();
 let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
 let p = BigIntRing::RING.get_ring().parse("93461639715357977769163558199606896584051237541638188580280321", 10).unwrap();
-// we consider the polynomial X^8 + 2, but write it as `t(X^(2048/n1))` with `t = X + 2`;
+// we consider the polynomial X^8 + 2, but write it as `t(X^(2048/m1))` with `t = X + 2`;
 // the reasons for this will be explained shortly
-let n1 = 512;
+let m1 = 512;
 let [t] = ZZX.with_wrapped_indeterminate(|X| [X + 2]);
-let P = params.create_encoding::<true>(n1, ZZX, t, p);
+let P = params.create_encoding::<true>(m1, ZZX, t, p);
 
 let mut rng = thread_rng();
 let sk = ChosenCLPXParamType::gen_sk(&C, &mut rng, None);
@@ -134,10 +134,10 @@ Applying homomorphic operations is just as easy as for BFV as well.
 # };
 # let (C, C_for_multiplication): (CiphertextRing<ChosenCLPXParamType>, CiphertextRing<ChosenCLPXParamType>) = params.create_ciphertext_rings();
 # let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
-# let n1 = 512;
+# let m1 = 512;
 # let [t] = ZZX.with_wrapped_indeterminate(|X| [X + 2]);
 # let p = BigIntRing::RING.get_ring().parse("93461639715357977769163558199606896584051237541638188580280321", 10).unwrap();
-# let P = params.create_encoding::<true>(n1, ZZX, t, p);
+# let P = params.create_encoding::<true>(m1, ZZX, t, p);
 let mut rng = thread_rng();
 let sk = ChosenCLPXParamType::gen_sk(&C, &mut rng, None);
 let rk = ChosenCLPXParamType::gen_rk(&C, &mut rng, &sk, 2);
@@ -152,13 +152,13 @@ assert_el_eq!(BigIntRing::RING, BigIntRing::RING.power_of_two(200), P.plaintext_
 ## Choosing t from a subfield of `R`
 
 In the original paper, it was proposed to choose `t = X - a`, for a small integer `a`.
-It is not hard to see that in this case, the modulus we are working with is `Res(X - a, Phi_n(X)) = Phi_n(a)` (or one of its prime factors), and `G(X)` will be a degree-1 polynomial.
-Since `Phi_n` has degree `phi(n)`, even for `a = 2`, this modulus will we of size about `phi(n)` bits - for FHE-suitable parameters, this means many thousands bits.
+It is not hard to see that in this case, the modulus we are working with is `Res(X - a, Phi_m(X)) = Phi_m(a)` (or one of its prime factors), and `G(X)` will be a degree-1 polynomial.
+Since `Phi_m` has degree `phi(m)`, even for `a = 2`, this modulus will we of size about `phi(m)` bits - for FHE-suitable parameters, this means many thousands bits.
 This is usually much larger than required for most applications.
 
-As investigated by Robin Geelen and Frederik Vercauteren in "Fully Homomorphic Encryption for Cyclotomic Prime Moduli", we can instead choose `t` to live in a subfield of the `n`-th cyclotomic number field `Q(𝝵)`.
-In these cases, Fheanor makes the restriction that this subfield should also be a cyclotomic field, i.e. `t = t(𝝵^n2)` for some `n2 | n`.
-In such a case, we find that `G(X)` will have degree `[Q(𝝵) : Q(𝝵^n2)]`, which is between `phi(n2)` and `n2`.
+As investigated by Robin Geelen and Frederik Vercauteren in "Fully Homomorphic Encryption for Cyclotomic Prime Moduli", we can instead choose `t` to live in a subfield of the `m`-th cyclotomic number field `Q(𝝵)`.
+In these cases, Fheanor makes the restriction that this subfield should also be a cyclotomic field, i.e. `t = t(𝝵^m2)` for some `m2 | m`.
+In such a case, we find that `G(X)` will have degree `[Q(𝝵) : Q(𝝵^m2)]`, which is between `phi(m2)` and `m2`.
 Observe that all parameter sets displayed in above table - except the last - are of this form.
 In particular, this is also why we created the encoding as
 ```rust
@@ -186,9 +186,9 @@ In particular, this is also why we created the encoding as
 # let (C, C_for_multiplication): (CiphertextRing<ChosenCLPXParamType>, CiphertextRing<ChosenCLPXParamType>) = params.create_ciphertext_rings();
 # let p = BigIntRing::RING.get_ring().parse("93461639715357977769163558199606896584051237541638188580280321", 10).unwrap();
 # let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
-let n1 = 512;
+let m1 = 512;
 let [t] = ZZX.with_wrapped_indeterminate(|X| [X + 2]);
-let P = params.create_encoding::<true>(n1, ZZX, t, p);
+let P = params.create_encoding::<true>(m1, ZZX, t, p);
 ```
-More concretely, here we tell the encoding that `t` lives in the `n1`-th cyclotomic number field, i.e. is `t(𝝵_n1) = t(𝝵_n^n2)` for `n2 = n / n1`.
+More concretely, here we tell the encoding that `t` lives in the `m1`-th cyclotomic number field, i.e. is `t(𝝵_m1) = t(𝝵_m^m2)` for `m2 = m / m1`.
 While it would be possible to figure out which subfield `t` belongs to at runtime, this would actually be quite involved, and is unnecessary in most practical scenarios.

@@ -169,21 +169,21 @@ pub fn low_depth_paterson_stockmeyer<P>(poly_ring: P, polys: &[El<P>], baby_step
     fn compute_power_circuit(deg_exclusive: usize) -> IntegerCircuit {
         let mut result = IntegerCircuit::constant(1, ZZ).tensor(IntegerCircuit::identity(1, ZZ), ZZ);
         while result.output_count() < deg_exclusive {
-            let n = result.output_count();
-            if n % 2 == 0 {
-                result = IntegerCircuit::identity(n, ZZ).tensor(
-                    IntegerCircuit::square(ZZ).compose(IntegerCircuit::select(n, &[n / 2], ZZ), ZZ), ZZ
+            let l = result.output_count();
+            if l % 2 == 0 {
+                result = IntegerCircuit::identity(l, ZZ).tensor(
+                    IntegerCircuit::square(ZZ).compose(IntegerCircuit::select(l, &[l / 2], ZZ), ZZ), ZZ
                 ).compose(
                     result.output_twice(ZZ), ZZ
                 );
             } else {
-                result = IntegerCircuit::identity(n, ZZ).tensor(
-                    IntegerCircuit::mul(ZZ).compose(IntegerCircuit::select(n, &[n / 2, n - (n / 2)], ZZ), ZZ), ZZ
+                result = IntegerCircuit::identity(l, ZZ).tensor(
+                    IntegerCircuit::mul(ZZ).compose(IntegerCircuit::select(l, &[l / 2, l - (l / 2)], ZZ), ZZ), ZZ
                 ).compose(
                     result.output_twice(ZZ), ZZ
                 );
             }
-            assert_eq!(n + 1, result.output_count());
+            assert_eq!(l + 1, result.output_count());
         }
         assert!(result.output_count() == deg_exclusive);
         return result;

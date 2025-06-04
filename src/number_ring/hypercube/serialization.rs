@@ -44,7 +44,7 @@ impl Serialize for HypercubeStructure {
             choice: &self.choice,
             d: self.d,
             p: SerializableCyclotomicGaloisGroupEl::new(&self.galois_group, self.p),
-            ms: &self.ms,
+            ms: &self.ls,
             gs: SerializableSeq::new(self.gs.as_fn().map_fn(|g| SerializableCyclotomicGaloisGroupEl::new(&self.galois_group, *g)))
         })).serialize(serializer)
     }
@@ -104,7 +104,7 @@ struct SerializableHypercubeIsomorphismData<'a, R>
 {
     p: i64,
     e: usize,
-    n: usize,
+    m: usize,
     hypercube_structure: &'a HypercubeStructure,
     slot_ring_moduli: Vec<SerializeOwnedWithRing<R>>
 }
@@ -151,7 +151,7 @@ impl<'a, R> Serialize for SerializableHypercubeIsomorphismWithoutRing<'a, R>
         SerializableHypercubeIsomorphismData {
             p: self.hypercube_isomorphism.p(),
             e: self.hypercube_isomorphism.e(),
-            n: self.hypercube_isomorphism.hypercube().n(),
+            m: self.hypercube_isomorphism.hypercube().m(),
             hypercube_structure: self.hypercube_isomorphism.hypercube(),
             slot_ring_moduli: (0..self.hypercube_isomorphism.slot_count()).map(|i| 
                 SerializeOwnedWithRing::new(self.hypercube_isomorphism.slot_ring_at(i).generating_poly(&ZpeX, &hom), &ZpeX)
@@ -181,7 +181,7 @@ impl_deserialize_seed_for_dependent_struct!{
     <{'de, R}> pub struct HypercubeIsomorphismData<{'de, R}> using DeserializeSeedHypercubeIsomorphismData<R> {
         p: i64: |_| PhantomData,
         e: usize: |_| PhantomData,
-        n: usize: |_| PhantomData,
+        m: usize: |_| PhantomData,
         hypercube_structure: HypercubeStructure: |_| PhantomData,
         slot_ring_moduli: Vec<El<R>>: derive_multiple_poly_deserializer
     } where R: RingStore, R::Type: PolyRing + SerializableElementRing
@@ -227,7 +227,7 @@ impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithout
         let decorated_base_ring: DecoratedBaseRing<R> = AsLocalPIR::from_zn(RingValue::from(self.ring.base_ring().get_ring().clone())).unwrap();
         let ZpeX = DensePolyRing::new_with(decorated_base_ring, "X", Global, STANDARD_CONVOLUTION);
         let deserialized = DeserializeSeedHypercubeIsomorphismData { poly_ring: &ZpeX }.deserialize(deserializer)?;
-        assert_eq!(self.ring.n(), deserialized.n);
+        assert_eq!(self.ring.m(), deserialized.m);
         assert_eq!(self.ring.characteristic(ZZi64).unwrap(), ZZi64.pow(deserialized.p, deserialized.e));
         let hypercube_structure = deserialized.hypercube_structure;
         let slot_ring_moduli = deserialized.slot_ring_moduli;

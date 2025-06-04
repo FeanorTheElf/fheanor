@@ -93,7 +93,7 @@ fn hom_mul_three_component(plaintext_ring: &PlaintextRing, ciphertext_ring: &Cip
     let multiplication_ring = FreeAlgebraImpl::new(
         BigIntRing::RING,
         ciphertext_ring.rank(),
-        // we give the modulus as the coefficients of `X^(phi(n)) mod Phi_n`
+        // we give the modulus as the coefficients of `X^(phi(m))) mod Phi_m`
         [BigIntRing::RING.neg_one()]
     );
 

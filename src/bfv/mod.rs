@@ -40,7 +40,7 @@ use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::{largest_prime_leq_congruent_to_one, sample_primes, extend_sampled_primes, HECyclotomicNumberRing, HENumberRing};
 use crate::number_ring::quotient::*;
 use crate::number_ring::pow2_cyclotomic::*;
-use crate::number_ring::odd_cyclotomic::*;
+use crate::number_ring::composite_cyclotomic::*;
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
 use crate::rnsconv::bfv_rescale::{AlmostExactRescaling, AlmostExactRescalingConvert};
 use crate::rnsconv::shared_lift::AlmostExactSharedBaseConversion;
@@ -231,7 +231,7 @@ pub trait BFVCiphertextParams {
     ///
     /// Decrypts a given ciphertext.
     /// 
-    /// This function does perform any semantic checks. In particular, it is up to the
+    /// This function does not perform any semantic checks. In particular, it is up to the
     /// caller to ensure that the ciphertext is defined over the given ring, and is a valid
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
@@ -261,7 +261,7 @@ pub trait BFVCiphertextParams {
     #[instrument(skip_all)]
     fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>) {
         let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(P.n() as u64), p);
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(P.m() as u64), p);
         let H = HypercubeIsomorphism::new::<false>(P, hypercube);
         let m = Self::dec(P, C, Self::clone_ct(C, ct), sk);
         println!("ciphertext (noise budget: {}):", Self::noise_budget(P, C, ct, sk));
@@ -274,7 +274,7 @@ pub trait BFVCiphertextParams {
     ///
     /// Computes an encryption of the sum of two encrypted messages.
     /// 
-    /// This function does perform any semantic checks. In particular, it is up to the
+    /// This function does not perform any semantic checks. In particular, it is up to the
     /// caller to ensure that the ciphertexts are defined over the given ring, and are
     /// BFV encryptions w.r.t. compatible plaintext moduli.
     /// 
@@ -288,7 +288,7 @@ pub trait BFVCiphertextParams {
     ///
     /// Computes an encryption of the difference of two encrypted messages.
     /// 
-    /// This function does perform any semantic checks. In particular, it is up to the
+    /// This function does not perform any semantic checks. In particular, it is up to the
     /// caller to ensure that the ciphertexts are defined over the given ring, and are
     /// BFV encryptions w.r.t. compatible plaintext moduli.
     /// 
@@ -310,7 +310,7 @@ pub trait BFVCiphertextParams {
     ///
     /// Computes an encryption of the sum of an encrypted message and a plaintext.
     /// 
-    /// This function does perform any semantic checks. In particular, it is up to the
+    /// This function does not perform any semantic checks. In particular, it is up to the
     /// caller to ensure that the ciphertext is defined over the given ring, and is
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
@@ -329,7 +329,7 @@ pub trait BFVCiphertextParams {
     ///
     /// Computes an encryption of the product of an encrypted message and a plaintext.
     /// 
-    /// This function does perform any semantic checks. In particular, it is up to the
+    /// This function does not perform any semantic checks. In particular, it is up to the
     /// caller to ensure that the ciphertext is defined over the given ring, and is
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
@@ -370,7 +370,7 @@ pub trait BFVCiphertextParams {
     ///
     /// Computes an encryption of the product of an encrypted message and an integer plaintext.
     /// 
-    /// This function does perform any semantic checks. In particular, it is up to the
+    /// This function does not perform any semantic checks. In particular, it is up to the
     /// caller to ensure that the ciphertext is defined over the given ring, and is
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
@@ -422,7 +422,7 @@ pub trait BFVCiphertextParams {
     ///
     /// Computes an encryption of the product of two encrypted messages.
     /// 
-    /// This function does perform any semantic checks. In particular, it is up to the
+    /// This function does not perform any semantic checks. In particular, it is up to the
     /// caller to ensure that the ciphertexts are defined over the given ring, and are
     /// BFV encryptions w.r.t. the given plaintext modulus.
     /// 
@@ -457,7 +457,7 @@ pub trait BFVCiphertextParams {
     ///
     /// Computes an encryption of the square of an encrypted messages.
     /// 
-    /// This function does perform any semantic checks. In particular, it is up to the
+    /// This function does not perform any semantic checks. In particular, it is up to the
     /// caller to ensure that the ciphertexts are defined over the given ring, and are
     /// BFV encryptions w.r.t. the given plaintext modulus.
     /// 
@@ -742,7 +742,7 @@ pub struct Pow2BFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocat
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> Display for Pow2BFV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BFV(n = 2^{}, log2(q) in {}..{})", self.log2_N + 1, self.log2_q_min, self.log2_q_max)
+        write!(f, "BFV(m = 2^{}, log2(q) in {}..{})", self.log2_N + 1, self.log2_q_min, self.log2_q_max)
     }
 }
 
@@ -817,23 +817,23 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
 }
 
 ///
-/// Instantiation of BFV over odd, composite cyclotomic rings `Z[X]/(Phi_n(X))`
-/// with `n = n1 n2` and `n2, n2` odd coprime integers. Ciphertexts are represented
+/// Instantiation of BFV over odd, composite cyclotomic rings `Z[X]/(Phi_m(X))`
+/// with `m = m1 * m2` and `m2, m2` odd, coprime and squarefree integers. Ciphertexts are represented
 /// in double-RNS form. If single-RNS form is instead requires, use [`CompositeSingleRNSBFV`].
 /// 
 #[derive(Clone, Debug)]
 pub struct CompositeBFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator> {
     pub log2_q_min: usize,
     pub log2_q_max: usize,
-    pub n1: usize,
-    pub n2: usize,
+    pub m1: usize,
+    pub m2: usize,
     pub ciphertext_allocator: A
 }
 
 impl<A: Allocator + Clone + Send + Sync> Display for CompositeBFV<A> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BFV(n = {} * {}, log2(q) in {}..{})", self.n1, self.n2, self.log2_q_min, self.log2_q_max)
+        write!(f, "BFV(m = {} * {}, log2(q) in {}..{})", self.m1, self.m2, self.log2_q_min, self.log2_q_max)
     }
 }
 
@@ -846,7 +846,7 @@ impl<A: Allocator + Clone + Send + Sync> BFVCiphertextParams for CompositeBFV<A>
     }
 
     fn number_ring(&self) -> CompositeCyclotomicNumberRing {
-        CompositeCyclotomicNumberRing::new(self.n1, self.n2)
+        CompositeCyclotomicNumberRing::new(self.m1, self.m2)
     }
 
     #[instrument(skip_all)]
@@ -893,8 +893,8 @@ impl<A: Allocator + Clone + Send + Sync> BFVCiphertextParams for CompositeBFV<A>
 }
 
 ///
-/// Instantiation of BFV over odd, composite cyclotomic rings `Z[X]/(Phi_n(X))`
-/// with `n = n1 n2` and `n2, n2` odd coprime integers. Ciphertexts are represented
+/// Instantiation of BFV over odd, composite cyclotomic rings `Z[X]/(Phi_m(X))`
+/// with `m = m1 m2` and `m2, m2` odd coprime integers. Ciphertexts are represented
 /// in single-RNS form. If double-RNS form is instead requires, use [`CompositeBFV`].
 /// 
 /// This takes a type `C` as last generic argument, which is the type of the convolution
@@ -905,8 +905,8 @@ impl<A: Allocator + Clone + Send + Sync> BFVCiphertextParams for CompositeBFV<A>
 pub struct CompositeSingleRNSBFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + HERingConvolution<Zn> = DefaultConvolution> {
     pub log2_q_min: usize,
     pub log2_q_max: usize,
-    pub n1: usize,
-    pub n2: usize,
+    pub m1: usize,
+    pub m2: usize,
     pub ciphertext_allocator: A,
     pub convolution: PhantomData<C>
 }
@@ -914,7 +914,7 @@ pub struct CompositeSingleRNSBFV<A: Allocator + Clone + Send + Sync = DefaultCip
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>> Display for CompositeSingleRNSBFV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BFV(n = {} * {}, log2(q) in {}..{})", self.n1, self.n2, self.log2_q_min, self.log2_q_max)
+        write!(f, "BFV(m = {} * {}, log2(q) in {}..{})", self.m1, self.m2, self.log2_q_min, self.log2_q_max)
     }
 }
 
@@ -927,14 +927,14 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>>
     }
 
     fn number_ring(&self) -> CompositeCyclotomicNumberRing {
-        CompositeCyclotomicNumberRing::new(self.n1, self.n2)
+        CompositeCyclotomicNumberRing::new(self.m1, self.m2)
     }
 
     #[instrument(skip_all)]
     fn create_ciphertext_rings(&self) -> (CiphertextRing<Self>, CiphertextRing<Self>) {
         let log2_q = self.ciphertext_modulus_bits();
         let number_ring = self.number_ring();
-        let required_root_of_unity = 1 << ZZ.abs_log2_ceil(&(number_ring.n() as i64 * 4)).unwrap();
+        let required_root_of_unity = 1 << ZZ.abs_log2_ceil(&(number_ring.m() as i64 * 4)).unwrap();
 
         let mut C_rns_base = sample_primes(log2_q.start, log2_q.end, 56, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZ, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZ))).unwrap();
         C_rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
@@ -943,7 +943,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>>
         assert!(ZZbig.is_gt(&Cmul_rns_base[Cmul_rns_base.len() - 1], &C_rns_base[C_rns_base.len() - 1]));
         Cmul_rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
 
-        let max_log2_n = 1 + ZZ.abs_log2_ceil(&((self.n1 * self.n2) as i64)).unwrap();
+        let max_log2_n = 1 + ZZ.abs_log2_ceil(&((self.m1 * self.m2) as i64)).unwrap();
         let C_rns_base = C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZ, ZZbig) as u64)).collect::<Vec<_>>();
         let Cmul_rns_base = Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZ, ZZbig) as u64)).collect::<Vec<_>>();
 
@@ -1090,8 +1090,8 @@ fn test_composite_bfv_mul() {
     let params = CompositeBFV {
         log2_q_min: 500,
         log2_q_max: 520,
-        n1: 17,
-        n2: 97,
+        m1: 17,
+        m2: 97,
         ciphertext_allocator: DefaultCiphertextAllocator::default()
     };
     let t = 8;
@@ -1117,8 +1117,8 @@ fn test_composite_bfv_hom_galois() {
     let params = CompositeSingleRNSBFV {
         log2_q_min: 500,
         log2_q_max: 520,
-        n1: 7,
-        n2: 11,
+        m1: 7,
+        m2: 11,
         ciphertext_allocator: DefaultCiphertextAllocator::default(),
         convolution: PhantomData::<DefaultConvolution>
     };
@@ -1145,8 +1145,8 @@ fn test_single_rns_composite_bfv_mul() {
     let params = CompositeSingleRNSBFV {
         log2_q_min: 500,
         log2_q_max: 520,
-        n1: 7,
-        n2: 11,
+        m1: 7,
+        m2: 11,
         ciphertext_allocator: DefaultCiphertextAllocator::default(),
         convolution: PhantomData::<DefaultConvolution>
     };
@@ -1169,7 +1169,7 @@ fn test_single_rns_composite_bfv_mul() {
 
 #[test]
 #[ignore]
-fn measure_time_pow2_bfv() {
+fn measure_time_pow2_bfv_basic_ops() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1228,7 +1228,7 @@ fn measure_time_pow2_bfv() {
 
 #[test]
 #[ignore]
-fn measure_time_double_rns_composite_bfv() {
+fn measure_time_double_rns_composite_bfv_basic_ops() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1237,8 +1237,8 @@ fn measure_time_double_rns_composite_bfv() {
     let params = CompositeBFV {
         log2_q_min: 1090,
         log2_q_max: 1100,
-        n1: 127,
-        n2: 337,
+        m1: 127,
+        m2: 337,
         ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
     };
     let t = 4;
@@ -1288,7 +1288,7 @@ fn measure_time_double_rns_composite_bfv() {
 
 #[test]
 #[ignore]
-fn measure_time_single_rns_composite_bfv() {
+fn measure_time_single_rns_composite_bfv_basic_ops() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1297,8 +1297,8 @@ fn measure_time_single_rns_composite_bfv() {
     let params = CompositeSingleRNSBFV {
         log2_q_min: 1090,
         log2_q_max: 1100,
-        n1: 127,
-        n2: 337,
+        m1: 127,
+        m2: 337,
         ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
         convolution: PhantomData::<DefaultConvolution>
     };

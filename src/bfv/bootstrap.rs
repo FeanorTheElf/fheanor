@@ -47,7 +47,7 @@ impl<Params: BFVCiphertextParams> ThinBootstrapParams<Params>
         where F: FnOnce() -> PlaintextCircuit<<PlaintextRing<Params> as RingStore>::Type>
     {
         if let Some(cache_dir) = cache_dir {
-            let filename = format!("{}/{}_n{}_p{}_e{}.json", cache_dir, base_name, H.hypercube().n(), H.p(), H.e());
+            let filename = format!("{}/{}_m{}_p{}_e{}.json", cache_dir, base_name, H.hypercube().m(), H.p(), H.e());
             if let Ok(file) = File::open(filename.as_str()) {
                 if LOG {
                     println!("Reading {} from file {}", base_name, filename);
@@ -69,14 +69,14 @@ impl<Params: BFVCiphertextParams> ThinBootstrapParams<Params>
     }
 
     pub fn build_pow2<const LOG: bool>(&self, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
-        let log2_n = ZZ.abs_log2_ceil(&(self.scheme_params.number_ring().n() as i64)).unwrap();
-        assert_eq!(self.scheme_params.number_ring().n(), 1 << log2_n);
+        let log2_m = ZZ.abs_log2_ceil(&(self.scheme_params.number_ring().m() as i64)).unwrap();
+        assert_eq!(self.scheme_params.number_ring().m(), 1 << log2_m);
 
         let (p, r) = is_prime_power(&ZZ, &self.t).unwrap();
         let v = self.v;
         let e = r + v;
         if LOG {
-            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", p, r, self.t, <_ as HECyclotomicNumberRing>::n(&self.scheme_params.number_ring()));
+            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", p, r, self.t, self.scheme_params.number_ring().m());
             println!("Choosing e = r + v = {} + {}", r, v);
         }
 
@@ -85,7 +85,7 @@ impl<Params: BFVCiphertextParams> ThinBootstrapParams<Params>
 
         let digit_extract = DigitExtract::new_default(p, e, r);
 
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.n() as u64), p);
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.galois_group(), p);
         let H = if let Some(cache_dir) = cache_dir {
             HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
         } else {
@@ -105,13 +105,13 @@ impl<Params: BFVCiphertextParams> ThinBootstrapParams<Params>
     }
 
     pub fn build_odd<const LOG: bool>(&self, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
-        assert!(self.scheme_params.number_ring().n() % 2 != 0);
+        assert!(self.scheme_params.number_ring().m() % 2 != 0);
 
         let (p, r) = is_prime_power(&ZZ, &self.t).unwrap();
         let v = self.v;
         let e = r + v;
         if LOG {
-            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", p, r, self.t, self.scheme_params.number_ring().n());
+            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", p, r, self.t, self.scheme_params.number_ring().m());
             println!("Choosing e = r + v = {} + {}", r, v);
         }
 
@@ -124,7 +124,7 @@ impl<Params: BFVCiphertextParams> ThinBootstrapParams<Params>
             DigitExtract::new_default(p, e, r)
         };
 
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.n() as u64), p);
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), p);
         let H = if let Some(cache_dir) = cache_dir {
             HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
         } else {
@@ -376,8 +376,8 @@ fn test_composite_bfv_thin_bootstrapping_2() {
     let params = CompositeBFV {
         log2_q_min: 660,
         log2_q_max: 700,
-        n1: 31,
-        n2: 11,
+        m1: 31,
+        m2: 11,
         ciphertext_allocator: DefaultCiphertextAllocator::default()
     };
     let t = 8;
@@ -413,7 +413,7 @@ fn test_composite_bfv_thin_bootstrapping_2() {
 
 #[test]
 #[ignore]
-fn measure_time_composite_bfv_thin_bootstrapping() {
+fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
     tracing_subscriber::registry().with(filtered_chrome_layer).init();
@@ -423,8 +423,8 @@ fn measure_time_composite_bfv_thin_bootstrapping() {
     let params = CompositeBFV {
         log2_q_min: 805,
         log2_q_max: 820,
-        n1: 37,
-        n2: 949,
+        m1: 37,
+        m2: 949,
         ciphertext_allocator: DefaultCiphertextAllocator::default()
     };
     let t = 4;
@@ -471,8 +471,8 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     let params = CompositeSingleRNSBFV {
         log2_q_min: 805,
         log2_q_max: 820,
-        n1: 37,
-        n2: 949,
+        m1: 37,
+        m2: 949,
         ciphertext_allocator: DefaultCiphertextAllocator::default(),
         convolution: PhantomData::<DefaultConvolution>
     };

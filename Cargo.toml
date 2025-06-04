@@ -1,6 +1,6 @@
 [package]
 name = "fheanor"
-version = "0.7.2"
+version = "0.8.0"
 edition = "2021"
 
 repository = "https://github.com/FeanorTheElf/fheanor"
@@ -15,7 +15,7 @@ crate-type = ["rlib"]
 bench = true
 
 [dependencies]
-feanor-math = { version = "3.3.2", features = ["generic_tests", "unstable-enable"] }
+feanor-math = { version = "3.4.0", features = ["generic_tests", "unstable-enable"] }
 feanor-math-hexl = { version = "0.2.4", optional = true }
 oorandom = "11.1.3"
 serde = { version = "1.0.207", features = ["derive"] }

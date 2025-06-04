@@ -53,9 +53,9 @@ fn ring_literal<R>(ring: R, data: &[i32]) -> El<R>
 /// The default convolution algorithm that will be used by all tests and benchmarks.
 /// It is also a good choice when instantiating homomorphic encryption as a user.
 /// 
-/// By default, it will point to a pure-rust implementation of convolution (currently
-/// [`crate::ntt::ntt_convolution::NTTConv`]), but can be changed by using the feature
-/// `use_hexl`.
+/// By default, it will point to a pure-rust implementation of convolution (default
+/// [`feanor_math::algorithms::convolution::ntt::NTTConvolution`]), but can be changed 
+/// by using the feature `use_hexl`.
 /// 
 #[cfg(feature = "use_hexl")]
 pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
@@ -64,7 +64,7 @@ pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
 /// The default convolution algorithm that will be used by all tests and benchmarks.
 /// It is also a good choice when instantiating homomorphic encryption as a user.
 /// 
-/// By default, it will point to a pure-rust implementation of convolution (currently
+/// By default, it will point to a pure-rust implementation of convolution (default
 /// [`feanor_math::algorithms::convolution::ntt::NTTConvolution`]), but can be changed 
 /// by using the feature `use_hexl`.
 /// 
@@ -77,8 +77,8 @@ pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConv
 /// encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of the negacyclic NTT
-/// (currently [`crate::number_ring::pow2_cyclotomic::RustNegacyclicNTT`]), but can be 
-/// changed by using the feature `use_hexl`.
+/// (default [`crate::ntt::RustNegacyclicNTT`]), but can be  changed by using
+/// the feature `use_hexl`.
 /// 
 #[cfg(feature = "use_hexl")]
 pub type DefaultNegacyclicNTT = feanor_math_hexl::hexl::HEXLNegacyclicNTT;
@@ -89,11 +89,11 @@ pub type DefaultNegacyclicNTT = feanor_math_hexl::hexl::HEXLNegacyclicNTT;
 /// encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of the negacyclic NTT
-/// (currently [`crate::number_ring::pow2_cyclotomic::RustNegacyclicNTT`]), but can be 
-/// changed by using the feature `use_hexl`.
+/// (default [`crate::ntt::RustNegacyclicNTT`]), but can be changed by using the
+/// feature `use_hexl`.
 /// 
 #[cfg(not(feature = "use_hexl"))]
-pub type DefaultNegacyclicNTT = crate::number_ring::pow2_cyclotomic::RustNegacyclicNTT<feanor_math::rings::zn::zn_64::Zn>;
+pub type DefaultNegacyclicNTT = crate::ntt::RustNegacyclicNTT<feanor_math::rings::zn::zn_64::Zn>;
 
 ///
 /// The default allocator for ciphertext ring elements, which will be used by all tests and
@@ -112,9 +112,9 @@ fn euler_phi(factorization: &[(i64, usize)]) -> i64 {
 }
 
 ///
-/// Euler's totient function.
+/// Euler's totient function for squarefree integers.
 /// 
-/// It takes a list of all distinct prime factors of `n`, and returns `phi(n)`.
+/// It takes a list of all distinct prime factors of `m`, and returns `phi(m)`.
 /// 
 fn euler_phi_squarefree(factorization: &[i64]) -> i64 {
     StaticRing::<i64>::RING.prod(factorization.iter().map(|p| p - 1))
@@ -164,7 +164,7 @@ mod serialization_helper;
 pub mod ntt;
 
 ///
-/// Defines the trait [`cyclotomic::CyclotomicRing`] for rings of the form `R[X]/(Phi_n)`, where `R` is any base ring.
+/// Defines the trait [`cyclotomic::CyclotomicRing`] for rings of the form `R[X]/(Phi_m)`, where `R` is any base ring.
 /// 
 pub mod cyclotomic;
 
