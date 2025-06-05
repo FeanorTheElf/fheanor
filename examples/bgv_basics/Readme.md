@@ -3,7 +3,8 @@
 BGV was proposed in "Leveled fully homomorphic encryption without bootstrapping" by Z. Brakerski, C. Gentry, and V. Vaikuntanathan (<https://dl.acm.org/doi/10.1145/2090236.2090262>), and is the foundation of the family of "second generation" HE schemes.
 In this example, we will show how to use the provided implementation of BGV, without going deep into the mathematical details of the scheme.
 In comparison to BFV (for a short introduction, see [`crate::examples::bfv_basics`]), BGV allows for a somewhat more efficient implementation, but the necessity for the user to manually manage the modulus chain introduces significant additional complexity.
-We note that some libraries (like HElib) support automatic management of the modulus chain, but this is not implemented in Fheanor.
+We note that some libraries (like HElib) automatically manage the modulus chain, but the plain BGV scheme implemented in Fheanor doesn't.
+Fheanor does, however, have a separate implementation of BGV noise and modulus management, which currently is WIP.
 
 ## Some BGV basics, modulus-switching and the modulus chain
 
@@ -57,6 +58,7 @@ Moreover, we choose [`crate::DefaultNegacyclicNTT`], which will point either to 
 Finally, `log2_q_min` and `log2_q_max` refer to the allowed range for the bitlength of the largest ciphertext modulus `q`, i.e. the first one in the modulus chain `q > q' > q'' > ...`.
 We will later derive the other moduli `q', q'', ...` from `q` by "dropping" factors of `q`.
 This works, since `q` is chosen as a product of many approximately 57 bit long primes.
+These primes are also known as the RNS base of `q`.
 
 Using this, we can now create the plaintext ring and initial ciphertext ring via
 ```rust
@@ -91,7 +93,7 @@ However, since `q` is sampled using large primes of up to 56 bits, this is unlik
 
 Next, let's generate the keys we will require later.
 Since the type of the ciphertext ring depends on the type of the chosen parameters, all further functions are associated functions of `ChosenBGVParamType`.
-While it would be preferable for the BFV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVCiphertextParams`].
+While it would be preferable for the BGV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVCiphertextParams`].
 ```rust
 #![feature(allocator_api)]
 # use fheanor::bgv::*;
@@ -121,13 +123,15 @@ While it would be preferable for the BFV implementation not to be tied to any sp
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 let mut rng = StdRng::from_seed([1; 32]);
 let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
+let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 ```
 To generate the keys (as well as for encryption), we require a source of randomness.
 Fheanor is internally completely deterministic, hence it takes this source as parameter - in form of a [`rand::CryptoRng`].
-Furthermore, there are two parameters that influence performance and noise growth of key-switching:
- - the number of "digits" used for the gadget decomposition. A high number will cause low noise growth, but larger key-switching keys and slower key-switching.
- - the number of RNS factors that constitute the "special modulus". This should be at most the size of the largest involved digit. In the simplest case, this is zero (no "hybrid key switching" is used), which means that the "special ciphertext ring" is equal to the normal ciphertext ring. However, this will negatively affect noise growth of key-switching after the first key-switch.
+
+Furthermore, for the so-called "relinearization key" `rk`, which is required for multiplications, we have to choose a decomposition of all RNS factors into "digits". 
+A large number of small digits will cause low noise growth, but larger key-switching keys and slower key-switching.
+The function [`fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices::select_digits()`] will equally distribute all RNS factors across the given number of digits which is usually a reasonable choice.
+Here, we choose 3 digits, which might be too low for complex scenarios, but is sufficient for this example
 
 ## Encryption and Decryption
 
@@ -166,7 +170,7 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
     P.base_ring().int_hom().map(i)
 ));
@@ -177,9 +181,8 @@ assert_el_eq!(&P, &x, &dec_x);
 For more info on how to create and operate on ring elements, see `feanor-math`.
 
 **Note:** As opposed to other HE libraries, initial ciphertexts are created w.r.t. the modulus of the ring passed to `enc_sym()`.
-In particular, if created as shown above, fresh encryptions will be defined modulo the whole ciphertext modulus, including the "special modulus".
-Fheanor can also be used with a special modulus (by using a nonzero `special_modulus_factor_count` when creating key-switching keys).
-In this case, you either have to pass a ciphertext ring whose RNS base does not include the special modulus to `enc_sym()`, or modulus-switch ciphertexts to such an RNS base before performing key-switching.
+In particular, no "special modulus" (as in other FHE libraries) is used at this point.
+Instead, Fheanor implements a slightly less efficient variant of hybrid bootstrapping, where the special modulus is only chosen when performing a key-switch, hence gives much more flexibility.
 
 ## Homomorphic operations
 
@@ -221,16 +224,20 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
 # let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
-let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
 let dec_x_sqr = ChosenBGVParamType::dec(&P, &C_initial, enc_x_sqr, &sk);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 2), &dec_x_sqr);
 ```
-Note that the two ciphertext ring parameters to [`crate::bgv::BGVCiphertextParams::hom_mul()`] are the ciphertext ring over the current and special RNS base, respectively. Since we did not use any special modulus, they can be the same.
+Here we used the function [`fheanor::bgv::BGVCiphertextParams::hom_mul()`] to multiply two encryped plaintexts.
+Internally, the homomorphic multiplication will perform an operation called "relinearization" (hence the relinearization key).
+Relinearization also makes sense if the relinearization key is defined modulo a larger modulus than the ciphertext, in which case two ciphertext rings, with a smaller and a larger modulus, can be passed to `hom_mul()`.
+The next parameter should then be the list of indices of RNS factors only occuring in the larger modulus, which is in this context called the "special modulus".
+Here, we don't have any special modulus, thus we pass `C_initial` twice, and an empty list.
 
 ## Modulus-switching
 
@@ -268,25 +275,25 @@ The naive way would be to compute
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
 # let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
-let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
 assert_eq!(96, ChosenBGVParamType::noise_budget(&P, &C_initial, &enc_x_sqr, &sk));
 
-let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x_sqr), enc_x_sqr, &rk);
+let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x_sqr), enc_x_sqr, &rk);
 assert_eq!(0, ChosenBGVParamType::noise_budget(&P, &C_initial, &enc_x_pow4, &sk)); // this is 0, i.e. noise overflow
 ```
-By querying the noise budget (note that determining the noise budget requires the secret key), we see that 41 bits are left after the first multiplication, and it is 0 after the second multiplication.
+By querying the noise budget (note that determining the noise budget requires the secret key), we see that 96 bits are left after the first multiplication, and it is 0 after the second multiplication.
 This means that the noise became too large, and the decryption would just return some random ring element, unrelated to the actual result.
 
 However, we can decrease the noise growth that happens during the second multiplication by performing a modulus-switch to a new ciphertext modulus `q'`.
 Note that finding the right size of `q'` is, in general, not so easy, since it requires an estimate of the current size of the noise in `enc_x_sqr`. 
 In particular, this depends on the size of the ring we work in, and also on the number of digits chosen for relinearization.
 
-Once we decided on the number of factors to drop, we can use the convenience function [`crate::bgv::modswitch::recommended_rns_factors_to_drop()`] to choose the exact factors to drop in such a way as to preserve the quality of the relinearization key.
+Once we decided on the number of factors to drop, we can use the function [`crate::bgv::modswitch::recommended_rns_factors_to_drop()`] to choose the exact factors to drop in such a way as to preserve the quality of the relinearization key.
 Alternatively, these can also determined manually: [`crate::bgv::BGVCiphertextParams::mod_switch_down_ct()`] takes a list of indices, which refer to the indices of the factors of `q` that will be dropped.
 ```rust
 #![feature(allocator_api)]
@@ -322,26 +329,87 @@ Alternatively, these can also determined manually: [`crate::bgv::BGVCiphertextPa
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
 # let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
-let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
 
 let num_digits_to_drop = 2;
-let to_drop = recommended_rns_factors_to_drop(rk.params(), num_digits_to_drop);
+let to_drop = recommended_rns_factors_to_drop(rk.gadget_vector_digits(), num_digits_to_drop);
 let C_new = ChosenBGVParamType::mod_switch_down_C(&C_initial, &to_drop);
 
 let enc_x_modswitch = ChosenBGVParamType::mod_switch_down_ct(&P, &C_new, &C_initial, &to_drop, enc_x_sqr);
 let sk_modswitch = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
 let rk_modswitch = ChosenBGVParamType::mod_switch_down_rk(&C_new, &C_initial, &to_drop, &rk);
 
-let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_new, &C_new, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
+let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_new, &C_new, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_new, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
 assert_eq!(40, ChosenBGVParamType::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
 let dec_x_pow4 = ChosenBGVParamType::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);
 ```
+Indeed, there is no noise overflow anymore!
+
+We can even reduce the noise growth slightly more by using hybrid key switching as follows.
+
+```rust
+#![feature(allocator_api)]
+# use fheanor::bgv::*;
+# use fheanor::DefaultNegacyclicNTT;
+# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::gadget_product::digits::*;
+# use fheanor::bgv::modswitch::recommended_rns_factors_to_drop;
+# use rand::{SeedableRng, rngs::StdRng};
+# use std::alloc::Global;
+# use std::marker::PhantomData;
+# use feanor_math::integer::*;
+# use feanor_math::primitive_int::*;
+# use feanor_math::ring::*;
+# use feanor_math::rings::zn::ZnRingStore;
+# use feanor_math::ring::RingStore;
+# use feanor_math::algorithms::eea::signed_gcd;
+# use feanor_math::homomorphism::Homomorphism;
+# use feanor_math::rings::extension::FreeAlgebraStore;
+# use feanor_math::seq::VectorView;
+# use feanor_math::assert_el_eq;
+# type ChosenBGVParamType = Pow2BGV;
+# let params = ChosenBGVParamType {
+#     ciphertext_allocator: Global,
+#     log2_N: 13,
+#     log2_q_min: 210,
+#     log2_q_max: 220,
+#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
+# };
+# let C_initial: CiphertextRing<ChosenBGVParamType> = params.create_initial_ciphertext_ring();
+# let plaintext_modulus = 17;
+# let P: PlaintextRing<ChosenBGVParamType> = params.create_plaintext_ring(plaintext_modulus);
+# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# let mut rng = StdRng::from_seed([1; 32]);
+# let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
+# let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
+#     P.base_ring().int_hom().map(i)
+# ));
+# let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
+let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+
+let num_digits_to_drop = 2;
+let to_drop = recommended_rns_factors_to_drop(rk.gadget_vector_digits(), num_digits_to_drop);
+let C_new = ChosenBGVParamType::mod_switch_down_C(&C_initial, &to_drop);
+
+let enc_x_modswitch = ChosenBGVParamType::mod_switch_down_ct(&P, &C_new, &C_initial, &to_drop, enc_x_sqr);
+let sk_modswitch = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
+// don't modswitch the rk!
+
+// pass both the ring `C_new` where the ciphertext lives, and the ring `C_initial` where the `rk` lives
+let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_new, &C_initial, &to_drop, ChosenBGVParamType::clone_ct(&P, &C_new, &enc_x_modswitch), enc_x_modswitch, &rk);
+assert_eq!(78, ChosenBGVParamType::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
+let dec_x_pow4 = ChosenBGVParamType::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
+assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);
+```
+Note that hybrid key switching work on larger rings, and may take more time.
+The exact tradeoff between noise growth, relinearization key size and runtime is unfortunately somewhat complicated.
 
 ## Automatic modulus switching
 
@@ -386,7 +454,7 @@ For example, we could implement the above evaluation instead as follows:
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(3, 0, C_initial.base_ring().len()));
+# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
@@ -414,7 +482,7 @@ let enc_x_pow4 = modswitch_strategy.evaluate_circuit(
 ).into_iter().next().unwrap();
 let C_new = ChosenBGVParamType::mod_switch_down_C(&C_initial, &enc_x_pow4.dropped_rns_factor_indices);
 let sk_new = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &enc_x_pow4.dropped_rns_factor_indices, &sk);
-assert_eq!(40, ChosenBGVParamType::noise_budget(&P, &C_new, &enc_x_pow4.data, &sk_new));
+assert_eq!(78, ChosenBGVParamType::noise_budget(&P, &C_new, &enc_x_pow4.data, &sk_new));
 let dec_x_pow4 = ChosenBGVParamType::dec(&P, &C_new, enc_x_pow4.data, &sk_new);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);
 ```

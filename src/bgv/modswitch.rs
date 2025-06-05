@@ -308,16 +308,11 @@ pub trait AsBGVPlaintext<Params: BGVCiphertextParams>: RingBase {
 /// ```
 /// # use feanor_math::seq::*;
 /// # use fheanor::gadget_product::*;
-/// # use fheanor::bgv::KeySwitchKeyParams;
 /// # use fheanor::bgv::modswitch::recommended_rns_factors_to_drop;
 /// # use fheanor::gadget_product::digits::*;
 /// let digits = RNSGadgetVectorDigitIndices::from([0..3, 3..5].clone_els());
-/// let params = KeySwitchKeyParams {
-///     digits_without_special: digits,
-///     special_modulus_factor_count: 0
-/// };
 /// // remove the first two indices from 0..3, and the first index from 3..5 - the resulting ranges both have length 1
-/// assert_eq!(&[0usize, 1, 3][..] as &[usize], &*recommended_rns_factors_to_drop(params, 3) as &[usize]);
+/// assert_eq!(&[0usize, 1, 3][..] as &[usize], &*recommended_rns_factors_to_drop(&digits, 3) as &[usize]);
 /// ```
 /// 
 pub fn recommended_rns_factors_to_drop(key_digits: &RNSGadgetVectorDigitIndices, drop_prime_count: usize) -> Box<RNSFactorIndexList> {

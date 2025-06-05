@@ -291,6 +291,10 @@ use crate::DefaultNegacyclicNTT;
 use std::alloc::Global;
 #[cfg(test)]
 use std::marker::PhantomData;
+#[cfg(test)]
+use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
+#[cfg(test)]
+use feanor_math::seq::VectorView;
 
 #[test]
 fn test_digit_extract() {
@@ -332,14 +336,13 @@ fn test_digit_extract_homomorphic() {
         ciphertext_allocator: Global,
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
-    let digits = 3;
     
     let P1 = params.create_plaintext_ring(17 * 17);
     let P2 = params.create_plaintext_ring(17 * 17 * 17);
     let (C, C_mul) = params.create_ciphertext_rings();
 
     let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
-    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, digits);
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
 
     let m = P2.int_hom().map(17 * 17 + 2 * 17 + 5);
     let ct = Pow2BFV::enc_sym(&P2, &C, &mut rng, &m, &sk);

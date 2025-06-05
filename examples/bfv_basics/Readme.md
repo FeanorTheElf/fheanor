@@ -88,6 +88,9 @@ Since the type of the ciphertext ring depends on the type of the chosen paramete
 While it would be preferable for the BFV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVCiphertextParams`].
 ```rust
 #![feature(allocator_api)]
+# use feanor_math::seq::VectorView;
+# use feanor_math::ring::RingExtensionStore;
+# use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 # use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
 # use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
@@ -107,21 +110,15 @@ While it would be preferable for the BFV implementation not to be tied to any sp
 # drop(params);
 let mut rng = thread_rng();
 let sk = ChosenBFVParamType::gen_sk(&C, &mut rng, None);
-let digits = 2;
-let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, digits);
+let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
 ```
 To generate the keys (as well as for encryption), we require a source of randomness.
 Fheanor is internally completely deterministic, hence it takes this source as parameter - in form of a [`rand::CryptoRng`].
-Furthermore, we have to decide on a number of "digits" to use when creating the relinearization key.
-This is a parameter that is necessary for all forms of key-switching (i.e. also Galois keys), and it refers to the number of parts an element is "decomposed into" when performing a gadget product:
- - A higher number of `digits` will make key generation and key-switching slower, but cause less (additive) noise growth.
- - A low number of `digits` will be faster, but cause higher noise growth. In particular, setting `digits = 1` will lead to immediate noise overflow.
 
-Note that the noise growth during key-switching is additive, i.e. will have a very large impact on very-low-noise ciphertexts, but a negligible impact on ciphertexts that already have a significant level of noise.
-Hence, it would be optimal to use a high value for `digits` for the first operations, and a lower value for `digits` later on - however, this might be impractical, since the number of digits is fixed once the key is generated.
-
-Hybrid key switching is less relevant in BFV than in BGV, although using it correctly can give some performance benefits.
-Hence, it is currently not implemented for BFV, and we can't specify a special modulus when creating the relinearization key.
+Furthermore, for the so-called "relinearization key" `rk`, which is required for multiplications, we have to choose a decomposition of all RNS factors into "digits". 
+A large number of small digits will cause low noise growth, but larger key-switching keys and slower key-switching.
+The function [`fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices::select_digits()`] will equally distribute all RNS factors across the given number of digits which is usually a reasonable choice.
+Here, we choose 3 digits, which might be too low for complex scenarios, but is sufficient for this example
 
 ## Encryption and Decryption
 
@@ -135,6 +132,8 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # use feanor_math::homomorphism::*;
 # use feanor_math::assert_el_eq;
 # use feanor_math::ring::*;
+# use feanor_math::seq::VectorView;
+# use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 # use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
 # use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
@@ -154,8 +153,7 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # drop(params);
 # let mut rng = thread_rng();
 # let sk = ChosenBFVParamType::gen_sk(&C, &mut rng, None);
-# let digits = 2;
-# let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, digits);
+# let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
 let x = P.from_canonical_basis((0..(1 << 12)).map(|i| 
     P.base_ring().int_hom().map(i)
 ));
@@ -180,6 +178,8 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # use feanor_math::homomorphism::*;
 # use feanor_math::assert_el_eq;
 # use feanor_math::ring::*;
+# use feanor_math::seq::VectorView;
+# use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 # use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
 # use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
@@ -199,8 +199,7 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # drop(params);
 # let mut rng = thread_rng();
 # let sk = ChosenBFVParamType::gen_sk(&C, &mut rng, None);
-# let digits = 2;
-# let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, digits);
+# let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 12)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
@@ -218,6 +217,8 @@ Note that the plaintext ring is actually quite large - we chose `N = 4096` - so 
 # use feanor_math::homomorphism::*;
 # use feanor_math::assert_el_eq;
 # use feanor_math::ring::*;
+# use feanor_math::seq::VectorView;
+# use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 # use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
 # use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
@@ -237,8 +238,7 @@ Note that the plaintext ring is actually quite large - we chose `N = 4096` - so 
 # drop(params);
 # let mut rng = thread_rng();
 # let sk = ChosenBFVParamType::gen_sk(&C, &mut rng, None);
-# let digits = 2;
-# let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, digits);
+# let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 12)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));

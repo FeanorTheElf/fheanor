@@ -24,15 +24,13 @@ use feanor_math::ordered::OrderedRingStore;
 use feanor_math::rings::finite::FiniteRingStore;
 use tracing::instrument;
 
-use crate::ciphertext_ring::perform_rns_op;
-use crate::ciphertext_ring::perform_rns_op_to_plaintext_ring;
+use crate::ciphertext_ring::{perform_rns_op, perform_rns_op_to_plaintext_ring};
 use crate::ciphertext_ring::BGFVCiphertextRing;
 use crate::circuit::evaluator::DefaultCircuitEvaluator;
-use crate::circuit::Coefficient;
-use crate::circuit::PlaintextCircuit;
+use crate::circuit::{Coefficient, PlaintextCircuit};
 use crate::cyclotomic::*;
-use crate::gadget_product::GadgetProductLhsOperand;
-use crate::gadget_product::GadgetProductRhsOperand;
+use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
+use crate::gadget_product::digits::*;
 use crate::ntt::{HERingNegacyclicNTT, HERingConvolution};
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::number_ring::hypercube::isomorphism::*;
@@ -173,6 +171,8 @@ pub trait BFVCiphertextParams {
     ///
     /// Generates a new encryption of zero using the secret key and the randomness of the given rng.
     /// 
+    /// The standard deviation of the error is currently fixed to 3.2.
+    /// 
     #[instrument(skip_all)]
     fn enc_sym_zero<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, sk: &SecretKey<Self>) -> Ciphertext<Self> {
         let a = C.random_element(|| rng.next_u64());
@@ -195,6 +195,8 @@ pub trait BFVCiphertextParams {
 
     ///
     /// Encrypts the given value, using the randomness of the given rng.
+    /// 
+    /// The standard deviation of the error is currently fixed to 3.2.
     /// 
     #[instrument(skip_all)]
     fn enc_sym<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, m: &El<PlaintextRing<Self>>, sk: &SecretKey<Self>) -> Ciphertext<Self> {
@@ -311,7 +313,7 @@ pub trait BFVCiphertextParams {
     /// Computes an encryption of the sum of an encrypted message and a plaintext.
     /// 
     /// This function does not perform any semantic checks. In particular, it is up to the
-    /// caller to ensure that the ciphertext is defined over the given ring, and is
+    /// caller to ensure that the ciphertext is defined over the given ring, and is a valid
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
     #[instrument(skip_all)]
@@ -347,6 +349,9 @@ pub trait BFVCiphertextParams {
     /// (i.e. multiplied to ciphertexts) is different than for plaintexts that are used as summands
     /// (i.e. added to ciphertexts). Currently only the former is supported for BFV.
     /// 
+    /// This function does not perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the plaintext ring element is defined over the given plaintext ring.
+    /// 
     #[instrument(skip_all)]
     fn encode_plain_multiplicant(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
         let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
@@ -362,6 +367,10 @@ pub trait BFVCiphertextParams {
     /// the multiplication, and if this is performed in advance (via [`BFVCiphertextParams::encode_plain_multiplicant()`]),
     /// multiplication will be faster.
     /// 
+    /// This function does not perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertext is defined over the given ring, and is a valid
+    /// BFV encryptions w.r.t. compatible plaintext moduli.
+    /// 
     #[instrument(skip_all)]
     fn hom_mul_plain_encoded(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<CiphertextRing<Self>>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
         (C.mul_ref_snd(ct.0, m), C.mul_ref_snd(ct.1, m))
@@ -371,7 +380,7 @@ pub trait BFVCiphertextParams {
     /// Computes an encryption of the product of an encrypted message and an integer plaintext.
     /// 
     /// This function does not perform any semantic checks. In particular, it is up to the
-    /// caller to ensure that the ciphertext is defined over the given ring, and is
+    /// caller to ensure that the ciphertext is defined over the given ring, and is a valid
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
     #[instrument(skip_all)]
@@ -406,14 +415,14 @@ pub trait BFVCiphertextParams {
     ///
     /// Generates a relinearization key, necessary to compute homomorphic multiplications.
     /// 
-    /// The parameter `digits` refers to the number of "digits" to use for the gadget product
-    /// during relinearization. More concretely, when performing relinearization, the ciphertext
+    /// The parameter `digits` defined the RNS-based gadget vector to use for the gadget product
+    /// during key-switching. More concretely, when performing key-switching, the ciphertext
     /// will be decomposed into multiple small parts, which are then multiplied with the components
-    /// of the relinearization key. Thus, a larger value for `digits` will result in lower (additive)
-    /// noise growth during relinearization, at the cost of higher performance.
+    /// of the key-switching key. Thus, a large number of small digits will result in lower (additive)
+    /// noise growth during key-switching, at the cost of higher performance.
     /// 
     #[instrument(skip_all)]
-    fn gen_rk<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: usize) -> RelinKey<'a, Self>
+    fn gen_rk<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices) -> RelinKey<'a, Self>
         where Self: 'a
     {
         Self::gen_switch_key(C, rng, &C.pow(C.clone_el(sk), 2), sk, digits)
@@ -425,6 +434,11 @@ pub trait BFVCiphertextParams {
     /// This function does not perform any semantic checks. In particular, it is up to the
     /// caller to ensure that the ciphertexts are defined over the given ring, and are
     /// BFV encryptions w.r.t. the given plaintext modulus.
+    /// 
+    /// As opposed to BGV, hybrid key switching is currently not implemented for BFV.
+    /// You can achieve the same effect by manually modulus-switching ciphertext to a higher
+    /// modulus before calling `hom_mul()` (although this will be less efficient than 
+    /// performing only the key-switch modulo the larger modulus).
     /// 
     #[instrument(skip_all)]
     fn hom_mul<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
@@ -461,6 +475,11 @@ pub trait BFVCiphertextParams {
     /// caller to ensure that the ciphertexts are defined over the given ring, and are
     /// BFV encryptions w.r.t. the given plaintext modulus.
     /// 
+    /// As opposed to BGV, hybrid key switching is currently not implemented for BFV.
+    /// You can achieve the same effect by manually modulus-switching ciphertext to a higher
+    /// modulus before calling `hom_square()` (although this will be less efficient than 
+    /// performing only the key-switch modulo the larger modulus).
+    /// 
     #[instrument(skip_all)]
     fn hom_square<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
@@ -492,37 +511,44 @@ pub trait BFVCiphertextParams {
     /// In particular, this is used to generate relinearization keys (via [`BFVCiphertextParams::gen_rk()`])
     /// or Galois keys (via [`BFVCiphertextParams::gen_gk()`]).
     /// 
-    /// The parameter `digits` refers to the number of "digits" to use for the gadget product
+    /// The parameter `digits` defined the RNS-based gadget vector to use for the gadget product
     /// during key-switching. More concretely, when performing key-switching, the ciphertext
     /// will be decomposed into multiple small parts, which are then multiplied with the components
-    /// of the key-switching key. Thus, a larger value for `digits` will result in lower (additive)
+    /// of the key-switching key. Thus, a large number of small digits will result in lower (additive)
     /// noise growth during key-switching, at the cost of higher performance.
     /// 
     #[instrument(skip_all)]
-    fn gen_switch_key<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: usize) -> KeySwitchKey<'a, Self>
+    fn gen_switch_key<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>
         where Self: 'a
     {
-        let mut res0 = GadgetProductRhsOperand::new(C.get_ring(), digits);
-        let mut res1 = GadgetProductRhsOperand::new(C.get_ring(), digits);
-        for digit_i in 0..digits {
+        let mut res0 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.to_owned());
+        let mut res1 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.to_owned());
+        for (i, digit) in digits.iter().enumerate() {
             let (c0, c1) = Self::enc_sym_zero(C, &mut rng, new_sk);
-            let digit_range = res0.gadget_vector_digits().at(digit_i).clone();
             let factor = C.base_ring().get_ring().from_congruence((0..C.base_ring().len()).map(|i2| {
                 let Fp = C.base_ring().at(i2);
-                if digit_range.contains(&i2) { Fp.one() } else { Fp.zero() } 
+                if digit.contains(&i2) { Fp.one() } else { Fp.zero() } 
             }));
             let mut payload = C.clone_el(&old_sk);
             C.inclusion().mul_assign_ref_map(&mut payload, &factor);
             C.add_assign_ref(&mut payload, &c0);
-            res0.set_rns_factor(C.get_ring(), digit_i, payload);
-            res1.set_rns_factor(C.get_ring(), digit_i, c1);
+            res0.set_rns_factor(C.get_ring(), i, payload);
+            res1.set_rns_factor(C.get_ring(), i, c1);
         }
         return (res0, res1);
     }
     
     ///
-    /// Using a key-switch key, computes an encryption encrypting the same message as the given ciphertext
-    /// under a different secret key.
+    /// Using a key-switch key, computes an encryption encrypting the same message as the
+    /// given ciphertext under a different secret key.
+    /// 
+    /// This function does not perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertext is defined over the given ring, and is a valid
+    /// BFV encryptions w.r.t. the given plaintext modulus.
+    /// 
+    /// As opposed to BGV, hybrid key switching is currently not implemented for BFV.
+    /// You can achieve the same effect by manually modulus-switching ciphertext to a higher
+    /// modulus before calling `key_switch()`.
     /// 
     #[instrument(skip_all)]
     fn key_switch<'a>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
@@ -557,16 +583,17 @@ pub trait BFVCiphertextParams {
     }
     
     ///
-    /// Generates a Galois key, usable for homomorphically applying Galois automorphisms.
+    /// Generates a Galois key, usable for homomorphically applying the Galois automorphisms
+    /// defined by the given element of the Galois group.
     /// 
-    /// The parameter `digits` refers to the number of "digits" to use for the gadget product
+    /// The parameter `digits` defined the RNS-based gadget vector to use for the gadget product
     /// during key-switching. More concretely, when performing key-switching, the ciphertext
     /// will be decomposed into multiple small parts, which are then multiplied with the components
-    /// of the key-switching key. Thus, a larger value for `digits` will result in lower (additive)
+    /// of the key-switching key. Thus, a large number of small digits will result in lower (additive)
     /// noise growth during key-switching, at the cost of higher performance.
     /// 
     #[instrument(skip_all)]
-    fn gen_gk<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: CyclotomicGaloisGroupEl, digits: usize) -> KeySwitchKey<'a, Self>
+    fn gen_gk<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: CyclotomicGaloisGroupEl, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>
         where Self: 'a
     {
         Self::gen_switch_key(C, rng, &C.get_ring().apply_galois_action(sk, g), sk, digits)
@@ -575,6 +602,14 @@ pub trait BFVCiphertextParams {
     ///
     /// Computes an encryption of `sigma(x)`, where `x` is the message encrypted by the given ciphertext
     /// and `sigma` is the given Galois automorphism.
+    /// 
+    /// This function does not perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertext is defined over the given ring, and is a valid
+    /// BFV encryptions w.r.t. the given plaintext modulus.
+    /// 
+    /// As opposed to BGV, hybrid key switching is currently not implemented for BFV.
+    /// You can achieve the same effect by manually modulus-switching ciphertext to a higher
+    /// modulus before calling `hom_galois()`.
     /// 
     #[instrument(skip_all)]
     fn hom_galois<'a>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: CyclotomicGaloisGroupEl, gk: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
@@ -590,6 +625,17 @@ pub trait BFVCiphertextParams {
     /// Homomorphically applies multiple Galois automorphisms at once.
     /// Functionally, this is equivalent to calling [`BFVCiphertextParams::hom_galois()`]
     /// multiple times, but can be faster.
+    /// 
+    /// All used Galois keys must use the same digits, i.e. the same RNS-based
+    /// gadget vector.
+    /// 
+    /// This function does not perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertext is defined over the given ring, and is a valid
+    /// BFV encryptions w.r.t. the given plaintext modulus.
+    /// 
+    /// As opposed to BGV, hybrid key switching is currently not implemented for BFV.
+    /// You can achieve the same effect by manually modulus-switching ciphertext to a higher
+    /// modulus before calling `hom_galois()`.
     /// 
     #[instrument(skip_all)]
     fn hom_galois_many<'a, 'b, V>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[CyclotomicGaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
@@ -1041,12 +1087,11 @@ fn test_pow2_bfv_hom_galois() {
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 3;
-    let digits = 3;
     
     let P = params.create_plaintext_ring(t);
     let (C, _Cmul) = params.create_ciphertext_rings();    
     let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
-    let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, P.galois_group().from_representative(3), digits);
+    let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, P.galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
     
     let input = P.canonical_gen();
     let ctxt = Pow2BFV::enc_sym(&P, &C, &mut rng, &input, &sk);
@@ -1068,12 +1113,11 @@ fn test_pow2_bfv_mul() {
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
-    let digits = 3;
     
     let P = params.create_plaintext_ring(t);
     let (C, C_mul) = params.create_ciphertext_rings();
     let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
-    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, digits);
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BFV::enc_sym(&P, &C, &mut rng, &input, &sk);
@@ -1095,12 +1139,11 @@ fn test_composite_bfv_mul() {
         ciphertext_allocator: DefaultCiphertextAllocator::default()
     };
     let t = 8;
-    let digits = 3;
     
     let P = params.create_plaintext_ring(t);
     let (C, C_mul) = params.create_ciphertext_rings();
     let sk = CompositeBFV::gen_sk(&C, &mut rng, None);
-    let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, digits);
+    let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
 
     let input = P.int_hom().map(2);
     let ctxt = CompositeBFV::enc_sym(&P, &C, &mut rng, &input, &sk);
@@ -1123,12 +1166,11 @@ fn test_composite_bfv_hom_galois() {
         convolution: PhantomData::<DefaultConvolution>
     };
     let t = 3;
-    let digits = 3;
     
     let P = params.create_plaintext_ring(t);
     let (C, _Cmul) = params.create_ciphertext_rings();    
     let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, None);
-    let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, P.galois_group().from_representative(3), digits);
+    let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, P.galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
     
     let input = P.canonical_gen();
     let ctxt = CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &input, &sk);
@@ -1151,13 +1193,12 @@ fn test_single_rns_composite_bfv_mul() {
         convolution: PhantomData::<DefaultConvolution>
     };
     let t = 3;
-    let digits = 3;
 
     let P = params.create_plaintext_ring(t);
     let (C, C_mul) = params.create_ciphertext_rings();
 
     let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, None);
-    let rk = CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, digits);
+    let rk = CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
 
     let input = P.int_hom().map(2);
     let ctxt = CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &input, &sk);
@@ -1183,7 +1224,6 @@ fn measure_time_pow2_bfv_basic_ops() {
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
-    let digits = 3;
     
     let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
         params.create_plaintext_ring(t)
@@ -1217,7 +1257,7 @@ fn measure_time_pow2_bfv_basic_ops() {
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BFV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        Pow2BFV::gen_rk(&C, &mut rng, &sk, digits)
+        Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()))
     );
     let ct2 = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk);
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
@@ -1242,7 +1282,6 @@ fn measure_time_double_rns_composite_bfv_basic_ops() {
         ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
     };
     let t = 4;
-    let digits = 3;
     
     let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
         params.create_plaintext_ring(t)
@@ -1277,7 +1316,7 @@ fn measure_time_double_rns_composite_bfv_basic_ops() {
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBFV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        CompositeBFV::gen_rk(&C, &mut rng, &sk, digits)
+        CompositeBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()))
     );
     let ct2 = CompositeBFV::enc_sym(&P, &C, &mut rng, &m, &sk);
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
@@ -1303,7 +1342,6 @@ fn measure_time_single_rns_composite_bfv_basic_ops() {
         convolution: PhantomData::<DefaultConvolution>
     };
     let t = 4;
-    let digits = 3;
     
     let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
         params.create_plaintext_ring(t)
@@ -1337,7 +1375,7 @@ fn measure_time_single_rns_composite_bfv_basic_ops() {
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBFV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, digits)
+        CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()))
     );
     let ct2 = CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &m, &sk);
     let res = log_time::<_, _, true, _>("HomMul", |[]| 

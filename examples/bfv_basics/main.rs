@@ -12,9 +12,11 @@ use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::{BigIntRing, IntegerRingStore};
 use feanor_math::ring::{RingExtensionStore, RingStore};
 use feanor_math::rings::extension::FreeAlgebraStore;
+use feanor_math::seq::VectorView;
 use feanor_math::rings::zn::ZnRingStore;
 use fheanor::bfv::{BFVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BFV};
 use fheanor::cyclotomic::CyclotomicRingStore;
+use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use fheanor::DefaultNegacyclicNTT;
 use rand::thread_rng;
 
@@ -43,8 +45,7 @@ fn main() {
     let mut rng = thread_rng();
 
     let sk = ChosenBFVParamType::gen_sk(&C, &mut rng, None);
-    let digits = 2;
-    let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, digits);
+    let rk = ChosenBFVParamType::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
 
     let x = P.from_canonical_basis((0..(1 << 12)).map(|i| 
         P.base_ring().int_hom().map(i)
