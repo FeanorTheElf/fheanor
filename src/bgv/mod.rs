@@ -864,7 +864,6 @@ pub trait BGVCiphertextParams {
         if drop_moduli.len() == 0 {
             return ct;
         } else {
-
             let compute_delta = CongruencePreservingAlmostExactBaseConversion::new_with(
                 drop_moduli.iter().map(|i| *Cold.base_ring().at(*i)).collect(),
                 Cnew.base_ring().as_iter().cloned().collect(),
@@ -1481,6 +1480,35 @@ fn test_pow2_bgv_modulus_switch_rk() {
         let result = Pow2BGV::dec(&P, &C1, result_ctxt, &new_sk);
         assert_el_eq!(&P, P.int_hom().map(6), result);
     }
+}
+
+#[test]
+fn test_mod_switch_repeated() {
+    let mut rng = StdRng::from_seed([0; 32]);
+    
+    let params = Pow2BGV {
+        log2_q_min: 790,
+        log2_q_max: 800,
+        log2_N: 7,
+        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
+    };
+    let t = 17;
+    let P = params.create_plaintext_ring(t);
+    let C0 = params.create_initial_ciphertext_ring();
+    assert_eq!(14, C0.base_ring().len());
+
+    let sk = Pow2BGV::gen_sk(&C0, &mut rng, None);
+    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &P.int_hom().map(2), &sk);
+    let C1 = Pow2BGV::mod_switch_down_C(&C0, &RNSFactorIndexList::from(vec![0, 1, 12, 13], 14));
+    let ctxt1 = Pow2BGV::mod_switch_down_ct(&P, &C1, &C0, &RNSFactorIndexList::from(vec![0, 1, 12, 13], 14), ctxt);
+    let sk1 = Pow2BGV::mod_switch_down_sk(&C1, &C0, &RNSFactorIndexList::from(vec![0, 1, 12, 13], 14), &sk);
+    assert_el_eq!(&P, &P.int_hom().map(2), Pow2BGV::dec(&P, &C1, Pow2BGV::clone_ct(&P, &C1, &ctxt1), &sk1));
+
+    let C2 = Pow2BGV::mod_switch_down_C(&C0, &RNSFactorIndexList::from(vec![0, 1, 2, 12, 13], 14));
+    let ctxt2 = Pow2BGV::mod_switch_down_ct(&P, &C2, &C1, &RNSFactorIndexList::from(vec![0], 10), ctxt1);
+    let sk2 = Pow2BGV::mod_switch_down_sk(&C2, &C0, &RNSFactorIndexList::from(vec![0, 1, 2, 12, 13], 14), &sk);
+    assert_el_eq!(&P, &P.int_hom().map(2), Pow2BGV::dec(&P, &C2, ctxt2, &sk2));
 }
 
 #[test]

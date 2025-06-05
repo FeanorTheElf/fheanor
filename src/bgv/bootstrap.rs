@@ -460,7 +460,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     let C_master = params.create_initial_ciphertext_ring();
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
 
-    let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), None);
+    let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, None);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();

@@ -554,7 +554,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
         let mut result_as_matrix = self.as_matrix_wrt_small_basis_mut(&mut result);
         let value_as_matrix = from.as_matrix_wrt_small_basis(&value);
         let mut i_self = 0;
-        for i_from in 0..self.base_ring().len() {
+        for i_from in 0..from.base_ring().len() {
             if drop_factors.contains(&i_from) {
                 continue;
             }
@@ -579,7 +579,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
         let mut result_as_matrix = self.as_matrix_wrt_small_basis_mut(&mut result);
         let value_as_matrix = from.as_matrix_wrt_small_basis(&value);
         let mut i_from = 0;
-        for i_self in 0..from.base_ring().len() {
+        for i_self in 0..self.base_ring().len() {
             if add_rns_factors.contains(&i_self) {
                 continue;
             }
@@ -1289,6 +1289,11 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
             dropped_rns_factor_ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| dropped_rns_factor_ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(1)].into_iter()))),
             dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[0], a)
         );
+        assert_el_eq!(
+            &dropped_rns_factor_ring,
+            dropped_rns_factor_ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| dropped_rns_factor_ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(1)].into_iter()))),
+            dropped_rns_factor_ring.get_ring().do_fft(dropped_rns_factor_ring.get_ring().drop_rns_factor_non_fft_element(ring.get_ring(), &[0], &ring.get_ring().undo_fft(ring.clone_el(a))))
+        );
     }
     for a in &elements {
         let dropped_factor_a = dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[0], a);
@@ -1296,6 +1301,11 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
             &ring,
             ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| ring.base_ring().from_congruence([ring.base_ring().at(0).zero(), *ring.base_ring().get_congruence(&c).at(1)].into_iter()))),
             ring.get_ring().add_rns_factor_element(dropped_rns_factor_ring.get_ring(), &[0], &dropped_factor_a)
+        );
+        assert_el_eq!(
+            &ring,
+            ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| ring.base_ring().from_congruence([ring.base_ring().at(0).zero(), *ring.base_ring().get_congruence(&c).at(1)].into_iter()))),
+            ring.get_ring().do_fft(ring.get_ring().add_rns_factor_non_fft_element(dropped_rns_factor_ring.get_ring(), &[0], &dropped_rns_factor_ring.get_ring().undo_fft(dropped_factor_a)))
         );
     }
 
@@ -1306,6 +1316,11 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
             dropped_rns_factor_ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| dropped_rns_factor_ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(0)].into_iter()))),
             dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[1], a)
         );
+        assert_el_eq!(
+            &dropped_rns_factor_ring,
+            dropped_rns_factor_ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| dropped_rns_factor_ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(0)].into_iter()))),
+            dropped_rns_factor_ring.get_ring().do_fft(dropped_rns_factor_ring.get_ring().drop_rns_factor_non_fft_element(ring.get_ring(), &[1], &ring.get_ring().undo_fft(ring.clone_el(a))))
+        );
     }
     for a in &elements {
         let dropped_factor_a = dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[1], a);
@@ -1313,6 +1328,11 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
             &ring,
             ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(0), ring.base_ring().at(1).zero()].into_iter()))),
             ring.get_ring().add_rns_factor_element(dropped_rns_factor_ring.get_ring(), &[1], &dropped_factor_a)
+        );
+        assert_el_eq!(
+            &ring,
+            ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(0), ring.base_ring().at(1).zero()].into_iter()))),
+            ring.get_ring().do_fft(ring.get_ring().add_rns_factor_non_fft_element(dropped_rns_factor_ring.get_ring(), &[1], &dropped_rns_factor_ring.get_ring().undo_fft(dropped_factor_a)))
         );
     }
 
