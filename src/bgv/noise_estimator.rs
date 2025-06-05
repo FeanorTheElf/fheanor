@@ -44,7 +44,7 @@ pub trait BGVNoiseEstimator<Params: BGVCiphertextParams> {
     ///
     fn estimate_log2_relative_noise_level(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, noise: &Self::NoiseDescriptor) -> f64;
 
-    fn enc_sym_zero(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, hwt: Option<usize>) -> Self::NoiseDescriptor;
+    fn enc_sym_zero(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, sk_hwt: Option<usize>) -> Self::NoiseDescriptor;
 
     fn transparent_zero(&self) -> Self::NoiseDescriptor;
 
@@ -52,8 +52,8 @@ pub trait BGVNoiseEstimator<Params: BGVCiphertextParams> {
 
     fn hom_add_plain_encoded(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<CiphertextRing<Params>>, ct: &Self::NoiseDescriptor, implicit_scale: El<Zn>) -> Self::NoiseDescriptor;
 
-    fn enc_sym(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, hwt: Option<usize>) -> Self::NoiseDescriptor {
-        self.hom_add_plain(P, C, m, &self.enc_sym_zero(P, C, hwt), P.base_ring().one())
+    fn enc_sym(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, sk_hwt: Option<usize>) -> Self::NoiseDescriptor {
+        self.hom_add_plain(P, C, m, &self.enc_sym_zero(P, C, sk_hwt), P.base_ring().one())
     }
 
     fn hom_mul_plain(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, ct: &Self::NoiseDescriptor, implicit_scale: El<Zn>) -> Self::NoiseDescriptor;
@@ -76,7 +76,7 @@ pub trait BGVNoiseEstimator<Params: BGVCiphertextParams> {
         self.key_switch(P, C, C_special, special_modulus_rns_factor_indices, ct, gk_digits)
     }
 
-    fn mod_switch_down(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList, ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor;
+    fn mod_switch_down_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList, ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor;
 
     fn change_plaintext_modulus(Pnew: &PlaintextRing<Params>, Pold: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor;
 
@@ -167,7 +167,7 @@ impl<Params: BGVCiphertextParams> BGVNoiseEstimator<Params> for NaiveBGVNoiseEst
         return result;
     }
 
-    fn mod_switch_down(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList, ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {
+    fn mod_switch_down_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList, ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {
         assert_eq!(Cnew.base_ring().len() + drop_moduli.len(), Cold.base_ring().len());
         let result = f64::max(
             *ct,
@@ -236,7 +236,7 @@ impl<Params: BGVCiphertextParams> BGVNoiseEstimator<Params> for AlwaysZeroNoiseE
     fn hom_mul_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {}
     fn hom_mul_plain_i64(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: i64, _ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {}
     fn key_switch(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _special_modulus_rns_factor_indices: &RNSFactorIndexList, _ct: &Self::NoiseDescriptor, _switch_key_digits: &RNSGadgetVectorDigitIndices) -> Self::NoiseDescriptor {}
-    fn mod_switch_down(&self, _P: &PlaintextRing<Params>, _Cnew: &CiphertextRing<Params>, _Cold: &CiphertextRing<Params>, _drop_moduli: &RNSFactorIndexList, _ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {}
+    fn mod_switch_down_ct(&self, _P: &PlaintextRing<Params>, _Cnew: &CiphertextRing<Params>, _Cold: &CiphertextRing<Params>, _drop_moduli: &RNSFactorIndexList, _ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {}
     fn transparent_zero(&self) -> Self::NoiseDescriptor {}
     fn change_plaintext_modulus(_Pnew: &PlaintextRing<Params>, _Pold: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {}
     fn clone_critical_quantity_level(&self, _val: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {}

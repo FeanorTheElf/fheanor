@@ -111,6 +111,7 @@ Applying homomorphic operations is just as easy as for BFV as well.
 #![feature(allocator_api)]
 # use fheanor::clpx::{CLPXCiphertextParams, CiphertextRing, Pow2CLPX};
 # use fheanor::DefaultNegacyclicNTT;
+# use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 # use feanor_math::rings::poly::dense_poly::DensePolyRing;
 # use feanor_math::rings::poly::*;
 # use feanor_math::integer::*;
@@ -120,7 +121,7 @@ Applying homomorphic operations is just as easy as for BFV as well.
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::*;
 # use feanor_math::assert_el_eq;
-# use feanor_math::seq::VectorFn;
+# use feanor_math::seq::*;
 # use std::alloc::Global;
 # use rand::thread_rng;
 # use std::marker::PhantomData;
@@ -140,7 +141,7 @@ Applying homomorphic operations is just as easy as for BFV as well.
 # let P = params.create_encoding::<true>(m1, ZZX, t, p);
 let mut rng = thread_rng();
 let sk = ChosenCLPXParamType::gen_sk(&C, &mut rng, None);
-let rk = ChosenCLPXParamType::gen_rk(&C, &mut rng, &sk, 2);
+let rk = ChosenCLPXParamType::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
 let m = P.plaintext_ring().inclusion().map(P.plaintext_ring().base_ring().coerce(&BigIntRing::RING, BigIntRing::RING.power_of_two(100)));
 let ct = ChosenCLPXParamType::enc_sym(&P, &C, &mut rng, &m, &sk);
 let ct_sqr = ChosenCLPXParamType::hom_square(&P, &C, &C_for_multiplication, ct, &rk);

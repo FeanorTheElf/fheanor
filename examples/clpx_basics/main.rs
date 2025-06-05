@@ -9,6 +9,7 @@ use std::{alloc::Global, marker::PhantomData};
 
 use fheanor::clpx::{CLPXCiphertextParams, CiphertextRing, Pow2CLPX};
 use fheanor::cyclotomic::CyclotomicRingStore;
+use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use fheanor::DefaultNegacyclicNTT;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::poly::*;
@@ -19,7 +20,7 @@ use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::zn::ZnRingStore;
 use feanor_math::ring::*;
 use feanor_math::assert_el_eq;
-use feanor_math::seq::VectorFn;
+use feanor_math::seq::*;
 use rand::thread_rng;
 
 fn main() {
@@ -54,7 +55,7 @@ fn main() {
 
     let mut rng = thread_rng();
     let sk = ChosenCLPXParamType::gen_sk(&C, &mut rng, None);
-    let rk = ChosenCLPXParamType::gen_rk(&C, &mut rng, &sk, 2);
+    let rk = ChosenCLPXParamType::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
     
     let m = P.plaintext_ring().inclusion().map(P.plaintext_ring().base_ring().coerce(&BigIntRing::RING, BigIntRing::RING.power_of_two(100)));
     let ct = ChosenCLPXParamType::enc_sym(&P, &C, &mut rng, &m, &sk);

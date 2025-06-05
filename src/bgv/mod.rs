@@ -479,6 +479,9 @@ pub trait BGVCiphertextParams {
     /// Generates a key-switch key, which can be used (by [`BGVCiphertextParams::key_switch()`]) to
     /// convert a ciphertext w.r.t. `old_sk` into a ciphertext w.r.t. `new_sk`.
     /// 
+    /// Note that we use a variant of hybrid key switching, where the key-switching key
+    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
+    /// 
     #[instrument(skip_all)]
     fn gen_switch_key<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>
         where Self: 'a
@@ -514,11 +517,11 @@ pub trait BGVCiphertextParams {
     /// `new_sk` (which can be generated using [`BGVCiphertextParams::gen_switch_key()`]).
     /// 
     /// `C_special` must be the ciphertext ring w.r.t. which the key-switching key is defined.
-    /// In particular, the RNS base of `C` should contain all RNS factors of `C_special`,
-    /// except those mentioned in `special_modulus_rns_factor_indices`.
+    /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
+    /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
     /// 
     /// Note that we use a variant of hybrid key switching, where the key-switching key
-    /// does not depend on `special_modulus_rns_factor_indices`, but just on `C_special`.
+    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
     fn key_switch<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
@@ -563,6 +566,9 @@ pub trait BGVCiphertextParams {
     ///
     /// Generates a relinearization key, necessary to compute homomorphic multiplications.
     /// 
+    /// Note that we use a variant of hybrid key switching, where the relinearization key
+    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
+    /// 
     #[instrument(skip_all)]
     fn gen_rk<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices) -> RelinKey<'a, Self>
         where Self: 'a
@@ -579,8 +585,11 @@ pub trait BGVCiphertextParams {
     /// and the modulus chain, see [`crate::examples::bgv_basics`].
     /// 
     /// `C_special` must be the ciphertext ring w.r.t. which the relinearization key is defined.
-    /// In other words, this is the ciphertext ring, with additional [`KeySwitchKey::special_modulus_factor_count`]
-    /// rns factors corresponding to the special modulus. If the special modulus is 1, this should be equal to `C`.
+    /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
+    /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
+    /// 
+    /// Note that we use a variant of hybrid key switching, where the relinearization key
+    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
     fn hom_mul<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, special_modulus_rns_factor_indices: &RNSFactorIndexList, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
@@ -611,8 +620,11 @@ pub trait BGVCiphertextParams {
     /// and the modulus chain, see [`crate::examples::bgv_basics`].
     ///  
     /// `C_special` must be the ciphertext ring w.r.t. which the relinearization key is defined.
-    /// In other words, this is the ciphertext ring, with additional [`KeySwitchKey::special_modulus_factor_count`]
-    /// rns factors corresponding to the special modulus. If the special modulus is 1, this should be equal to `C`.
+    /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
+    /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
+    /// 
+    /// Note that we use a variant of hybrid key switching, where the relinearization key
+    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
     fn hom_square<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, special_modulus_rns_factor_indices: &RNSFactorIndexList, val: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
@@ -678,8 +690,11 @@ pub trait BGVCiphertextParams {
     /// and `sigma` is the given Galois automorphism.
     ///  
     /// `C_special` must be the ciphertext ring w.r.t. which the Galois key is defined.
-    /// In other words, this is the ciphertext ring, with additional [`KeySwitchKey::special_modulus_factor_count`]
-    /// rns factors corresponding to the special modulus. If the special modulus is 1, this should be equal to `C`.
+    /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
+    /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
+    /// 
+    /// Note that we use a variant of hybrid key switching, where the Galois key
+    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
     fn hom_galois<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: Ciphertext<Self>, g: CyclotomicGaloisGroupEl, gk: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
@@ -698,8 +713,11 @@ pub trait BGVCiphertextParams {
     /// multiple times, but can be faster.
     ///  
     /// `C_special` must be the ciphertext ring w.r.t. which all the Galois key are defined.
-    /// In other words, this is the ciphertext ring, with additional [`KeySwitchKey::special_modulus_factor_count`]
-    /// rns factors corresponding to the special modulus. If the special modulus is 1, this should be equal to `C`.
+    /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
+    /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
+    /// 
+    /// Note that we use a variant of hybrid key switching, where the Galois key
+    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
     fn hom_galois_many<'a, 'b, V>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: Ciphertext<Self>, gs: &[CyclotomicGaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
@@ -904,8 +922,8 @@ pub trait BGVCiphertextParams {
     ///
     /// Generates a Galois key, usable for homomorphically applying Galois automorphisms.
     /// 
-    /// The special modulus used for the Galois key consists of the last 
-    /// [`KeySwitchKeyParams::special_modulus_factor_count`] rns factors of `C`.
+    /// Note that we use a variant of hybrid key switching, where the Galois key
+    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
     fn gen_gk<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: CyclotomicGaloisGroupEl, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>

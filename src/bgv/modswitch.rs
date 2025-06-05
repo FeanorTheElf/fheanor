@@ -719,7 +719,7 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
         } else { None };
         let result = ModulusAwareCiphertext {
             data: Params::mod_switch_down_ct(P, &C_target, &Cx, &drop_x, x.data),
-            info: self.noise_estimator.mod_switch_down(&P, &C_target, &Cx, &drop_x, &x.info),
+            info: self.noise_estimator.mod_switch_down_ct(&P, &C_target, &Cx, &drop_x, &x.info),
             dropped_rns_factor_indices: dropped_factors_target.to_owned()
         };
         if LOG && drop_x.len() > 0 {
@@ -757,7 +757,7 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
         let drop_x = dropped_factors_target.pushforward(&x.dropped_rns_factor_indices);
         let result = ModulusAwareCiphertext {
             data: Params::mod_switch_down_ct(P, &C_target, &Cx, &drop_x, Params::clone_ct(P, &Cx, &x.data)),
-            info: self.noise_estimator.mod_switch_down(&P, &C_target, &Cx, &drop_x, &x.info),
+            info: self.noise_estimator.mod_switch_down_ct(&P, &C_target, &Cx, &drop_x, &x.info),
             dropped_rns_factor_indices: dropped_factors_target.to_owned()
         };
         if LOG && drop_x.len() > 0 {
@@ -860,8 +860,8 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
                     &C_target,
                     &C_special,
                     &total_drop.pushforward(&total_drop_without_special),
-                    &self.noise_estimator.mod_switch_down(&P, &C_target, &Cx, &total_drop.pushforward(dropped_factors_x), noise_x),
-                    &self.noise_estimator.mod_switch_down(&P, &C_target, &Cy, &total_drop.pushforward(dropped_factors_y), noise_y),
+                    &self.noise_estimator.mod_switch_down_ct(&P, &C_target, &Cx, &total_drop.pushforward(dropped_factors_x), noise_x),
+                    &self.noise_estimator.mod_switch_down_ct(&P, &C_target, &Cy, &total_drop.pushforward(dropped_factors_y), noise_y),
                     &rk_digits_after_total_drop
                 )
             );

@@ -20,6 +20,7 @@ use feanor_math::rings::finite::FiniteRingStore;
 use tracing::instrument;
 
 use crate::ciphertext_ring::{perform_rns_op, BGFVCiphertextRing};
+use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::number_ring::*;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::cyclotomic::*;
@@ -278,7 +279,7 @@ pub trait CLPXCiphertextParams {
     /// noise growth during relinearization, at the cost of higher performance.
     /// 
     #[instrument(skip_all)]
-    fn gen_rk<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: usize) -> RelinKey<'a, Self>
+    fn gen_rk<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices) -> RelinKey<'a, Self>
         where Self: 'a
     {
         Self::gen_switch_key(C, rng, &C.pow(C.clone_el(sk), 2), sk, digits)
@@ -296,23 +297,22 @@ pub trait CLPXCiphertextParams {
     /// noise growth during key-switching, at the cost of higher performance.
     /// 
     #[instrument(skip_all)]
-    fn gen_switch_key<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: usize) -> KeySwitchKey<'a, Self>
+    fn gen_switch_key<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>
         where Self: 'a
     {
-        let mut res0 = GadgetProductRhsOperand::new(C.get_ring(), digits);
-        let mut res1 = GadgetProductRhsOperand::new(C.get_ring(), digits);
-        for digit_i in 0..digits {
+        let mut res0 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.to_owned());
+        let mut res1 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.to_owned());
+        for (i, digit) in digits.iter().enumerate() {
             let (c0, c1) = Self::enc_sym_zero(C, &mut rng, new_sk);
-            let digit_range = res0.gadget_vector_digits().at(digit_i).clone();
             let factor = C.base_ring().get_ring().from_congruence((0..C.base_ring().len()).map(|i2| {
                 let Fp = C.base_ring().at(i2);
-                if digit_range.contains(&i2) { Fp.one() } else { Fp.zero() } 
+                if digit.contains(&i2) { Fp.one() } else { Fp.zero() } 
             }));
             let mut payload = C.clone_el(&old_sk);
             C.inclusion().mul_assign_ref_map(&mut payload, &factor);
             C.add_assign_ref(&mut payload, &c0);
-            res0.set_rns_factor(C.get_ring(), digit_i, payload);
-            res1.set_rns_factor(C.get_ring(), digit_i, c1);
+            res0.set_rns_factor(C.get_ring(), i, payload);
+            res1.set_rns_factor(C.get_ring(), i, c1);
         }
         return (res0, res1);
     }
@@ -555,7 +555,7 @@ fn test_composite_clpx_mul() {
 
     assert_el_eq!(P.plaintext_ring(), &m, &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &ct), &sk));
 
-    let rk = CompositeCLPX::gen_rk(&C, &mut rng, &sk, 3);
+    let rk = CompositeCLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
     let sqr_ct = CompositeCLPX::hom_square(&P, &C, &C_mul, ct, &rk);
     
     assert_el_eq!(P.plaintext_ring(), P.plaintext_ring().int_hom().map(4), &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &sqr_ct), &sk));
@@ -580,7 +580,7 @@ fn test_composite_clpx_mul() {
 
     assert_el_eq!(P.plaintext_ring(), &m, &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &ct), &sk));
 
-    let rk = CompositeCLPX::gen_rk(&C, &mut rng, &sk, 3);
+    let rk = CompositeCLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
     let sqr_ct = CompositeCLPX::hom_square(&P, &C, &C_mul, ct, &rk);
     
     assert_el_eq!(P.plaintext_ring(), P.plaintext_ring().int_hom().map(409), &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &sqr_ct), &sk));
@@ -610,7 +610,7 @@ fn test_pow2_clpx_mul() {
     let m2 = P.plaintext_ring().inclusion().map(P.plaintext_ring().base_ring().coerce(&ZZbig, ZZbig.power_of_two(36)));
     let ct2 = Pow2CLPX::enc_sym(&P, &C, &mut rng, &m2, &sk);
 
-    let rk = Pow2CLPX::gen_rk(&C, &mut rng, &sk, 3);
+    let rk = Pow2CLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
     let ct_res = Pow2CLPX::hom_mul(&P, &C, &C_mul, ct1, ct2, &rk);
     let res = Pow2CLPX::dec(&P, &C, Pow2CLPX::clone_ct(&C, &ct_res), &sk);
     assert_el_eq!(ZZbig, ZZbig.power_of_two(71), &P.plaintext_ring().base_ring().smallest_positive_lift(P.plaintext_ring().wrt_canonical_basis(&res).at(0)));
@@ -630,7 +630,6 @@ fn measure_time_composite_clpx() {
         ciphertext_allocator: Global
     };
     let p = ZZbig.coerce(&StaticRing::<i128>::RING, 56713727820156410577229101238628035243);
-    let digits = 3;
     
     let P = log_time::<_, _, true, _>("CreateEncoding", |[]|
         params.create_encoding::<false>(params.m1, ZZi64X, t, p)
@@ -665,7 +664,7 @@ fn measure_time_composite_clpx() {
     assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 126), &CompositeCLPX::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        CompositeCLPX::gen_rk(&C, &mut rng, &sk, digits)
+        CompositeCLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()))
     );
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
         CompositeCLPX::hom_mul(&P, &C, &C_mul, CompositeCLPX::clone_ct(&C, &ct), CompositeCLPX::clone_ct(&C, &ct), &rk)
