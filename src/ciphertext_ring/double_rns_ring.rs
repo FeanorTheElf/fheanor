@@ -521,6 +521,29 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     }
 
     #[instrument(skip_all)]
+    pub fn add_rns_factor_element(&self, from: &Self, add_rns_factors: &[usize], value: &DoubleRNSEl<NumberRing, A>) -> DoubleRNSEl<NumberRing, A> {
+        assert!(self.number_ring() == from.number_ring());
+        assert_eq!(self.base_ring().len(), from.base_ring().len() + add_rns_factors.len());
+        assert!(add_rns_factors.iter().all(|i| *i < self.base_ring().len()));
+        assert_eq!(from.element_len(), value.el_wrt_mult_basis.len());
+
+        let mut result = self.zero();
+        let mut i_from = 0;
+        for i_self in 0..self.base_ring().len() {
+            if add_rns_factors.contains(&i_self) {
+                continue;
+            }
+            assert!(self.base_ring().at(i_self).get_ring() == from.base_ring().at(i_from).get_ring());
+            for j in 0..self.rank() {
+                result.el_wrt_mult_basis[j + i_self * self.rank()] = value.el_wrt_mult_basis[j + i_from * from.rank()];
+            }
+            i_from += 1;
+        }
+
+        return result;
+    }
+
+    #[instrument(skip_all)]
     pub fn drop_rns_factor_non_fft_element(&self, from: &Self, drop_factors: &[usize], value: &SmallBasisEl<NumberRing, A>) -> SmallBasisEl<NumberRing, A> {
         assert!(self.number_ring() == from.number_ring());
         assert_eq!(self.base_ring().len() + drop_factors.len(), from.base_ring().len());
@@ -531,7 +554,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
         let mut result_as_matrix = self.as_matrix_wrt_small_basis_mut(&mut result);
         let value_as_matrix = from.as_matrix_wrt_small_basis(&value);
         let mut i_self = 0;
-        for i_from in 0..from.base_ring().len() {
+        for i_from in 0..self.base_ring().len() {
             if drop_factors.contains(&i_from) {
                 continue;
             }
@@ -540,6 +563,31 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
                 *result_as_matrix.at_mut(i_self, j) = *value_as_matrix.at(i_from, j);
             }
             i_self += 1;
+        }
+
+        return result;
+    }
+
+    #[instrument(skip_all)]
+    pub fn add_rns_factor_non_fft_element(&self, from: &Self, add_rns_factors: &[usize], value: &SmallBasisEl<NumberRing, A>) -> SmallBasisEl<NumberRing, A> {
+        assert!(self.number_ring() == from.number_ring());
+        assert_eq!(self.base_ring().len(), from.base_ring().len() + add_rns_factors.len());
+        assert!(add_rns_factors.iter().all(|i| *i < self.base_ring().len()));
+        assert_eq!(from.element_len(), value.el_wrt_small_basis.len());
+
+        let mut result = self.zero_non_fft();
+        let mut result_as_matrix = self.as_matrix_wrt_small_basis_mut(&mut result);
+        let value_as_matrix = from.as_matrix_wrt_small_basis(&value);
+        let mut i_from = 0;
+        for i_self in 0..from.base_ring().len() {
+            if add_rns_factors.contains(&i_self) {
+                continue;
+            }
+            assert!(self.base_ring().at(i_self).get_ring() == from.base_ring().at(i_from).get_ring());
+            for j in 0..self.rank() {
+                *result_as_matrix.at_mut(i_self, j) = *value_as_matrix.at(i_from, j);
+            }
+            i_from += 1;
         }
 
         return result;
@@ -1235,12 +1283,36 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
     feanor_math::ring::generic_tests::test_hom_axioms(&ring, &single_rns_ring, elements.iter().map(|x| ring.clone_el(x)));
 
     let dropped_rns_factor_ring = DoubleRNSRingBase::new(number_ring.clone(), zn_rns::Zn::new(vec![Zn::new(p2 as u64)], BigIntRing::RING));
-
     for a in &elements {
         assert_el_eq!(
             &dropped_rns_factor_ring,
             dropped_rns_factor_ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| dropped_rns_factor_ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(1)].into_iter()))),
             dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[0], a)
+        );
+    }
+    for a in &elements {
+        let dropped_factor_a = dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[0], a);
+        assert_el_eq!(
+            &ring,
+            ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| ring.base_ring().from_congruence([ring.base_ring().at(0).zero(), *ring.base_ring().get_congruence(&c).at(1)].into_iter()))),
+            ring.get_ring().add_rns_factor_element(dropped_rns_factor_ring.get_ring(), &[0], &dropped_factor_a)
+        );
+    }
+
+    let dropped_rns_factor_ring = DoubleRNSRingBase::new(number_ring.clone(), zn_rns::Zn::new(vec![Zn::new(p1 as u64)], BigIntRing::RING));
+    for a in &elements {
+        assert_el_eq!(
+            &dropped_rns_factor_ring,
+            dropped_rns_factor_ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| dropped_rns_factor_ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(0)].into_iter()))),
+            dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[1], a)
+        );
+    }
+    for a in &elements {
+        let dropped_factor_a = dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[1], a);
+        assert_el_eq!(
+            &ring,
+            ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(0), ring.base_ring().at(1).zero()].into_iter()))),
+            ring.get_ring().add_rns_factor_element(dropped_rns_factor_ring.get_ring(), &[1], &dropped_factor_a)
         );
     }
 

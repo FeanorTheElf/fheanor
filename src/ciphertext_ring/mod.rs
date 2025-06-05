@@ -90,18 +90,32 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExt
     fn drop_rns_factor(&self, drop_rns_factors: &[usize]) -> Self;
 
     ///
-    /// Reduces an element of `from` modulo `q`, where `q` must divide the modulus of `from`.
+    /// Reduces an element of `from` modulo the modulus `q` of `self`, where `q` must divide the modulus `q'` of `from`.
     /// 
-    /// More concretely, the RNS factors of `q` must be exactly the RNS factors of `from.rns_base()`,
+    /// More concretely, this computes the map
+    /// ```text
+    ///   R/q' -> R/q,  x -> x mod q
+    /// ```
+    /// In particular, the RNS factors of `q` must be exactly the RNS factors of `q'`,
     /// except for the RNS factors whose indices occur in `dropped_rns_factors`.
     /// 
     fn drop_rns_factor_element(&self, from: &Self, dropped_rns_factors: &[usize], value: Self::Element) -> Self::Element;
 
     ///
-    /// Reduces a `PreparedMultiplicant` of `from` modulo `q`, where `q` must divide the modulus of `from`.
+    /// Computes the element modulus the modulus `q` of `self` that is congruent to the given element
+    /// modulo the modulus `q'` of `from` and congruent to zero modulo `q/q'`.
     /// 
-    /// More concretely, the RNS factors of `q` must be exactly the RNS factors of `from.rns_base()`,
-    /// except for the RNS factors whose indices occur in `dropped_rns_factors`.
+    /// More concretely, this computes the map
+    /// ```text
+    ///   R/q' -> R/q,  x -> x q/q'
+    /// ```
+    /// In particular, the RNS factors of `q'` must be exactly the RNS factors of `q`,
+    /// except for the RNS factors whose indices occur in `added_rns_factors`.
+    /// 
+    fn add_rns_factor_element(&self, from: &Self, added_rns_factor: &[usize], value: Self::Element) -> Self::Element;
+
+    ///
+    /// The equivalent of [`BGFVCiphertextRing::drop_rns_factor_element()`] for prepared multiplicants.
     /// 
     fn drop_rns_factor_prepared(&self, from: &Self, dropped_rns_factors: &[usize], value: Self::PreparedMultiplicant) -> Self::PreparedMultiplicant;
 

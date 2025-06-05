@@ -265,6 +265,7 @@ fn gadget_decompose<R, S, V>(ring: &R, el: &R::Element, digits: V, out_ring: &S)
         S: BGFVCiphertextRing,
         V: VectorFn<Range<usize>>
 {
+    assert!(digits.iter().all(|digit| digit.end <= ring.base_ring().len()));
     let ZZi64 = StaticRing::<i64>::RING;
     let mut result = Vec::new();
     let mut el_as_matrix = OwnedMatrix::zero(ring.base_ring().len(), ring.small_generating_set_len(), ring.base_ring().at(0));

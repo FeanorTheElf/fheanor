@@ -34,7 +34,7 @@ pub trait BGVNoiseEstimator<Params: BGVCiphertextParams> {
     /// to store additional data to get more precise estimates on the noise growth
     /// of operations.
     ///
-    type CriticalQuantityLevel;
+    type NoiseDescriptor;
 
     ///
     /// Should return an estimate of
@@ -42,45 +42,45 @@ pub trait BGVNoiseEstimator<Params: BGVCiphertextParams> {
     ///   log2( | c0 + c1 * s |_inf / q )
     /// ```
     ///
-    fn estimate_log2_relative_noise_level(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, noise: &Self::CriticalQuantityLevel) -> f64;
+    fn estimate_log2_relative_noise_level(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, noise: &Self::NoiseDescriptor) -> f64;
 
-    fn enc_sym_zero(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, hwt: Option<usize>) -> Self::CriticalQuantityLevel;
+    fn enc_sym_zero(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, hwt: Option<usize>) -> Self::NoiseDescriptor;
 
-    fn transparent_zero(&self) -> Self::CriticalQuantityLevel;
+    fn transparent_zero(&self) -> Self::NoiseDescriptor;
 
-    fn hom_add_plain(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, ct: &Self::CriticalQuantityLevel, implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel;
+    fn hom_add_plain(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, ct: &Self::NoiseDescriptor, implicit_scale: El<Zn>) -> Self::NoiseDescriptor;
 
-    fn hom_add_plain_encoded(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<CiphertextRing<Params>>, ct: &Self::CriticalQuantityLevel, implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel;
+    fn hom_add_plain_encoded(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<CiphertextRing<Params>>, ct: &Self::NoiseDescriptor, implicit_scale: El<Zn>) -> Self::NoiseDescriptor;
 
-    fn enc_sym(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, hwt: Option<usize>) -> Self::CriticalQuantityLevel {
+    fn enc_sym(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, hwt: Option<usize>) -> Self::NoiseDescriptor {
         self.hom_add_plain(P, C, m, &self.enc_sym_zero(P, C, hwt), P.base_ring().one())
     }
 
-    fn hom_mul_plain(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, ct: &Self::CriticalQuantityLevel, implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel;
+    fn hom_mul_plain(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, ct: &Self::NoiseDescriptor, implicit_scale: El<Zn>) -> Self::NoiseDescriptor;
 
-    fn hom_mul_plain_encoded(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<CiphertextRing<Params>>, ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel;
+    fn hom_mul_plain_encoded(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<CiphertextRing<Params>>, ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor;
 
-    fn hom_mul_plain_i64(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: i64, ct: &Self::CriticalQuantityLevel, implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel;
+    fn hom_mul_plain_i64(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: i64, ct: &Self::NoiseDescriptor, implicit_scale: El<Zn>) -> Self::NoiseDescriptor;
 
-    fn merge_implicit_scale(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &Self::CriticalQuantityLevel, implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {
+    fn merge_implicit_scale(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &Self::NoiseDescriptor, implicit_scale: El<Zn>) -> Self::NoiseDescriptor {
         self.hom_mul_plain_i64(P, C, P.base_ring().smallest_lift(P.base_ring().invert(&implicit_scale).unwrap()), ct, implicit_scale)
     }
 
-    fn key_switch(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, ct: &Self::CriticalQuantityLevel, key: &KeySwitchKeyParams) -> Self::CriticalQuantityLevel;
+    fn key_switch(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: &Self::NoiseDescriptor, key_digits: &RNSGadgetVectorDigitIndices) -> Self::NoiseDescriptor;
 
-    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>,lhs: &Self::CriticalQuantityLevel, rhs: &Self::CriticalQuantityLevel, rk: &KeySwitchKeyParams) -> Self::CriticalQuantityLevel;
+    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, lhs: &Self::NoiseDescriptor, rhs: &Self::NoiseDescriptor, rk_digits: &RNSGadgetVectorDigitIndices) -> Self::NoiseDescriptor;
 
-    fn hom_add(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, lhs: &Self::CriticalQuantityLevel, lhs_implicit_scale: El<Zn>, rhs: &Self::CriticalQuantityLevel, rhs_implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel;
+    fn hom_add(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, lhs: &Self::NoiseDescriptor, lhs_implicit_scale: El<Zn>, rhs: &Self::NoiseDescriptor, rhs_implicit_scale: El<Zn>) -> Self::NoiseDescriptor;
 
-    fn hom_galois(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>,ct: &Self::CriticalQuantityLevel, _g: CyclotomicGaloisGroupEl, gk: &KeySwitchKeyParams) -> Self::CriticalQuantityLevel {
-        self.key_switch(P, C, C_special, ct, gk)
+    fn hom_galois(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: &Self::NoiseDescriptor, _g: CyclotomicGaloisGroupEl, gk_digits: &RNSGadgetVectorDigitIndices) -> Self::NoiseDescriptor {
+        self.key_switch(P, C, C_special, special_modulus_rns_factor_indices, ct, gk_digits)
     }
 
-    fn mod_switch_down(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList, ct: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel;
+    fn mod_switch_down(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList, ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor;
 
-    fn change_plaintext_modulus(Pnew: &PlaintextRing<Params>, Pold: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel;
+    fn change_plaintext_modulus(Pnew: &PlaintextRing<Params>, Pold: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor;
 
-    fn clone_critical_quantity_level(&self, val: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel;
+    fn clone_critical_quantity_level(&self, val: &Self::NoiseDescriptor) -> Self::NoiseDescriptor;
 }
 
 ///
@@ -107,20 +107,20 @@ pub struct NaiveBGVNoiseEstimator;
 impl<Params: BGVCiphertextParams> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstimator {
 
     /// We store `log2(| c0 + c1 s |_can / q)`; this is hopefully `< 0`
-    type CriticalQuantityLevel = f64;
+    type NoiseDescriptor = f64;
 
-    fn estimate_log2_relative_noise_level(&self, _P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, noise: &Self::CriticalQuantityLevel) -> f64 {
+    fn estimate_log2_relative_noise_level(&self, _P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, noise: &Self::NoiseDescriptor) -> f64 {
         // we subtract `(C.rank() as f64).log2()`, since that should be about the difference between `l_inf` and canonical norm
         *noise - (C.rank() as f64).log2()
     }
 
-    fn enc_sym_zero(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, _hwt: Option<usize>) -> Self::CriticalQuantityLevel {
+    fn enc_sym_zero(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, _hwt: Option<usize>) -> Self::NoiseDescriptor {
         let result = (*P.base_ring().modulus() as f64).log2() + log2_can_norm_sk_estimate::<Params>(C) - BigIntRing::RING.abs_log2_floor(C.base_ring().modulus()).unwrap() as f64;
         assert!(!result.is_nan());
         return result;
     }
 
-    fn hom_add(&self, P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, lhs: &Self::CriticalQuantityLevel, lhs_implicit_scale: El<Zn>, rhs: &Self::CriticalQuantityLevel, rhs_implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {
+    fn hom_add(&self, P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, lhs: &Self::NoiseDescriptor, lhs_implicit_scale: El<Zn>, rhs: &Self::NoiseDescriptor, rhs_implicit_scale: El<Zn>) -> Self::NoiseDescriptor {
         let Zt = P.base_ring();
         let (a, b) = equalize_implicit_scale(Zt, Zt.checked_div(&lhs_implicit_scale, &rhs_implicit_scale).unwrap());
         assert!(!Zt.eq_el(&lhs_implicit_scale, &rhs_implicit_scale) || a == 1 && b == 1);
@@ -131,43 +131,43 @@ impl<Params: BGVCiphertextParams> BGVNoiseEstimator<Params> for NaiveBGVNoiseEst
         return result;
     }
 
-    fn hom_add_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {
+    fn hom_add_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {
         let result = *ct;
         assert!(!result.is_nan());
         return result;
     }
 
-    fn hom_add_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {
+    fn hom_add_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {
         let result = *ct;
         assert!(!result.is_nan());
         return result;
     }
 
-    fn hom_mul_plain(&self, P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {
+    fn hom_mul_plain(&self, P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {
         let result = *ct + log2_can_norm_shortest_lift_estimate::<Params>(P);
         assert!(!result.is_nan());
         return result;
     }
 
-    fn hom_mul_plain_encoded(&self, P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {
+    fn hom_mul_plain_encoded(&self, P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {
         let result = *ct + log2_can_norm_shortest_lift_estimate::<Params>(P);
         assert!(!result.is_nan());
         return result;
     }
 
-    fn hom_mul_plain_i64(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, m: i64, ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {
+    fn hom_mul_plain_i64(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, m: i64, ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {
         let result = *ct + (m as f64).abs().log2();
         assert!(!result.is_nan());
         return result;
     }
 
-    fn transparent_zero(&self) -> Self::CriticalQuantityLevel {
+    fn transparent_zero(&self) -> Self::NoiseDescriptor {
         let result = -f64::INFINITY;
         assert!(!result.is_nan());
         return result;
     }
 
-    fn mod_switch_down(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList, ct: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel {
+    fn mod_switch_down(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList, ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {
         assert_eq!(Cnew.base_ring().len() + drop_moduli.len(), Cold.base_ring().len());
         let result = f64::max(
             *ct,
@@ -177,19 +177,19 @@ impl<Params: BGVCiphertextParams> BGVNoiseEstimator<Params> for NaiveBGVNoiseEst
         return result;
     }
 
-    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, lhs: &Self::CriticalQuantityLevel, rhs: &Self::CriticalQuantityLevel, rk: &KeySwitchKeyParams) -> Self::CriticalQuantityLevel {
+    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, lhs: &Self::NoiseDescriptor, rhs: &Self::NoiseDescriptor, rk_digits: &RNSGadgetVectorDigitIndices) -> Self::NoiseDescriptor {
         let log2_q = BigIntRing::RING.abs_log2_ceil(C.base_ring().modulus()).unwrap() as f64;
         let intermediate_result = (*lhs + *rhs + 2. * log2_q) * HEURISTIC_FACTOR_MUL_INPUT_NOISE - log2_q;
-        let result = <Self as BGVNoiseEstimator<Params>>::key_switch(self, P, C, C_special, &intermediate_result, rk);
+        let result = <Self as BGVNoiseEstimator<Params>>::key_switch(self, P, C, C_special, special_modulus_rns_factor_indices, &intermediate_result, rk_digits);
         assert!(!result.is_nan());
         return result;
     }
 
-    fn key_switch(&self, _P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, ct: &Self::CriticalQuantityLevel, switch_key: &KeySwitchKeyParams) -> Self::CriticalQuantityLevel {
-        assert_eq!(C.base_ring().len() + switch_key.special_modulus_factor_count, C_special.base_ring().len());
+    fn key_switch(&self, _P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: &Self::NoiseDescriptor, switch_key_digits: &RNSGadgetVectorDigitIndices) -> Self::NoiseDescriptor {
+        assert_eq!(C.base_ring().len() + special_modulus_rns_factor_indices.len(), C_special.base_ring().len());
         let log2_q = BigIntRing::RING.abs_log2_ceil(C.base_ring().modulus()).unwrap() as f64;
-        let log2_largest_digit = switch_key.digits_without_special.iter().map(|digit| digit.iter().map(|i| *C_special.base_ring().at(i).modulus() as f64).map(f64::log2).sum::<f64>()).max_by(f64::total_cmp).unwrap();
-        let special_modulus_log2 = (0..switch_key.special_modulus_factor_count).map(|i| *C_special.base_ring().at(C_special.base_ring().len() - 1 - i).modulus() as f64).map(f64::log2).sum::<f64>();
+        let log2_largest_digit = switch_key_digits.iter().map(|digit| digit.iter().map(|i| *C_special.base_ring().at(i).modulus() as f64).map(f64::log2).sum::<f64>()).max_by(f64::total_cmp).unwrap();
+        let special_modulus_log2 = special_modulus_rns_factor_indices.iter().map(|i| *C_special.base_ring().at(*i).modulus() as f64).map(f64::log2).sum::<f64>();
         let result = f64::max(
             *ct,
             log2_largest_digit - special_modulus_log2 + (C_special.rank() as f64).log2() * 2. - log2_q
@@ -198,13 +198,13 @@ impl<Params: BGVCiphertextParams> BGVNoiseEstimator<Params> for NaiveBGVNoiseEst
         return result;
     }
 
-    fn change_plaintext_modulus(_Pnew: &PlaintextRing<Params>, _Pold: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, ct: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel {
+    fn change_plaintext_modulus(_Pnew: &PlaintextRing<Params>, _Pold: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {
         let result = *ct;
         assert!(!result.is_nan());
         return result;
     }
 
-    fn clone_critical_quantity_level(&self, val: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel {
+    fn clone_critical_quantity_level(&self, val: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {
         *val
     }
 }
@@ -220,24 +220,24 @@ pub struct AlwaysZeroNoiseEstimator;
 
 impl<Params: BGVCiphertextParams> BGVNoiseEstimator<Params> for AlwaysZeroNoiseEstimator {
 
-    type CriticalQuantityLevel = ();
+    type NoiseDescriptor = ();
 
-    fn estimate_log2_relative_noise_level(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _noise: &Self::CriticalQuantityLevel) -> f64 {
+    fn estimate_log2_relative_noise_level(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _noise: &Self::NoiseDescriptor) -> f64 {
         0.
     }
 
-    fn enc_sym_zero(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _hwt: Option<usize>) -> Self::CriticalQuantityLevel {}
-    fn hom_add(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _lhs: &Self::CriticalQuantityLevel, _lhs_implicit_scale: El<Zn>, _rhs: &Self::CriticalQuantityLevel, _rhs_implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
-    fn hom_add_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, _ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
-    fn hom_add_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
-    fn hom_galois(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _ct: &Self::CriticalQuantityLevel, _g: CyclotomicGaloisGroupEl, _gk: &KeySwitchKeyParams) -> Self::CriticalQuantityLevel {}
-    fn hom_mul(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _lhs: &Self::CriticalQuantityLevel, _rhs: &Self::CriticalQuantityLevel, _rk: &KeySwitchKeyParams) -> Self::CriticalQuantityLevel {}
-    fn hom_mul_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, _ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
-    fn hom_mul_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
-    fn hom_mul_plain_i64(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: i64, _ct: &Self::CriticalQuantityLevel, _implicit_scale: El<Zn>) -> Self::CriticalQuantityLevel {}
-    fn key_switch(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _ct: &Self::CriticalQuantityLevel, _switch_key: &KeySwitchKeyParams) -> Self::CriticalQuantityLevel {}
-    fn mod_switch_down(&self, _P: &PlaintextRing<Params>, _Cnew: &CiphertextRing<Params>, _Cold: &CiphertextRing<Params>, _drop_moduli: &RNSFactorIndexList, _ct: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel {}
-    fn transparent_zero(&self) -> Self::CriticalQuantityLevel {}
-    fn change_plaintext_modulus(_Pnew: &PlaintextRing<Params>, _Pold: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _ct: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel {}
-    fn clone_critical_quantity_level(&self, _val: &Self::CriticalQuantityLevel) -> Self::CriticalQuantityLevel {}
+    fn enc_sym_zero(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _hwt: Option<usize>) -> Self::NoiseDescriptor {}
+    fn hom_add(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _lhs: &Self::NoiseDescriptor, _lhs_implicit_scale: El<Zn>, _rhs: &Self::NoiseDescriptor, _rhs_implicit_scale: El<Zn>) -> Self::NoiseDescriptor {}
+    fn hom_add_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, _ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {}
+    fn hom_add_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {}
+    fn hom_galois(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _special_modulus_rns_factor_indices: &RNSFactorIndexList, _ct: &Self::NoiseDescriptor, _g: CyclotomicGaloisGroupEl, _gk_digits: &RNSGadgetVectorDigitIndices) -> Self::NoiseDescriptor {}
+    fn hom_mul(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _special_modulus_rns_factor_indices: &RNSFactorIndexList, _lhs: &Self::NoiseDescriptor, _rhs: &Self::NoiseDescriptor, _rk_digits: &RNSGadgetVectorDigitIndices) -> Self::NoiseDescriptor {}
+    fn hom_mul_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, _ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {}
+    fn hom_mul_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {}
+    fn hom_mul_plain_i64(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: i64, _ct: &Self::NoiseDescriptor, _implicit_scale: El<Zn>) -> Self::NoiseDescriptor {}
+    fn key_switch(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _special_modulus_rns_factor_indices: &RNSFactorIndexList, _ct: &Self::NoiseDescriptor, _switch_key_digits: &RNSGadgetVectorDigitIndices) -> Self::NoiseDescriptor {}
+    fn mod_switch_down(&self, _P: &PlaintextRing<Params>, _Cnew: &CiphertextRing<Params>, _Cold: &CiphertextRing<Params>, _drop_moduli: &RNSFactorIndexList, _ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {}
+    fn transparent_zero(&self) -> Self::NoiseDescriptor {}
+    fn change_plaintext_modulus(_Pnew: &PlaintextRing<Params>, _Pold: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _ct: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {}
+    fn clone_critical_quantity_level(&self, _val: &Self::NoiseDescriptor) -> Self::NoiseDescriptor {}
 }

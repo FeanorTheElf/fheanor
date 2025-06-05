@@ -392,6 +392,10 @@ impl RNSFactorIndexList {
     pub fn empty() -> Box<Self> {
         Self::from_unchecked(Box::new([]))
     }
+
+    pub fn empty_ref() -> &'static Self {
+        Self::from_ref_unchecked(&[])
+    }
 }
 
 impl Clone for Box<RNSFactorIndexList> {

@@ -501,6 +501,26 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
             )
         }
     }
+    
+    fn add_rns_factor_element(&self, from: &Self, added_rns_factors: &[usize], value: Self::Element) -> Self::Element {
+        match value.internal.get_repr() {
+            ManagedDoubleRNSElRepresentation::Zero => self.zero(),
+            ManagedDoubleRNSElRepresentation::Sum(sum_repr) => self.new_element_sum(
+                self.base.add_rns_factor_non_fft_element(&from.base, added_rns_factors, &sum_repr.0),
+                self.base.add_rns_factor_element(&from.base, added_rns_factors, &sum_repr.1)
+            ),
+            ManagedDoubleRNSElRepresentation::SmallBasis(small_basis_repr) => self.from_small_basis_repr(
+                self.base.add_rns_factor_non_fft_element(&from.base, added_rns_factors, small_basis_repr)
+            ),
+            ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) => self.from_double_rns_repr(
+                self.base.add_rns_factor_element(&from.base, added_rns_factors, double_rns_repr)
+            ),
+            ManagedDoubleRNSElRepresentation::Both(small_basis_repr, double_rns_repr) => self.new_element_both(
+                self.base.add_rns_factor_non_fft_element(&from.base, added_rns_factors, small_basis_repr),
+                self.base.add_rns_factor_element(&from.base, added_rns_factors, double_rns_repr)
+            )
+        }
+    }
 
     fn drop_rns_factor_prepared(&self, from: &Self, drop_factors: &[usize], value: Self::PreparedMultiplicant) -> Self::PreparedMultiplicant {
         self.drop_rns_factor_element(from, drop_factors, value)

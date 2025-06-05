@@ -5,10 +5,11 @@
 // For a guided explanation of this example, see the doc
 #![doc = include_str!("Readme.md")]
 
-use fheanor::bgv::{BGVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BGV, KeySwitchKeyParams};
+use fheanor::bgv::{BGVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BGV};
 use fheanor::cyclotomic::CyclotomicRingStore;
 use fheanor::DefaultNegacyclicNTT;
 use fheanor::bgv::modswitch::recommended_rns_factors_to_drop;
+use fheanor::gadget_product::digits::*;
 use rand::{SeedableRng, rngs::StdRng};
 use std::alloc::Global;
 use std::marker::PhantomData;
@@ -46,17 +47,17 @@ fn main() {
 
     let mut rng = StdRng::from_seed([1; 32]);
     let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-    let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &KeySwitchKeyParams::default(2, 0, C_initial.base_ring().len()));
+    let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C_initial.base_ring().len()));
 
     let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
         P.base_ring().int_hom().map(i)
     ));
     let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
 
-    let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+    let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
     
     let num_digits_to_drop = 1;
-    let to_drop = recommended_rns_factors_to_drop(rk.params(), num_digits_to_drop);
+    let to_drop = recommended_rns_factors_to_drop(rk.gadget_vector_digits(), num_digits_to_drop);
     let C_new = ChosenBGVParamType::mod_switch_down_C(&C_initial, &to_drop);
     
     println!("log2(q') = {}", BigIntRing::RING.abs_log2_ceil(C_new.base_ring().modulus()).unwrap());
@@ -65,7 +66,7 @@ fn main() {
     let sk_modswitch = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
     let rk_modswitch = ChosenBGVParamType::mod_switch_down_rk(&C_new, &C_initial, &to_drop, &rk);
     
-    let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_new, &C_new, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
+    let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_new, &C_new, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
     assert_eq!(22, ChosenBGVParamType::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
     let dec_x_pow4 = ChosenBGVParamType::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
     assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);

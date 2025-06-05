@@ -341,6 +341,35 @@ impl<NumberRing, A, C> BGFVCiphertextRing for SingleRNSRingBase<NumberRing, A, C
         return result;
     }
 
+    fn add_rns_factor_element(&self, from: &Self, added_rns_factors: &[usize], value: Self::Element) -> Self::Element {
+        assert_eq!(self.m(), from.m());
+        assert_eq!(self.base_ring().len(), from.base_ring().len() + added_rns_factors.len());
+        assert!(added_rns_factors.iter().all(|i| *i < self.base_ring().len()));
+
+        let mut result = self.zero();
+        let mut result_as_matrix = self.coefficients_as_matrix_mut(&mut result);
+        debug_assert_eq!(self.base_ring().len(), result_as_matrix.row_count());
+        debug_assert_eq!(self.m(), result_as_matrix.col_count());
+
+        let value_as_matrix = from.coefficients_as_matrix(&value);
+        debug_assert_eq!(from.base_ring().len(), value_as_matrix.row_count());
+        debug_assert_eq!(from.m(), value_as_matrix.col_count());
+
+        let mut i_from = 0;
+        for i_self in 0..self.base_ring().len() {
+            if added_rns_factors.contains(&i_self) {
+                continue;
+            }
+            assert!(self.base_ring().at(i_self).get_ring() == from.base_ring().at(i_from).get_ring());
+            for j in 0..result_as_matrix.col_count() {
+                *result_as_matrix.at_mut(i_self, j) = *value_as_matrix.at(i_from, j);
+            }
+            i_from += 1;
+        }
+
+        return result;
+    }
+
     #[instrument(skip_all)]
     fn drop_rns_factor_prepared(&self, from: &Self, drop_factors: &[usize], value: Self::PreparedMultiplicant) -> Self::PreparedMultiplicant {
         assert_eq!(self.m(), from.m());
@@ -1050,12 +1079,36 @@ pub fn test_with_number_ring<NumberRing: Clone + HECyclotomicNumberRing>(number_
     feanor_math::ring::generic_tests::test_hom_axioms(&ring, &double_rns_ring, elements.iter().map(|x| ring.clone_el(x)));
     
     let dropped_rns_factor_ring = SingleRNSRingBase::new(number_ring.clone(), zn_rns::Zn::new(vec![Zn::new(p2 as u64)], BigIntRing::RING));
-
     for a in &elements {
         assert_el_eq!(
             &dropped_rns_factor_ring,
             dropped_rns_factor_ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| dropped_rns_factor_ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(1)].into_iter()))),
             dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[0], ring.clone_el(a))
+        );
+    }
+    for a in &elements {
+        let dropped_factor_a = dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[0], ring.clone_el(a));
+        assert_el_eq!(
+            &ring,
+            ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| ring.base_ring().from_congruence([ring.base_ring().at(0).zero(), *ring.base_ring().get_congruence(&c).at(1)].into_iter()))),
+            ring.get_ring().add_rns_factor_element(dropped_rns_factor_ring.get_ring(), &[0], dropped_factor_a)
+        );
+    }
+    
+    let dropped_rns_factor_ring = SingleRNSRingBase::new(number_ring.clone(), zn_rns::Zn::new(vec![Zn::new(p1 as u64)], BigIntRing::RING));
+    for a in &elements {
+        assert_el_eq!(
+            &dropped_rns_factor_ring,
+            dropped_rns_factor_ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| dropped_rns_factor_ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(0)].into_iter()))),
+            dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[1], ring.clone_el(a))
+        );
+    }
+    for a in &elements {
+        let dropped_factor_a = dropped_rns_factor_ring.get_ring().drop_rns_factor_element(ring.get_ring(), &[1], ring.clone_el(a));
+        assert_el_eq!(
+            &ring,
+            ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| ring.base_ring().from_congruence([*ring.base_ring().get_congruence(&c).at(0), ring.base_ring().at(1).zero()].into_iter()))),
+            ring.get_ring().add_rns_factor_element(dropped_rns_factor_ring.get_ring(), &[1], dropped_factor_a)
         );
     }
 
