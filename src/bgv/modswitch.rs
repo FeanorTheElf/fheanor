@@ -279,11 +279,8 @@ pub trait AsBGVPlaintext<Params: BGVCiphertextParams>: RingBase {
 
 ///
 /// Chooses `drop_prime_count` indices from `0..rns_base_len`. These indices are chosen in a way
-/// that minimizes the noise growth of key-switching (with the given parameters) after we drop the
-/// corresponding RNS factors.
-/// 
-/// This function will never return indices corresponding to special moduli.
-/// 
+/// that minimizes the size of the given digits after we drop the corresponding RNS factors.
+///  
 /// Note that this function assumes that all RNS factors have approximately the same size. If this
 /// is not the case, their individual size should be considered when choosing which factors to drop.
 ///  
@@ -308,14 +305,14 @@ pub trait AsBGVPlaintext<Params: BGVCiphertextParams>: RingBase {
 /// ```
 /// # use feanor_math::seq::*;
 /// # use fheanor::gadget_product::*;
-/// # use fheanor::bgv::modswitch::recommended_rns_factors_to_drop;
+/// # use fheanor::bgv::modswitch::drop_rns_factors_balanced;
 /// # use fheanor::gadget_product::digits::*;
 /// let digits = RNSGadgetVectorDigitIndices::from([0..3, 3..5].clone_els());
 /// // remove the first two indices from 0..3, and the first index from 3..5 - the resulting ranges both have length 1
-/// assert_eq!(&[0usize, 1, 3][..] as &[usize], &*recommended_rns_factors_to_drop(&digits, 3) as &[usize]);
+/// assert_eq!(&[0usize, 1, 3][..] as &[usize], &*drop_rns_factors_balanced(&digits, 3) as &[usize]);
 /// ```
 /// 
-pub fn recommended_rns_factors_to_drop(key_digits: &RNSGadgetVectorDigitIndices, drop_prime_count: usize) -> Box<RNSFactorIndexList> {
+pub fn drop_rns_factors_balanced(key_digits: &RNSGadgetVectorDigitIndices, drop_prime_count: usize) -> Box<RNSFactorIndexList> {
     assert!(drop_prime_count < key_digits.rns_base_len());
 
     let mut drop_from_digit = (0..key_digits.len()).map(|_| 0).collect::<Vec<_>>();
@@ -779,11 +776,16 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
     }
 
     ///
-    /// Finds `drop_additional` RNS factors outside of `dropped_factors_input` and
-    /// `special_modulus_count` RNS factors such that removing the former, together with
-    /// `dropped_factors_input`, and adding the latter, results in the smallest number
-    /// of digits in `key_switch_key_digits`, under the constraint that `special_modulus_count`
-    /// is larger or equal to the size of the largest digit.
+    /// Finds `drop_additional_count` RNS factors outside of `dropped_factors_input` and
+    /// a set `special_modulus` of RNS factors, which optimize performance and noise growth
+    /// for a key-switch.
+    /// 
+    /// More concretely, removing the the `drop_additional` RNS factors (together with
+    /// `dropped_factors_input`) and adding the `special_modulus` RNS factors results in the
+    /// smallest number of digits in `key_switch_key_digits`, under the constraint that
+    /// `len(special_modulus)` is larger or equal to the size of the largest digit.
+    /// 
+    /// The function returns `(drop_additional, special_modulus)`.
     /// 
     /// # The use case
     /// 
@@ -795,27 +797,26 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
     /// key to `(X \ B_final) u B_special` and then do a key-switch on these values. 
     /// 
     #[instrument(skip_all)]
-    fn compute_optimal_special_modulus(
-        &self,
+    pub fn compute_optimal_special_modulus(
         _P: &PlaintextRing<Params>,
         C_master: &CiphertextRing<Params>,
         dropped_factors_input: &RNSFactorIndexList,
-        drop_additional: usize,
+        drop_additional_count: usize,
         key_switch_key_digits: &RNSGadgetVectorDigitIndices
     ) -> (/* B_final = */ Box<RNSFactorIndexList>, /* B_special = */ Box<RNSFactorIndexList>) {
         let a = key_switch_key_digits.iter().map(|digit| digit.end - digit.start).collect::<Vec<_>>();
         let b = key_switch_key_digits.iter().map(|digit| digit.end - digit.start - dropped_factors_input.num_within(&digit)).collect::<Vec<_>>();
-        if let Some((c, d)) = level_digits(&a, &b, drop_additional) {
+        if let Some((c, d)) = level_digits(&a, &b, drop_additional_count) {
             let B_additional = key_switch_key_digits.iter().enumerate().flat_map(|(digit_idx, digit)| digit.filter(|i| !dropped_factors_input.contains(*i)).take(c[digit_idx]));
             let B_final = RNSFactorIndexList::from(dropped_factors_input.iter().copied().chain(B_additional).collect::<Vec<_>>(), C_master.base_ring().len());
             let B_special = RNSFactorIndexList::from(key_switch_key_digits.iter().enumerate().flat_map(|(digit_idx, digit)| digit.filter(|i| B_final.contains(*i)).take(d[digit_idx])).collect::<Vec<_>>(), C_master.base_ring().len());
-            assert_eq!(B_final.len(), dropped_factors_input.len() + drop_additional);
+            assert_eq!(B_final.len(), dropped_factors_input.len() + drop_additional_count);
             return (B_final, B_special);
         } else {
-            let additional_drop = recommended_rns_factors_to_drop(&key_switch_key_digits.remove_indices(dropped_factors_input), drop_additional);
+            let additional_drop = drop_rns_factors_balanced(&key_switch_key_digits.remove_indices(dropped_factors_input), drop_additional_count);
             let B_final = additional_drop.pullback(dropped_factors_input);
             let B_special = B_final.clone();
-            assert_eq!(B_final.len(), dropped_factors_input.len() + drop_additional);
+            assert_eq!(B_final.len(), dropped_factors_input.len() + drop_additional_count);
             return (B_final, B_special);
         }
     }
@@ -846,7 +847,7 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
 
         // now try every number of additional RNS factors to drop
         let compute_result_noise = |num_to_drop: usize| {
-            let (total_drop, special_modulus) = self.compute_optimal_special_modulus(P, C_master, &base_drop, num_to_drop, rk_digits);
+            let (total_drop, special_modulus) = Self::compute_optimal_special_modulus(P, C_master, &base_drop, num_to_drop, rk_digits);
             let total_drop_without_special = total_drop.subtract(&special_modulus);
             let C_target = Params::mod_switch_down_C(C_master, &total_drop);
             let C_special = Params::mod_switch_down_C(C_master, &total_drop_without_special);
@@ -1232,7 +1233,7 @@ impl<Params: BGVCiphertextParams, N: BGVNoiseEstimator<Params>, const LOG: bool>
 
                 let gk_digits = get_gk(gs[0]).1.gadget_vector_digits();
                 assert!(gs.iter().all(|g| get_gk(*g).1.gadget_vector_digits() == gk_digits), "when using `gal_many()`, all Galois keys must have the same digits");
-                let (total_drop, special_modulus) = self.compute_optimal_special_modulus(P, C_master, &x.dropped_rns_factor_indices, 0, gk_digits);
+                let (total_drop, special_modulus) = Self::compute_optimal_special_modulus(P, C_master, &x.dropped_rns_factor_indices, 0, gk_digits);
                 assert!(total_drop.len() < C_master.base_ring().len());
 
                 let C_target = Params::mod_switch_down_C(&Cx, &total_drop.pushforward(&x.dropped_rns_factor_indices));

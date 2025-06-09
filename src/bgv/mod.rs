@@ -516,10 +516,16 @@ pub trait BGVCiphertextParams {
     /// secret key `new_sk`, where `switch_key` is a key-switching key for `old_sk` and
     /// `new_sk` (which can be generated using [`BGVCiphertextParams::gen_switch_key()`]).
     /// 
+    /// # Hybrid key-switching
+    /// 
     /// `C_special` must be the ciphertext ring w.r.t. which the key-switching key is defined.
     /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
     /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
     /// 
+    /// On a technical level, hybrid key-switching (as implemented in Fheanor) is equivalent
+    /// to modulus-switching the ciphertext up to `C_special`, and modulus-switch it down after
+    /// the key-switch. This decreases the noise caused by the key-switch.
+    ///  
     /// Note that we use a variant of hybrid key switching, where the key-switching key
     /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
@@ -587,9 +593,7 @@ pub trait BGVCiphertextParams {
     /// `C_special` must be the ciphertext ring w.r.t. which the relinearization key is defined.
     /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
     /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
-    /// 
-    /// Note that we use a variant of hybrid key switching, where the relinearization key
-    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
+    /// For more details, see [`BGVCiphertextParams::key_switch()`].
     /// 
     #[instrument(skip_all)]
     fn hom_mul<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, special_modulus_rns_factor_indices: &RNSFactorIndexList, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
@@ -622,9 +626,7 @@ pub trait BGVCiphertextParams {
     /// `C_special` must be the ciphertext ring w.r.t. which the relinearization key is defined.
     /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
     /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
-    /// 
-    /// Note that we use a variant of hybrid key switching, where the relinearization key
-    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
+    /// For more details, see [`BGVCiphertextParams::key_switch()`].
     /// 
     #[instrument(skip_all)]
     fn hom_square<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, special_modulus_rns_factor_indices: &RNSFactorIndexList, val: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
@@ -692,9 +694,7 @@ pub trait BGVCiphertextParams {
     /// `C_special` must be the ciphertext ring w.r.t. which the Galois key is defined.
     /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
     /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
-    /// 
-    /// Note that we use a variant of hybrid key switching, where the Galois key
-    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
+    /// For more details, see [`BGVCiphertextParams::key_switch()`].
     /// 
     #[instrument(skip_all)]
     fn hom_galois<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: Ciphertext<Self>, g: CyclotomicGaloisGroupEl, gk: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
@@ -715,9 +715,7 @@ pub trait BGVCiphertextParams {
     /// `C_special` must be the ciphertext ring w.r.t. which all the Galois key are defined.
     /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
     /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
-    /// 
-    /// Note that we use a variant of hybrid key switching, where the Galois key
-    /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
+    /// For more details, see [`BGVCiphertextParams::key_switch()`].
     /// 
     #[instrument(skip_all)]
     fn hom_galois_many<'a, 'b, V>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: Ciphertext<Self>, gs: &[CyclotomicGaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>

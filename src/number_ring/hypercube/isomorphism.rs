@@ -134,15 +134,16 @@ pub type BaseRing<R> = <<<R as RingStore>::Type as RingExtension>::BaseRing as R
 pub type DecoratedBaseRing<R> = AsLocalPIR<RingValue<BaseRing<R>>>;
 
 ///
-/// Represents the isomorphism
+/// Represents the isomorphism `Fp[X]/(Phi_m(X)) -> F_(p^d)^domain(h)` for a
+/// [`HypercubeStructure`] `h`, defined by
 /// ```text
-///   Fp[X]/(Phi_m(X)) -> F_(p^d)^((Z/mZ)*/<p>)
+///   Fp[X]/(Phi_m(X))  ->  F_(p^d)^domain(h)
+///          a(X)       ->  ( a(𝝵^h(i)) )_(i in domain(h))
 /// ```
-/// where `d` is the order of `p` in `(Z/mZ)*`.
-/// The group `(Z/mZ)*/<p>` is represented by a [`HypercubeStructure`].
+/// where `𝝵` is an `m`-th primitive root of unity over `Fp`.
 /// 
 /// In fact, the more general case of `(Z/p^eZ)[X]/(Phi_m(X))` is supported.
-/// 
+///  
 /// # Serialization
 /// 
 /// There are two ways of serializing/deserializing a [`HypercubeIsomorphism`]

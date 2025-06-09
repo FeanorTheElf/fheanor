@@ -81,8 +81,8 @@ impl<NumberRing, A> MatmulTransform<NumberRing, A>
     ///
     /// This is the `MatMul1d`-function known from HElib.
     /// 
-    /// More concretely, it creates the linear transform that operates on each "slice" of the hypercube
-    /// along the given dimension.
+    /// More concretely, it creates the linear transform that operates on each "slice" (i.e. hypercolumn)
+    /// of the hypercube along the given dimension.
     /// 
     /// # Details
     /// 
@@ -121,8 +121,9 @@ impl<NumberRing, A> MatmulTransform<NumberRing, A>
     }
     
     ///
-    /// Applies a linea transform on each slot separately. The transform is given by its matrix w.r.t. the basis
-    /// `1, X, ..., X^(d - 1)` where `X` is the canonical generator of the slot ring.
+    /// Applies a linea transform on each slot separately. The transform is given by its
+    /// matrix w.r.t. the basis `1, 𝝵, ..., 𝝵^(d - 1)` where `𝝵` is the canonical
+    /// generator of the slot ring.
     /// 
     #[instrument(skip_all)]
     pub fn blockmatmul0d<G>(H: &DefaultHypercube<NumberRing, A>, matrix: G) -> MatmulTransform<NumberRing, A>
@@ -171,13 +172,13 @@ impl<NumberRing, A> MatmulTransform<NumberRing, A>
     /// 
     /// For each hypercolumn along the `dim_index`-th dimension containing the slots of index 
     /// `U(i) = (u1, ..., u(dim_index - 1), i, u(dim_index + 1), ..., ur)` for all `i`, 
-    /// we can consider the `Fp`-basis given by `X^k e_U(i)`. An `Fp`-linear transform that operates on 
-    /// each set `{ X^k e_U(i) | k, k }` separately, for all `U`, is said to be of `blockmatmul1d`-type, 
+    /// we can consider the `Fp`-basis given by `𝝵^k e_U(i)`. An `Fp`-linear transform that operates on 
+    /// each set `{ 𝝵^k e_U(i) | k, i }` separately, for all `U`, is said to be of `blockmatmul1d`-type, 
     /// and can be created using this function.
     /// 
     /// More concretely, this computes the map
     /// ```text
-    ///   X^l e_U(j) -> sum_(i, k) matrix((i, k), (j, l), U(i)) X^k e_U(i)
+    ///   𝝵^l e_U(j) -> sum_(i, k) matrix((i, k), (j, l), U(i)) 𝝵^k e_U(i)
     /// ```
     /// 
     #[instrument(skip_all)]
@@ -204,9 +205,9 @@ impl<NumberRing, A> MatmulTransform<NumberRing, A>
         // the approach is as follows:
         // We consider the matrix by block-diagonals as in [`matmul1d()`], which correspond to shifting slots within a hypercolumn.
         // Additionally however, we need to take care of the transformation within a slot. Unfortunately, the matrix structure does
-        // not nicely correspond to structure of the Frobenius anymore (more concretely, the basis `1, X, ..., X^(d - 1)` w.r.t. which
-        // we represent the matrix is not normal). Thus, we have to solve a linear system, which is done by [`Trace::extract_coefficient_map`].
-        // In other words, we compute the Frobenius-coefficients for the maps `sum a_k X^k -> a_l` for all `l`. Then we we take the
+        // not nicely correspond to structure of the Frobenius anymore (more concretely, the basis `1, 𝝵, ..., 𝝵^(d - 1)` w.r.t. which
+        // we represent the matrix is not normal). Thus, we have to solve a linear system, which is done by `extract_linear_map()`.
+        // In other words, we compute the Frobenius-coefficients for the maps `sum a_k 𝝵^k -> a_l` for all `l`. Then we we take the
         // desired map as the linear combination of these extract-coefficient-maps.
         let mut result = MatmulTransform {
             data: ((1 - m)..m).into_par_iter().flat_map_iter(|s| (0..d).map(move |frobenius_index| (s, frobenius_index))).map(|(s, frobenius_index)| {
@@ -603,7 +604,7 @@ impl<NumberRing, A> MatmulTransform<NumberRing, A>
             //     +
             //     |
             //
-            // at the of the current circuit to add to the accumulator the next
+            // at the bottom of the current circuit to add to the accumulator the next
             // giant step sum; also copy the baby step data to keep it for the next
             // step.
             let summand = if let Some(g) = g {

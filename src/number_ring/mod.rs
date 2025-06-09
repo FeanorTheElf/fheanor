@@ -20,8 +20,16 @@ pub mod quotient;
 /// [`HENumberRing`] for `Z[X]/(X^m + 1)` with `m` a power of two.
 /// 
 pub mod pow2_cyclotomic;
-
+///
+/// Contains [`composite_cyclotomic::CompositeCyclotomicNumberRing`], an implementation
+/// of [`HENumberRing`] for `Z[X]/(Phi_(m1 m2))` with `m1, m2` coprime, odd and squarefree
+/// integers.
+/// 
 pub mod composite_cyclotomic;
+///
+/// Contains [`general_cyclotomic::OddSquarefreeCyclotomicNumberRing`], an implementation
+/// of [`HENumberRing`] for `Z[X]/(Phi_m)` with `m` an odd and squarefree integer.
+/// 
 pub mod general_cyclotomic;
 ///
 /// Contains various types to represent the isomorphism `Fp[X]/(Phi_m(X)) ~ F_(p^d)^(phi(m) / d)`

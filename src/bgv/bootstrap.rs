@@ -6,6 +6,7 @@ use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::ring::*;
 
 use crate::bgv::modswitch::DefaultModswitchStrategy;
+use crate::bgv::noise_estimator::AlwaysZeroNoiseEstimator;
 use crate::circuit::serialization::{DeserializeSeedPlaintextCircuit, SerializablePlaintextCircuit};
 use crate::circuit::*;
 use crate::lintransform::matmul::MatmulTransform;
@@ -256,10 +257,15 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         // First, we mod-switch the input ciphertext so that it only has `self.pre_bootstrap_rns_factors` many RNS factors
         let input_dropped_rns_factors = {
             assert!(C_master.base_ring().len() - ct_dropped_moduli.len() >= self.pre_bootstrap_rns_factors);
-            let drop_additional_moduli_count = C_master.base_ring().len() - ct_dropped_moduli.len() - self.pre_bootstrap_rns_factors;
             let gk_digits = gks[0].1.gadget_vector_digits();
-            let drop_additional_moduli = recommended_rns_factors_to_drop(&gk_digits.remove_indices(ct_dropped_moduli), drop_additional_moduli_count);
-            drop_additional_moduli.pullback(&ct_dropped_moduli)
+            let (drop_additional, _) = DefaultModswitchStrategy::<Params, AlwaysZeroNoiseEstimator, false>::compute_optimal_special_modulus(
+                P_base,
+                C_master,
+                ct_dropped_moduli,
+                C_master.base_ring().len() - ct_dropped_moduli.len() - self.pre_bootstrap_rns_factors,
+                gk_digits
+            );
+            drop_additional.union(&ct_dropped_moduli)
         };
         let C_input = Params::mod_switch_down_C(C_master, &input_dropped_rns_factors);
         let ct_input = Params::mod_switch_down_ct(P_base, &C_input, &Params::mod_switch_down_C(C_master, ct_dropped_moduli), &input_dropped_rns_factors.pushforward(&ct_dropped_moduli), ct);
@@ -269,9 +275,6 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         if let Some(sk) = &sk_input {
             Params::dec_println_slots(P_base, &C_input, &ct_input, sk, Some("."));
         }
-
-        let P_main = self.plaintext_ring_hierarchy.last().unwrap();
-        debug_assert_eq!(ZZ.pow(self.p(), self.e()), *P_main.base_ring().modulus());
 
         let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[key_switches]| {
             let result = DefaultModswitchStrategy::never_modswitch().evaluate_circuit(
@@ -297,6 +300,9 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         if let Some(sk) = &sk_input {
             Params::dec_println(P_base, &C_input, &values_in_coefficients, sk);
         }
+
+        let P_main = self.plaintext_ring_hierarchy.last().unwrap();
+        debug_assert_eq!(ZZ.pow(self.p(), self.e()), *P_main.base_ring().modulus());
 
         let noisy_decryption = log_time::<_, _, LOG, _>("2. Computing noisy decryption c0 + c1 * s", |[]| {
             // this is slightly more complicated than in BFV, since we cannot mod-switch to a ciphertext modulus that is not coprime to `t = p^r`.

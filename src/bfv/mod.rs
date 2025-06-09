@@ -41,6 +41,7 @@ use crate::number_ring::pow2_cyclotomic::*;
 use crate::number_ring::composite_cyclotomic::*;
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
 use crate::rnsconv::bfv_rescale::{AlmostExactRescaling, AlmostExactRescalingConvert};
+use crate::rnsconv::RNSOperation;
 use crate::rnsconv::shared_lift::AlmostExactSharedBaseConversion;
 use crate::DefaultCiphertextAllocator;
 use crate::*;
@@ -575,10 +576,33 @@ pub trait BFVCiphertextParams {
             (0..C.base_ring().len()).collect(),
             Global
         );
-        let (c0, c1) = ct;
         return (
-            perform_rns_op_to_plaintext_ring(target, C.get_ring(), &c0, &mod_switch),
-            perform_rns_op_to_plaintext_ring(target, C.get_ring(), &c1, &mod_switch)
+            perform_rns_op_to_plaintext_ring(target, C.get_ring(), &ct.0, &mod_switch),
+            perform_rns_op_to_plaintext_ring(target, C.get_ring(), &ct.1, &mod_switch)
+        );
+    }
+        
+    ///
+    /// Modulus-switches a ciphertext.
+    /// 
+    /// More concretely, we have the ring `Cold = R/qR` and `Cnew = R/q'R`.
+    /// Given a ciphertext `ct` over `R/qR`, this function then computes a ciphertext 
+    /// encrypting the same message over `R/q'R` (w.r.t. the secret key `sk mod q'`).
+    /// 
+    #[instrument(skip_all)]
+    fn mod_switch_ct(_P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
+        let num_moduli = Cnew.base_ring().as_iter().filter(|Zp| Cold.base_ring().as_iter().all(|other_Zp| other_Zp.modulus() != Zp.modulus())).cloned().collect::<Vec<_>>();
+        let den_moduli_indices = Cold.base_ring().as_iter().enumerate().filter(|(_, Zp)| Cnew.base_ring().as_iter().all(|other_Zp| other_Zp.modulus() != Zp.modulus())).map(|(i, _)| i).collect::<Vec<_>>();
+        let mod_switch = AlmostExactRescaling::new_with(
+            Cold.base_ring().as_iter().map(|Zp| *Zp).collect(),
+            num_moduli,
+            den_moduli_indices,
+            Global
+        );
+        assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()), "invalid modulus switch");
+        return (
+            perform_rns_op(Cnew.get_ring(), Cold.get_ring(), &ct.0, &mod_switch),
+            perform_rns_op(Cnew.get_ring(), Cold.get_ring(), &ct.1, &mod_switch)
         );
     }
     
@@ -1015,6 +1039,12 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>>
     }
 }
 
+///
+/// Forces a ciphertext to be internally stored in small-basis representation.
+/// 
+/// Use in benchmarks, when you want to control which representation the inputs
+/// to the benchmarked code have.
+/// 
 pub fn small_basis_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, ct: Ciphertext<Params>) -> Ciphertext<Params>
     where Params: BFVCiphertextParams<CiphertextRing = ManagedDoubleRNSRingBase<NumberRing, A>>,
         NumberRing: HECyclotomicNumberRing,
@@ -1026,6 +1056,12 @@ pub fn small_basis_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, ct: C
     )
 }
 
+///
+/// Forces a ciphertext to be internally stored in double-RNS representation.
+/// 
+/// Use in benchmarks, when you want to control which representation the inputs
+/// to the benchmarked code have.
+/// 
 pub fn double_rns_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, x: &El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>>
     where Params: BFVCiphertextParams<CiphertextRing = ManagedDoubleRNSRingBase<NumberRing, A>>,
         NumberRing: HECyclotomicNumberRing,

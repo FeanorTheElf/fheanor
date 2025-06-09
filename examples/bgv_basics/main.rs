@@ -8,7 +8,7 @@
 use fheanor::bgv::{BGVCiphertextParams, CiphertextRing, PlaintextRing, Pow2BGV};
 use fheanor::cyclotomic::CyclotomicRingStore;
 use fheanor::DefaultNegacyclicNTT;
-use fheanor::bgv::modswitch::recommended_rns_factors_to_drop;
+use fheanor::bgv::modswitch::drop_rns_factors_balanced;
 use fheanor::gadget_product::digits::*;
 use rand::{SeedableRng, rngs::StdRng};
 use std::alloc::Global;
@@ -57,7 +57,7 @@ fn main() {
     let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
     
     let num_digits_to_drop = 1;
-    let to_drop = recommended_rns_factors_to_drop(rk.gadget_vector_digits(), num_digits_to_drop);
+    let to_drop = drop_rns_factors_balanced(rk.gadget_vector_digits(), num_digits_to_drop);
     let C_new = ChosenBGVParamType::mod_switch_down_C(&C_initial, &to_drop);
     
     println!("log2(q') = {}", BigIntRing::RING.abs_log2_ceil(C_new.base_ring().modulus()).unwrap());

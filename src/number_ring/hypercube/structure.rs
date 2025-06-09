@@ -31,6 +31,7 @@ use crate::euler_phi;
 ///  - `m` and `p` as above
 ///  - `d` is the order of `<p>` as subgroup of `(Z/mZ)*`
 ///  - `l_i` is the length of the `i`-th "hypercube dimension" as above
+///  - `l` is the product of all `l_i`, thus the total number of slots
 ///  - `g_i` is the generator of the `i`-th hypercube dimension
 /// 
 /// A special kind of hypercube structure is "Halevi-Shoup hypercube structure",
