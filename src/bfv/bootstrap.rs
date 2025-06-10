@@ -488,11 +488,7 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
 }
 
 #[test]
-fn test_composite_bfv_thin_bootstrapping_2() {
-    // let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    // let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
-    // tracing_subscriber::registry().with(filtered_chrome_layer).init();
-    
+fn test_composite_bfv_thin_bootstrapping_2() {    
     let mut rng = thread_rng();
     
     let params = CompositeBFV {

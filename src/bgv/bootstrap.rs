@@ -500,7 +500,6 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let mut rng = StdRng::from_seed([0; 32]);
 
     let t = 4;
-    let v = 7;
     let hwt = Some(256);
     let params = CompositeBGV {
         log2_q_min: 805,
@@ -511,7 +510,7 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     };
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
-        v: v,
+        v: 7,
         t: t,
         pre_bootstrap_rns_factors: 2
     };
@@ -542,5 +541,59 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let sk_result = CompositeBGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);
     println!("final noise budget: {}", CompositeBGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result));
     let result = CompositeBGV::dec(&P, &C_result, ct_result.data, &sk_result);
+    assert_el_eq!(P, P.int_hom().map(2), result);
+}
+
+#[ignore]
+#[test]
+fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
+    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    tracing_subscriber::registry().with(filtered_chrome_layer).init();
+    
+    let mut rng = StdRng::from_seed([0; 32]);
+
+    let t = 17;
+    let hwt = Some(256);
+    let params = Pow2BGV {
+        log2_q_min: 805,
+        log2_q_max: 820,
+        log2_N: 15,
+        ciphertext_allocator: get_default_ciphertext_allocator(),
+        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
+    };
+    let bootstrap_params = ThinBootstrapParams {
+        scheme_params: params.clone(),
+        v: 2,
+        t: t,
+        pre_bootstrap_rns_factors: 2
+    };
+    let P = params.create_plaintext_ring(t);
+    let C_master = params.create_initial_ciphertext_ring();
+    assert_eq!(15, C_master.base_ring().len());
+    let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
+
+    let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
+    
+    let sk = Pow2BGV::gen_sk(&C_master, &mut rng, hwt);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
+    let rk = Pow2BGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
+    
+    let m = P.int_hom().map(2);
+    let ct = Pow2BGV::enc_sym(&P, &C_master, &mut rng, &m, &sk);
+    let ct_result = bootstrapper.bootstrap_thin::<true>(
+        &C_master, 
+        &P, 
+        &RNSFactorIndexList::empty(),
+        ct, 
+        &rk, 
+        &gk,
+        hwt,
+        None // Some(&sk)
+    );
+    let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
+    let sk_result = Pow2BGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);
+    println!("final noise budget: {}", Pow2BGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result));
+    let result = Pow2BGV::dec(&P, &C_result, ct_result.data, &sk_result);
     assert_el_eq!(P, P.int_hom().map(2), result);
 }
