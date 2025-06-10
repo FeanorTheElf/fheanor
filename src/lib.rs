@@ -102,10 +102,10 @@ pub type DefaultNegacyclicNTT = crate::ntt::RustNegacyclicNTT<feanor_math::rings
 /// 
 /// Currently, this is always [`std::alloc::Global`].
 /// 
-pub type DefaultCiphertextAllocator = feanor_mempool::AllocArc<feanor_mempool::dynsize::DynLayoutMempool>;
+pub type DefaultCiphertextAllocator = Global;
 
 pub fn get_default_ciphertext_allocator() -> DefaultCiphertextAllocator {
-    feanor_mempool::AllocArc(std::sync::Arc::new(feanor_mempool::dynsize::DynLayoutMempool::<Global>::new(std::ptr::Alignment::of::<u64>())))
+    Global
 }
 
 ///
