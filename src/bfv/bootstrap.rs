@@ -408,7 +408,7 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
         log2_q_min: 790,
         log2_q_max: 800,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 17;
@@ -452,7 +452,7 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
         log2_q_min: 790,
         log2_q_max: 800,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 23;
@@ -500,7 +500,7 @@ fn test_composite_bfv_thin_bootstrapping_2() {
         log2_q_max: 700,
         m1: 31,
         m2: 11,
-        ciphertext_allocator: DefaultCiphertextAllocator::default()
+        ciphertext_allocator: get_default_ciphertext_allocator()
     };
     let t = 8;
     let digits = 3;
@@ -548,7 +548,7 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
         log2_q_max: 820,
         m1: 37,
         m2: 949,
-        ciphertext_allocator: DefaultCiphertextAllocator::default()
+        ciphertext_allocator: get_default_ciphertext_allocator()
     };
     let t = 4;
     let sk_hwt = Some(256);
@@ -597,7 +597,7 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
         log2_q_max: 820,
         m1: 37,
         m2: 949,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         convolution: PhantomData::<DefaultConvolution>
     };
     let t = 4;

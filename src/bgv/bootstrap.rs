@@ -452,7 +452,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
         log2_q_min: 790,
         log2_q_max: 800,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 17;
@@ -496,7 +496,7 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
     tracing_subscriber::registry().with(filtered_chrome_layer).init();
-
+    
     let mut rng = StdRng::from_seed([0; 32]);
 
     let t = 4;
@@ -507,7 +507,7 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
         log2_q_max: 820,
         m1: 37,
         m2: 949,
-        ciphertext_allocator: Global
+        ciphertext_allocator: get_default_ciphertext_allocator()
     };
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),

@@ -13,7 +13,7 @@ The design of CLPX is exactly as for BFV (or BGV), so we start by choosing a cip
 # use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
-type ChosenCLPXParamType = Pow2CLPX;
+type ChosenCLPXParamType = Pow2CLPX<Global>;
 let params = ChosenCLPXParamType {
     ciphertext_allocator: Global,
     log2_N: 12,
@@ -32,7 +32,7 @@ Next, we create the plaintext ring(s).
 # use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
-# type ChosenCLPXParamType = Pow2CLPX;
+# type ChosenCLPXParamType = Pow2CLPX<Global>;
 # let params = ChosenCLPXParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 12,
@@ -82,7 +82,7 @@ Hence, we can use CLPX as follows:
 # use std::alloc::Global;
 # use rand::thread_rng;
 # use std::marker::PhantomData;
-# type ChosenCLPXParamType = Pow2CLPX;
+# type ChosenCLPXParamType = Pow2CLPX<Global>;
 # let params = ChosenCLPXParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 12,
@@ -125,7 +125,7 @@ Applying homomorphic operations is just as easy as for BFV as well.
 # use std::alloc::Global;
 # use rand::thread_rng;
 # use std::marker::PhantomData;
-# type ChosenCLPXParamType = Pow2CLPX;
+# type ChosenCLPXParamType = Pow2CLPX<Global>;
 # let params = ChosenCLPXParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 12,
@@ -176,7 +176,7 @@ In particular, this is also why we created the encoding as
 # use std::alloc::Global;
 # use rand::thread_rng;
 # use std::marker::PhantomData;
-# type ChosenCLPXParamType = Pow2CLPX;
+# type ChosenCLPXParamType = Pow2CLPX<Global>;
 # let params = ChosenCLPXParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 12,

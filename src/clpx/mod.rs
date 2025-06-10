@@ -526,7 +526,7 @@ impl<A: Allocator + Clone + Send + Sync> CLPXCiphertextParams for CompositeCLPX<
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
-use crate::log_time;
+use crate::{log_time, get_default_ciphertext_allocator};
 #[cfg(test)]
 use rand::thread_rng;
 #[cfg(test)]
@@ -542,7 +542,7 @@ fn test_composite_clpx_mul() {
         log2_q_max: 420,
         m1: 17,
         m2: 5,
-        ciphertext_allocator: Global
+        ciphertext_allocator: get_default_ciphertext_allocator()
     };
     let p = ZZbig.int_hom().map(131071);
 
@@ -566,7 +566,7 @@ fn test_composite_clpx_mul() {
         log2_q_max: 420,
         m1: 17,
         m2: 5,
-        ciphertext_allocator: Global
+        ciphertext_allocator: get_default_ciphertext_allocator()
     };
     let p = ZZbig.int_hom().map(43691);
     let mut rng = thread_rng();
@@ -596,7 +596,7 @@ fn test_pow2_clpx_mul() {
         log2_q_min: 400,
         log2_q_max: 420,
         log2_N: 7,
-        ciphertext_allocator: Global,
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let p = int_cast(5704689200685129054721, ZZbig, StaticRing::<i128>::RING);
@@ -627,7 +627,7 @@ fn measure_time_composite_clpx() {
         log2_q_max: 800,
         m1: 127,
         m2: 337,
-        ciphertext_allocator: Global
+        ciphertext_allocator: get_default_ciphertext_allocator()
     };
     let p = ZZbig.coerce(&StaticRing::<i128>::RING, 56713727820156410577229101238628035243);
     

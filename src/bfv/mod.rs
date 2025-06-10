@@ -1073,17 +1073,11 @@ pub fn double_rns_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, x: &El
 #[cfg(test)]
 use tracing_subscriber::prelude::*;
 #[cfg(test)]
-use feanor_mempool::dynsize::DynLayoutMempool;
-#[cfg(test)]
-use feanor_mempool::AllocArc;
-#[cfg(test)]
 use feanor_math::assert_el_eq;
-#[cfg(test)]
-use std::ptr::Alignment;
 #[cfg(test)]
 use std::fmt::Debug;
 #[cfg(test)]
-use crate::log_time;
+use crate::{log_time, get_default_ciphertext_allocator};
 #[cfg(test)]
 use rand::thread_rng;
 
@@ -1095,7 +1089,7 @@ fn test_pow2_bfv_enc_dec() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1119,7 +1113,7 @@ fn test_pow2_bfv_hom_galois() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 3;
@@ -1145,7 +1139,7 @@ fn test_pow2_bfv_mul() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 10,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1172,7 +1166,7 @@ fn test_composite_bfv_mul() {
         log2_q_max: 520,
         m1: 17,
         m2: 97,
-        ciphertext_allocator: DefaultCiphertextAllocator::default()
+        ciphertext_allocator: get_default_ciphertext_allocator()
     };
     let t = 8;
     
@@ -1198,7 +1192,7 @@ fn test_composite_bfv_hom_galois() {
         log2_q_max: 520,
         m1: 7,
         m2: 11,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         convolution: PhantomData::<DefaultConvolution>
     };
     let t = 3;
@@ -1225,7 +1219,7 @@ fn test_single_rns_composite_bfv_mul() {
         log2_q_max: 520,
         m1: 7,
         m2: 11,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         convolution: PhantomData::<DefaultConvolution>
     };
     let t = 3;
@@ -1256,7 +1250,7 @@ fn measure_time_pow2_bfv_basic_ops() {
         log2_q_min: 790,
         log2_q_max: 800,
         log2_N: 15,
-        ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1315,7 +1309,7 @@ fn measure_time_double_rns_composite_bfv_basic_ops() {
         log2_q_max: 1100,
         m1: 127,
         m2: 337,
-        ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
     };
     let t = 4;
     
@@ -1374,7 +1368,7 @@ fn measure_time_single_rns_composite_bfv_basic_ops() {
         log2_q_max: 1100,
         m1: 127,
         m2: 337,
-        ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         convolution: PhantomData::<DefaultConvolution>
     };
     let t = 4;

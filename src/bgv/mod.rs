@@ -1223,17 +1223,11 @@ impl<A: Allocator + Clone + Send + Sync, C: HERingConvolution<Zn>> BGVCiphertext
 #[cfg(test)]
 use tracing_subscriber::prelude::*;
 #[cfg(test)]
-use feanor_mempool::dynsize::DynLayoutMempool;
-#[cfg(test)]
-use feanor_mempool::AllocArc;
-#[cfg(test)]
 use feanor_math::assert_el_eq;
-#[cfg(test)]
-use std::ptr::Alignment;
 #[cfg(test)]
 use std::fmt::Debug;
 #[cfg(test)]
-use crate::log_time;
+use crate::{log_time, get_default_ciphertext_allocator};
 #[cfg(test)]
 use rand::rngs::StdRng;
 
@@ -1245,7 +1239,7 @@ fn test_pow2_bgv_enc_dec() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1268,7 +1262,7 @@ fn test_pow2_bgv_gen_sk() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     
@@ -1293,7 +1287,7 @@ fn test_pow2_bgv_mul() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1318,7 +1312,7 @@ fn test_pow2_bgv_hybrid_key_switch() {
         log2_q_min: 300,
         log2_q_max: 320,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1370,7 +1364,7 @@ fn test_pow2_bgv_modulus_switch() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1401,7 +1395,7 @@ fn test_pow2_change_plaintext_modulus() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     
@@ -1426,7 +1420,7 @@ fn test_pow2_modulus_switch_hom_add() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1462,7 +1456,7 @@ fn test_pow2_bgv_modulus_switch_rk() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1506,7 +1500,7 @@ fn test_mod_switch_repeated() {
         log2_q_min: 790,
         log2_q_max: 800,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 17;
@@ -1539,7 +1533,7 @@ fn measure_time_pow2_bgv_basic_ops() {
         log2_q_min: 790,
         log2_q_max: 800,
         log2_N: 15,
-        ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1602,7 +1596,7 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
         log2_q_max: 1100,
         m1: 127,
         m2: 337,
-        ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
     };
     let t = 4;
     let digits = 3;
@@ -1665,7 +1659,7 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
         log2_q_max: 1100,
         m1: 127,
         m2: 337,
-        ciphertext_allocator: AllocArc(Arc::new(DynLayoutMempool::<Global>::new(Alignment::of::<u64>()))),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         convolution: PhantomData::<DefaultConvolution>
     };
     let t = 4;

@@ -27,6 +27,7 @@ feanor-mempool = "2.1.0"
 rayon = "1.10.0"
 tracing = "0.1.41"
 serde_json = "1.0.125"
+backtrace = "0.3.75"
 
 [dev-dependencies]
 oorandom = "11.1.3"

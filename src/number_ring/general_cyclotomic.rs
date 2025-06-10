@@ -360,3 +360,46 @@ impl<F, A> HECyclotomicNumberRingMod for OddSquarefreeCyclotomicDecomposedNumber
         }
     }
 }
+
+#[cfg(test)]
+use feanor_math::assert_el_eq;
+#[cfg(test)]
+use crate::ciphertext_ring::double_rns_ring;
+#[cfg(test)]
+use crate::ciphertext_ring::single_rns_ring;
+#[cfg(test)]
+use crate::number_ring::quotient;
+#[cfg(test)]
+use crate::ring_literal;
+#[cfg(test)]
+use crate::number_ring::quotient::NumberRingQuotientBase;
+
+#[test]
+fn test_odd_cyclotomic_double_rns_ring() {
+    double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+    double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+}
+
+#[test]
+fn test_odd_cyclotomic_single_rns_ring() {
+    single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+    single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+}
+
+#[test]
+fn test_odd_cyclotomic_decomposition_ring() {
+    quotient::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+    quotient::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+}
+
+#[test]
+fn test_permute_galois_automorphism() {
+    let Fp = zn_64::Zn::new(257);
+    let R = NumberRingQuotientBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Fp);
+    let gal_el = |x: i64| R.galois_group().from_representative(x);
+
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 1, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), gal_el(3)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[-1, -1, -1, -1, -1, -1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), gal_el(3)));
+}

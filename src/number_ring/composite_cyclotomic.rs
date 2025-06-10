@@ -1,7 +1,7 @@
 use std::alloc::{Allocator, Global};
 
+use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::fft::bluestein::BluesteinFFT;
-use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::algorithms::eea::{signed_eea, signed_gcd};
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
 use feanor_math::algorithms::fft::*;
@@ -23,6 +23,7 @@ use feanor_math::seq::*;
 
 use crate::number_ring::general_cyclotomic::*;
 use crate::cyclotomic::*;
+use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 use super::{HECyclotomicNumberRing, HECyclotomicNumberRingMod, HENumberRing, HENumberRingMod};
 
 ///
@@ -68,11 +69,11 @@ impl HENumberRing for CompositeCyclotomicNumberRing {
     type Decomposed = CompositeCyclotomicDecomposedNumberRing<BluesteinFFT<ZnBase, ZnFastmulBase, CanHom<ZnFastmul, Zn>, AllocArc<DynLayoutMempool<Global>>>, AllocArc<DynLayoutMempool<Global>>>;
 
     fn mod_p(&self, Fp: Zn) -> Self::Decomposed {
+        let r1 = self.tensor_factor1.rank() as i64;
+        let r2 = self.tensor_factor2.rank() as i64;
         let m1 = self.tensor_factor1.m() as i64;
         let m2 = self.tensor_factor2.m() as i64;
         let m = m1 * m2;
-        let r1 = <_ as HENumberRing>::rank(&self.tensor_factor1) as i64;
-        let r2 = <_ as HENumberRing>::rank(&self.tensor_factor2) as i64;
 
         let poly_ring = SparsePolyRing::new(StaticRing::<i64>::RING, "X");
         let poly_ring = &poly_ring;
@@ -88,62 +89,31 @@ impl HENumberRing for CompositeCyclotomicNumberRing {
         // represent the conversion from powerful basis to coefficient basis and back;
         // everything else is done by `SquarefreeCyclotomicNumberRing::mod_p()`
 
-        let mut small_to_coeff_conversion_matrix = (0..(r1 * r2)).map(|_| Vec::new()).collect::<Vec<_>>();
+        // it turns out to be no problem to store this matrix, using a sparse representation;
+        // however, the small_to_coeff_conversion_matrix turns has columns that often have
+        // close to `m` nonzero entries (instead of just `m1` resp. `m2`), and can thus take
+        // significant time and space; hence, we instead use the cyclotomic poly reducer
         let mut coeff_to_small_conversion_matrix = (0..(r1 * r2)).map(|_| Vec::new()).collect::<Vec<_>>();
 
-        let dense_poly_ring = DensePolyRing::new(poly_ring.base_ring(), "X");
-        let Phi_n_sparse = cyclotomic_polynomial(&poly_ring, m as usize);
-        let Phi_m = dense_poly_ring.can_hom(&poly_ring).unwrap().map_ref(&Phi_n_sparse);
-        let mut X_pow_i = None;
-        for i in 0..(m1 * m2) {
+        for i in 0..(r1 * r2) {
 
             let i1 = ((t * i % m1) + m1) % m1;
             let i2 = ((s * i % m2) + m2) % m2;
             debug_assert_eq!(i, (i1 * m / m1 + i2 * m / m2) % m);
 
-            if i < r1 * r2 {
-                let X1_power_reduced = poly_ring.div_rem_monic(poly_ring.pow(poly_ring.indeterminate(), i1 as usize), &Phi_m1).1;
-                let X2_power_reduced = poly_ring.div_rem_monic(poly_ring.pow(poly_ring.indeterminate(), i2 as usize), &Phi_m2).1;
+            let X1_power_reduced = poly_ring.div_rem_monic(poly_ring.pow(poly_ring.indeterminate(), i1 as usize), &Phi_m1).1;
+            let X2_power_reduced = poly_ring.div_rem_monic(poly_ring.pow(poly_ring.indeterminate(), i2 as usize), &Phi_m2).1;
                 
-                coeff_to_small_conversion_matrix[i as usize] = poly_ring.terms(&X1_power_reduced).flat_map(|(c1, j1)| poly_ring.terms(&X2_power_reduced).map(move |(c2, j2)| 
-                    (j1 + j2 * r1 as usize, hom_ref.map(poly_ring.base_ring().mul_ref(c1, c2))
-                ))).collect::<Vec<_>>();
-            }
-            
-            if i1 < r1 && i2 < r2 {
-                if let Some(X_pow_i) = &X_pow_i {
-                    small_to_coeff_conversion_matrix[(i2 * r1 + i1) as usize] = dense_poly_ring.terms(X_pow_i).map(|(c, i)| {
-                        assert!(i < (r1 * r2) as usize);
-                        (i, hom_ref.map_ref(c))
-                    }).collect::<Vec<_>>();
-                } else {
-                    small_to_coeff_conversion_matrix[(i2 * r1 + i1) as usize] = vec![(i as usize, hom_ref.codomain().one())];
-                }
-            }
-
-            if i == (r1 * r2) - 1 {
-                X_pow_i = Some(dense_poly_ring.from_terms([(dense_poly_ring.base_ring().one(), (r1 * r2 - 1) as usize)]));
-            }
-            if let Some(X_pow_i) = &mut X_pow_i {
-                dense_poly_ring.mul_assign_monomial(X_pow_i, 1);
-                let lc = dense_poly_ring.coefficient_at(X_pow_i, (r1 * r2) as usize);
-                // *X_pow_i = dense_poly_ring.div_rem_monic(std::mem::replace(X_pow_i, dense_poly_ring.zero()), &Phi_m).1;
-                if dense_poly_ring.base_ring().is_zero(&lc) {
-                    // do nothing
-                } else if dense_poly_ring.base_ring().is_one(&lc) {
-                    dense_poly_ring.get_ring().add_assign_from_terms(X_pow_i, dense_poly_ring.terms(&Phi_m).map(|(c, i)| (dense_poly_ring.base_ring().negate(dense_poly_ring.base_ring().clone_el(c)), i)));
-                } else if dense_poly_ring.base_ring().is_neg_one(&lc) {
-                    dense_poly_ring.get_ring().add_assign_from_terms(X_pow_i, dense_poly_ring.terms(&Phi_m).map(|(c, i)| (dense_poly_ring.base_ring().clone_el(c), i)));
-                } else {
-                    let lc = dense_poly_ring.base_ring().clone_el(lc);
-                    dense_poly_ring.get_ring().add_assign_from_terms(X_pow_i, dense_poly_ring.terms(&Phi_m).map(|(c, i)| (dense_poly_ring.base_ring().negate(dense_poly_ring.base_ring().mul_ref(c, &lc)), i)));
-                }
-            }
+            coeff_to_small_conversion_matrix[i as usize] = poly_ring.terms(&X1_power_reduced).flat_map(|(c1, j1)| poly_ring.terms(&X2_power_reduced).map(move |(c2, j2)| 
+                (j1 + j2 * r1 as usize, hom_ref.map(poly_ring.base_ring().mul_ref(c1, c2))
+            ))).collect::<Vec<_>>();
         }
 
+        let cyclotomic_poly_reducer = CyclotomicPolyReducer::new(Fp, m, STANDARD_CONVOLUTION);
+
         CompositeCyclotomicDecomposedNumberRing {
-            small_to_coeff_conversion_matrix: small_to_coeff_conversion_matrix,
             coeff_to_small_conversion_matrix: coeff_to_small_conversion_matrix,
+            cyclotomic_poly_reducer: cyclotomic_poly_reducer,
             tensor_factor1: self.tensor_factor1.mod_p(Fp.clone()),
             tensor_factor2: self.tensor_factor2.mod_p(Fp)
         }
@@ -191,9 +161,8 @@ pub struct CompositeCyclotomicDecomposedNumberRing<F, A = Global>
     tensor_factor2: OddSquarefreeCyclotomicDecomposedNumberRing<F, A>,
     // the `i`-th entry is none if the `i`-th small basis vector equals the `i`-th coeff basis vector,
     // and otherwise, it contains the coeff basis representation of the `i`-th small basis vector
-    small_to_coeff_conversion_matrix: Vec<Vec<(usize, ZnEl)>>,
-    // same as `small_to_coeff_conversion_matrix` but with small and coeff basis swapped
-    coeff_to_small_conversion_matrix: Vec<Vec<(usize, ZnEl)>>
+    coeff_to_small_conversion_matrix: Vec<Vec<(usize, ZnEl)>>,
+    cyclotomic_poly_reducer: CyclotomicPolyReducer<Zn>
 }
 
 impl<F, A> PartialEq for CompositeCyclotomicDecomposedNumberRing<F, A> 
@@ -253,14 +222,25 @@ impl<F, A> HENumberRingMod for CompositeCyclotomicDecomposedNumberRing<F, A>
     fn small_basis_to_coeff_basis<V>(&self, mut data: V)
         where V: SwappableVectorViewMut<ZnEl>
     {
-        let mut result = Vec::with_capacity_in(self.rank(), self.tensor_factor1.allocator());
-        result.resize_with(self.rank(), || self.base_ring().zero());
-        for i in 0..self.rank() {
-            for (j, c) in &self.small_to_coeff_conversion_matrix[i] {
-                self.base_ring().add_assign(&mut result[*j], self.base_ring().mul_ref(data.at(i), c));
+        let mut result = Vec::with_capacity_in(self.m(), self.tensor_factor1.allocator());
+        result.resize_with(self.m(), || self.base_ring().zero());
+        let r1 = self.tensor_factor1.rank();
+        let r2 = self.tensor_factor2.rank();
+        let m1 = self.tensor_factor1.m();
+        let m2 = self.tensor_factor2.m();
+        let m = m1 * m2;
+        
+        for i2 in 0..r2 {
+            for i1 in 0..r1 {
+                let mut target_idx = i1 * m2 + i2 * m1;
+                if target_idx >= m {
+                    target_idx -= m;
+                }
+                result[target_idx] = *data.at(i1 + i2 * r1);
             }
         }
-        for (i, c) in result.drain(..).enumerate() {
+        self.cyclotomic_poly_reducer.remainder(&mut result);
+        for (i, c) in result.into_iter().take(r1 * r2).enumerate() {
             *data.at_mut(i) = c;
         }
     }
@@ -309,4 +289,104 @@ impl<F, A> HECyclotomicNumberRingMod for CompositeCyclotomicDecomposedNumberRing
             );
         }
     }
+}
+
+
+#[cfg(test)]
+use feanor_math::assert_el_eq;
+#[cfg(test)]
+use crate::ciphertext_ring::double_rns_ring;
+#[cfg(test)]
+use crate::ciphertext_ring::single_rns_ring;
+#[cfg(test)]
+use crate::number_ring::quotient;
+#[cfg(test)]
+use crate::ring_literal;
+#[cfg(test)]
+use crate::number_ring::quotient::NumberRingQuotientBase;
+
+#[test]
+fn test_odd_cyclotomic_double_rns_ring() {
+    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
+    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
+}
+
+#[test]
+fn test_odd_cyclotomic_single_rns_ring() {
+    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
+    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
+}
+
+#[test]
+fn test_odd_cyclotomic_decomposition_ring() {
+    quotient::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
+    quotient::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
+}
+
+#[test]
+fn test_small_coeff_basis_conversion() {
+    let ring = zn_64::Zn::new(241);
+    let number_ring = CompositeCyclotomicNumberRing::new(3, 5);
+    let decomposition = number_ring.mod_p(ring);
+
+    let arr_create = |data: [i32; 8]| std::array::from_fn::<_, 8, _>(|i| ring.int_hom().map(data[i]));
+    let assert_arr_eq = |fst: [zn_64::ZnEl; 8], snd: [zn_64::ZnEl; 8]| assert!(
+        fst.iter().zip(snd.iter()).all(|(x, y)| ring.eq_el(x, y)),
+        "expected {:?} = {:?}",
+        std::array::from_fn::<_, 8, _>(|i| ring.format(&fst[i])),
+        std::array::from_fn::<_, 8, _>(|i| ring.format(&snd[i]))
+    );
+
+    let original = arr_create([1, 0, 0, 0, 0, 0, 0, 0]);
+    let expected = arr_create([1, 0, 0, 0, 0, 0, 0, 0]);
+    let mut actual = original;
+    decomposition.coeff_basis_to_small_basis(&mut actual);
+    assert_arr_eq(expected, actual);
+    decomposition.small_basis_to_coeff_basis(&mut actual);
+    assert_arr_eq(original, actual);
+    
+    // 𝝵_15 = 𝝵_3^-1 ⊗ 𝝵_5^2 = (-1 - 𝝵_3) ⊗ 𝝵_5^2
+    let original = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
+    let expected = arr_create([0, 0, 0, 0, 240, 240, 0, 0]);
+    let mut actual = original;
+    decomposition.coeff_basis_to_small_basis(&mut actual);
+    assert_arr_eq(expected, actual);
+    decomposition.small_basis_to_coeff_basis(&mut actual);
+    assert_arr_eq(original, actual);
+
+    let original = arr_create([0, 0, 240, 0, 0, 0, 0, 0]);
+    let expected = arr_create([0, 1, 0, 1, 0, 1, 0, 1]);
+    let mut actual = original;
+    decomposition.coeff_basis_to_small_basis(&mut actual);
+    assert_arr_eq(expected, actual);
+    decomposition.small_basis_to_coeff_basis(&mut actual);
+    assert_arr_eq(original, actual);
+
+    let original = arr_create([0, 0, 0, 1, 0, 0, 0, 0]);
+    let expected = arr_create([0, 0, 1, 0, 0, 0, 0, 0]);
+    let mut actual = original;
+    decomposition.coeff_basis_to_small_basis(&mut actual);
+    assert_arr_eq(expected, actual);
+    decomposition.small_basis_to_coeff_basis(&mut actual);
+    assert_arr_eq(original, actual);
+
+    let original = arr_create([0, 0, 0, 0, 0, 1, 0, 0]);
+    let expected = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
+    let mut actual = original;
+    decomposition.coeff_basis_to_small_basis(&mut actual);
+    assert_arr_eq(expected, actual);
+    decomposition.small_basis_to_coeff_basis(&mut actual);
+    assert_arr_eq(original, actual);
+}
+
+#[test]
+fn test_permute_galois_automorphism() {
+    let Fp = zn_64::Zn::new(257);
+    let R = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(5, 3), Fp);
+    let gal_el = |x: i64| R.galois_group().from_representative(x);
+
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), gal_el(4)));
+    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), gal_el(8)));
+    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), gal_el(2)));
 }

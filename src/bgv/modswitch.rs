@@ -1391,7 +1391,7 @@ fn test_default_modswitch_strategy_mul() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;
@@ -1443,7 +1443,7 @@ fn test_never_modswitch_strategy() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 7,
-        ciphertext_allocator: DefaultCiphertextAllocator::default(),
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     let t = 257;

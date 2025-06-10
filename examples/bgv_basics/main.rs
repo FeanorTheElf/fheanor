@@ -25,8 +25,8 @@ use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::assert_el_eq;
 
 fn main() {
+    type ChosenBGVParamType = Pow2BGV<Global>;
 
-    type ChosenBGVParamType = Pow2BGV;
     let params = ChosenBGVParamType {
         ciphertext_allocator: Global,
         log2_N: 13,

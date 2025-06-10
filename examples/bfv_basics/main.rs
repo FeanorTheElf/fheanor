@@ -21,8 +21,7 @@ use fheanor::DefaultNegacyclicNTT;
 use rand::thread_rng;
 
 fn main() {
-
-    type ChosenBFVParamType = Pow2BFV;
+    type ChosenBFVParamType = Pow2BFV<Global>;
     
     let params = ChosenBFVParamType {
         ciphertext_allocator: Global,

@@ -23,7 +23,7 @@ For example, to setup BFV in a power-of-two cyclotomic number ring `Z[X]/(X^N + 
 # use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
-type ChosenBFVParamType = Pow2BFV;
+type ChosenBFVParamType = Pow2BFV<Global>;
 let params = ChosenBFVParamType {
     ciphertext_allocator: Global,
     log2_N: 12,
@@ -49,7 +49,7 @@ Once we setup the parameters, we can create plaintext and ciphertext rings:
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
 # use feanor_math::algorithms::eea::signed_gcd;
-# type ChosenBFVParamType = Pow2BFV;
+# type ChosenBFVParamType = Pow2BFV<Global>;
 # let params = ChosenBFVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 12,
@@ -70,7 +70,7 @@ After we set this up, we actually won't need the parameter object anymore - to d
 # use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
-# type ChosenBFVParamType = Pow2BFV;
+# type ChosenBFVParamType = Pow2BFV<Global>;
 # let params = ChosenBFVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 12,
@@ -96,7 +96,7 @@ While it would be preferable for the BFV implementation not to be tied to any sp
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 # use rand::thread_rng;
-# type ChosenBFVParamType = Pow2BFV;
+# type ChosenBFVParamType = Pow2BFV<Global>;
 # let params = ChosenBFVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 12,
@@ -139,7 +139,7 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 # use rand::thread_rng;
-# type ChosenBFVParamType = Pow2BFV;
+# type ChosenBFVParamType = Pow2BFV<Global>;
 # let params = ChosenBFVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 12,
@@ -185,7 +185,7 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 # use rand::thread_rng;
-# type ChosenBFVParamType = Pow2BFV;
+# type ChosenBFVParamType = Pow2BFV<Global>;
 # let params = ChosenBFVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 12,
@@ -224,7 +224,7 @@ Note that the plaintext ring is actually quite large - we chose `N = 4096` - so 
 # use std::alloc::Global;
 # use std::marker::PhantomData;
 # use rand::thread_rng;
-# type ChosenBFVParamType = Pow2BFV;
+# type ChosenBFVParamType = Pow2BFV<Global>;
 # let params = ChosenBFVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 12,

@@ -24,8 +24,7 @@ use feanor_math::seq::*;
 use rand::thread_rng;
 
 fn main() {
-    
-    type ChosenCLPXParamType = Pow2CLPX;
+    type ChosenCLPXParamType = Pow2CLPX<Global>;
 
     let params = ChosenCLPXParamType {
         ciphertext_allocator: Global,

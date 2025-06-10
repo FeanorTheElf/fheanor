@@ -24,7 +24,7 @@ use serde::de::DeserializeSeed;
 use tracing::instrument;
 
 use crate::number_ring::HECyclotomicNumberRing;
-use crate::ciphertext_ring::poly_remainder::CyclotomicPolyReducer;
+use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 use crate::{cyclotomic::*, DefaultConvolution};
 use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ntt::HERingConvolution;

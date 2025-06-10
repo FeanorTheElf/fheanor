@@ -9,6 +9,7 @@
 #![feature(generic_arg_infer)]
 #![feature(min_specialization)]
 #![feature(array_chunks)]
+
 #![feature(mapped_lock_guards)]
 
 #![allow(non_snake_case)]
@@ -69,7 +70,7 @@ pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
 /// by using the feature `use_hexl`.
 /// 
 #[cfg(not(feature = "use_hexl"))]
-pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConvolution<feanor_math::rings::zn::zn_64::ZnBase, feanor_math::rings::zn::zn_64::ZnBase, feanor_math::homomorphism::Identity<feanor_math::rings::zn::zn_64::Zn>>;
+pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConvolution<feanor_math::rings::zn::zn_64::ZnBase, feanor_math::rings::zn::zn_64::ZnFastmulBase, feanor_math::homomorphism::CanHom<feanor_math::rings::zn::zn_64::ZnFastmul, feanor_math::rings::zn::zn_64::Zn>>;
 
 ///
 /// The default algorithm for computing negacyclic NTTs that will be used by 
@@ -101,7 +102,11 @@ pub type DefaultNegacyclicNTT = crate::ntt::RustNegacyclicNTT<feanor_math::rings
 /// 
 /// Currently, this is always [`std::alloc::Global`].
 /// 
-pub type DefaultCiphertextAllocator = Global;
+pub type DefaultCiphertextAllocator = feanor_mempool::AllocArc<feanor_mempool::dynsize::DynLayoutMempool>;
+
+pub fn get_default_ciphertext_allocator() -> DefaultCiphertextAllocator {
+    feanor_mempool::AllocArc(std::sync::Arc::new(feanor_mempool::dynsize::DynLayoutMempool::<Global>::new(std::ptr::Alignment::of::<u64>())))
+}
 
 ///
 /// Euler's totient function.
@@ -156,6 +161,9 @@ const ZZi128: StaticRing<i128> = StaticRing::<i128>::RING;
 /// Contains some macros that mimic `#[derive(Deserialize)]` but for [`serde::de::DeserializeSeed`].
 /// 
 mod serialization_helper;
+
+// Uncomment this to log allocations
+// mod allocator;
 
 ///
 /// Contains an abstraction for NTTs and convolutions, which can then be

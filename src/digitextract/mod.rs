@@ -288,13 +288,13 @@ use crate::bfv::*;
 #[cfg(test)]
 use crate::DefaultNegacyclicNTT;
 #[cfg(test)]
-use std::alloc::Global;
-#[cfg(test)]
 use std::marker::PhantomData;
 #[cfg(test)]
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 #[cfg(test)]
 use feanor_math::seq::VectorView;
+#[cfg(test)]
+use crate::get_default_ciphertext_allocator;
 
 #[test]
 fn test_digit_extract() {
@@ -333,7 +333,7 @@ fn test_digit_extract_homomorphic() {
         log2_q_min: 500,
         log2_q_max: 520,
         log2_N: 6,
-        ciphertext_allocator: Global,
+        ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
     

@@ -43,7 +43,7 @@ For example, to setup BGV in a power-of-two cyclotomic number ring `Z[X]/(X^N + 
 # use fheanor::DefaultNegacyclicNTT;
 # use std::alloc::Global;
 # use std::marker::PhantomData;
-type ChosenBGVParamType = Pow2BGV;
+type ChosenBGVParamType = Pow2BGV<Global>;
 let params = ChosenBGVParamType {
     ciphertext_allocator: Global,
     log2_N: 13,
@@ -74,7 +74,7 @@ Using this, we can now create the plaintext ring and initial ciphertext ring via
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
 # use feanor_math::algorithms::eea::signed_gcd;
-# type ChosenBGVParamType = Pow2BGV;
+# type ChosenBGVParamType = Pow2BGV<Global>;
 # let params = ChosenBGVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 13,
@@ -109,7 +109,7 @@ While it would be preferable for the BGV implementation not to be tied to any sp
 # use feanor_math::ring::RingStore;
 # use feanor_math::algorithms::eea::signed_gcd;
 # use feanor_math::seq::VectorView;
-# type ChosenBGVParamType = Pow2BGV;
+# type ChosenBGVParamType = Pow2BGV<Global>;
 # let params = ChosenBGVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 13,
@@ -156,7 +156,7 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::assert_el_eq;
 # use feanor_math::seq::VectorView;
-# type ChosenBGVParamType = Pow2BGV;
+# type ChosenBGVParamType = Pow2BGV<Global>;
 # let params = ChosenBGVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 13,
@@ -210,7 +210,7 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::assert_el_eq;
 # use feanor_math::seq::VectorView;
-# type ChosenBGVParamType = Pow2BGV;
+# type ChosenBGVParamType = Pow2BGV<Global>;
 # let params = ChosenBGVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 13,
@@ -261,7 +261,7 @@ The naive way would be to compute
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::assert_el_eq;
 # use feanor_math::seq::VectorView;
-# type ChosenBGVParamType = Pow2BGV;
+# type ChosenBGVParamType = Pow2BGV<Global>;
 # let params = ChosenBGVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 13,
@@ -315,7 +315,7 @@ Alternatively, these can also determined manually: [`crate::bgv::BGVCiphertextPa
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::seq::VectorView;
 # use feanor_math::assert_el_eq;
-# type ChosenBGVParamType = Pow2BGV;
+# type ChosenBGVParamType = Pow2BGV<Global>;
 # let params = ChosenBGVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 13,
@@ -373,7 +373,7 @@ We can even reduce the noise growth slightly more by using hybrid key switching 
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::seq::VectorView;
 # use feanor_math::assert_el_eq;
-# type ChosenBGVParamType = Pow2BGV;
+# type ChosenBGVParamType = Pow2BGV<Global>;
 # let params = ChosenBGVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 13,
@@ -440,7 +440,7 @@ For example, we could implement the above evaluation instead as follows:
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::seq::VectorView;
 # use feanor_math::assert_el_eq;
-# type ChosenBGVParamType = Pow2BGV;
+# type ChosenBGVParamType = Pow2BGV<Global>;
 # let params = ChosenBGVParamType {
 #     ciphertext_allocator: Global,
 #     log2_N: 13,

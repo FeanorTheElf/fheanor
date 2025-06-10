@@ -11,6 +11,11 @@ use feanor_math::seq::*;
 use crate::cyclotomic::*;
 
 ///
+/// Code for fast polynomial division by a cyclotomic polynomial.
+/// Used by [`general_cyclotomic`] and [`crate::ciphertext_ring::single_rns_ring`].
+/// 
+pub mod poly_remainder;
+///
 /// Contains [`quotient::NumberRingQuotient`] which represents the ring `R/tR` for
 /// some integer `t` and a number ring `R` given as a [`HENumberRing`].
 /// 

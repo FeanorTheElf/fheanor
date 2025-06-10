@@ -14,12 +14,6 @@ use crate::number_ring::HECyclotomicNumberRing;
 use crate::rnsconv::RNSOperation;
 
 ///
-/// Code for fast polynomial division by a cyclotomic polynomial.
-/// Used within [`single_rns_ring`].
-/// 
-pub mod poly_remainder;
-
-///
 /// Contains utilities to serialize/deserialize elements of rings that are based on RNS bases.
 /// 
 pub mod serialization;
