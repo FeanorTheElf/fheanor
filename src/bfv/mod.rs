@@ -743,7 +743,11 @@ impl<NumberRing> PlaintextCircuit<NumberRingQuotientBase<NumberRing, Zn>>
                 vec![Params::hom_galois(C, x, gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, gs[0])).next().unwrap().1)]
             } else {
                 **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(**g)).count();
-                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, *expected_g)).next().unwrap().1))
+                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| if let Some(gk) = gks.iter().filter(|(g, _)| galois_group.eq_el(*g, *expected_g)).next() {
+                    &gk.1
+                } else {
+                    panic!("Galois key for {} not found", galois_group.underlying_ring().format(&galois_group.to_ring_el(*expected_g)))
+                }))
             })
         );
     }

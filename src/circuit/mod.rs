@@ -631,20 +631,11 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     ///    |
     /// ```
     /// 
-    pub fn gal<S: RingStore<Type = R>>(g: CyclotomicGaloisGroupEl, _ring: S) -> Self {
-        let result = Self {
-            input_count: 1,
-            gates: vec![PlaintextCircuitGate::Gal(vec![g], LinearCombination {
-                constant: Coefficient::Zero,
-                factors: vec![Coefficient::One]
-            })],
-            output_transforms: vec![LinearCombination {
-                constant: Coefficient::Zero,
-                factors: vec![Coefficient::Zero, Coefficient::One]
-            }]
-        };
-        result.check_invariants();
-        return result;
+    /// If the given automorphism is the identity, this will just
+    /// give a circuit consisting of a single wire.
+    /// 
+    pub fn gal<S: RingStore<Type = R>>(g: CyclotomicGaloisGroupEl, galois_group: &CyclotomicGaloisGroup, ring: S) -> Self {
+        Self::gal_many(std::slice::from_ref(&g), galois_group, ring)
     }
 
     /// 
@@ -657,19 +648,33 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     ///    |   |  ...
     /// ```
     /// 
-    pub fn gal_many<S: RingStore<Type = R>>(gs: &[CyclotomicGaloisGroupEl], _ring: S) -> Self {
+    /// All occurrences of the identity in the list of Galois automorphisms
+    /// are automatically filtered out, and replaced by a direct wire to the
+    /// input.
+    /// 
+    pub fn gal_many<S: RingStore<Type = R>>(gs: &[CyclotomicGaloisGroupEl], galois_group: &CyclotomicGaloisGroup, _ring: S) -> Self {
+        let non_identity_gs = gs.iter().filter(|g| !galois_group.is_identity(**g)).copied().collect::<Vec<_>>();
+        let len = non_identity_gs.len() + 1;
         let result = Self {
             input_count: 1,
             gates: vec![PlaintextCircuitGate::Gal(
-                gs.to_owned(), 
+                non_identity_gs, 
                 LinearCombination {
                     constant: Coefficient::Zero,
                     factors: vec![Coefficient::One]
                 }
             )],
-            output_transforms: (0..gs.len()).map(|i| LinearCombination {
-                constant: Coefficient::Zero,
-                factors: (0..=gs.len()).map(|j| if j == i + 1 { Coefficient::One } else { Coefficient::Zero }).collect()
+            output_transforms:gs.iter().scan(0, |nonzero_gs, g| if galois_group.is_identity(*g) {
+                Some(LinearCombination {
+                    constant: Coefficient::Zero,
+                    factors: [Coefficient::One].into_iter().chain((1..len).map(|_| Coefficient::Zero)).collect()
+                })
+            } else {
+                *nonzero_gs += 1;
+                Some(LinearCombination {
+                    constant: Coefficient::Zero,
+                    factors: (0..len).map(|j| if j == *nonzero_gs { Coefficient::One } else { Coefficient::Zero }).collect()
+                })
             }).collect()
         };
         result.check_invariants();
@@ -1168,7 +1173,7 @@ fn test_circuit_tensor_compose_with_galois() {
     let x = PlaintextCircuit::identity(1, &ring);
     let y = PlaintextCircuit::identity(1, &ring);
     let xy = PlaintextCircuit::mul(&ring).compose(x.tensor(y, &ring), &ring);
-    let conj_xy = PlaintextCircuit::gal(ring.galois_group().from_representative(-1), &ring).compose(xy.clone(&ring), &ring);
+    let conj_xy = PlaintextCircuit::gal(ring.galois_group().from_representative(-1), &ring.galois_group(), &ring).compose(xy.clone(&ring), &ring);
     let partial_trace_xy = PlaintextCircuit::add(&ring).compose(xy.tensor(conj_xy, &ring), &ring).compose(PlaintextCircuit::identity(2, &ring).output_twice(&ring), &ring);
 
     for x_e in 0..8 {

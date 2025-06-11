@@ -216,14 +216,20 @@ impl HypercubeStructure {
             lengths,
             dimensions.iter().map(|dim| galois_group.from_ring_el(dim.g_main)).collect()
         );
-        result.choice = HypercubeTypeData::CyclotomicTensorProductHypercube(dimensions.iter().map(|dim| dim.factor_m).collect());
+        if m % 2 == 1 {
+            result.choice = HypercubeTypeData::CyclotomicTensorProductHypercube(dimensions.iter().map(|dim| dim.factor_m).collect());
+        }
         return result;
     }
 
     ///
-    /// Applies the hypercube structure map to the unit vector multiple `steps * e_(dim_idx)`,
-    /// i.e. computes the galois automorphism corresponding to the shift by `steps` steps
-    /// along the `dim_idx`-th hypercube dimension.
+    /// Applies the hypercube structure map to the unit vector multiple `steps * e_(dim_idx)`.
+    /// 
+    /// In other words, this computes the galois automorphism corresponding to the shift by `steps`
+    /// steps along the `dim_idx`-th hypercube dimension. Be careful, elements that are "moved out" on
+    /// one end of the hypercolumn can cause unexpected behavior. For most hypercubes, including all
+    /// Halevi-Shoup hypercubes, a Frobenius conjugate of any element that is moved out will be moved
+    /// in at the other end. 
     /// 
     pub fn map_1d(&self, dim_idx: usize, steps: i64) -> CyclotomicGaloisGroupEl {
         assert!(dim_idx < self.dim_count());
@@ -247,6 +253,16 @@ impl HypercubeStructure {
     }
 
     ///
+    /// Same as [`HypercubeStructure::map()`], except that the given vector should
+    /// have `dim_count + 1` entries, and the first entry is treated as the exponent
+    /// of the Frobenius.
+    /// 
+    pub fn map_incl_frobenius(&self, idxs: &[i64]) -> CyclotomicGaloisGroupEl {
+        assert_eq!(self.ls.len() + 1, idxs.len());
+        self.galois_group.mul(self.map(&idxs[1..]), self.frobenius(idxs[0]))
+    }
+
+    ///
     /// Same as [`HypercubeStructure::map()`], but for a vector with
     /// unsigned entries.
     /// 
@@ -259,7 +275,7 @@ impl HypercubeStructure {
     /// Computes the "standard preimage" of the given `g` under `h`.
     /// 
     /// This is the vector `(a_0, a_1, ..., a_r)` such that `g = p^a_0 h(a_1, ..., a_r)` and
-    /// each `a_i` is within `{ 0, ..., l_i - 1 }`.
+    /// `a_0 in { 0, ..., d - 1 }` and `a_i` for `i > 0` is within `{ 0, ..., l_i - 1 }`.
     /// 
     pub fn std_preimage(&self, g: CyclotomicGaloisGroupEl) -> &[usize] {
         let idx = self.representations.binary_search_by_key(&self.galois_group.representative(g), |(g, _)| self.galois_group.representative(*g)).unwrap();
@@ -269,8 +285,8 @@ impl HypercubeStructure {
     ///
     /// Returns whether each dimension of the hypercube corresponds to a factor `m_i` of
     /// `m` (with `m_i` coprime to `m/m_i`). This is the case for the Halevi-Shoup hypercube,
-    /// and very useful in some situations. If this is the case, you can query the factor
-    /// of `m` corresponding to some dimension by [`HypercubeStructure::factor_of_m()`].
+    /// and very useful for the Slots-to-Coeffs transform. If this is the case, you can query
+    /// the factor of `m` corresponding to some dimension by [`HypercubeStructure::factor_of_m()`].
     /// 
     pub fn is_tensor_product_compatible(&self) -> bool {
         match self.choice {
@@ -323,7 +339,7 @@ impl HypercubeStructure {
     }
 
     ///
-    /// Returns the length of the `i`-th hypercube dimension.
+    /// Returns the length `l_i` of the `i`-th hypercube dimension.
     /// 
     pub fn dim_length(&self, i: usize) -> usize {
         assert!(i < self.ls.len());
@@ -343,7 +359,9 @@ impl HypercubeStructure {
     /// 
     pub fn ord_generator(&self, i: usize) -> usize {
         assert!(i < self.ls.len());
-        self.ord_gs[i]
+        let result = self.ord_gs[i];
+        debug_assert!(result % self.dim_length(i) == 0);
+        return result;
     }
 
     ///

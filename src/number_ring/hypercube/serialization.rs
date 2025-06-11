@@ -30,7 +30,7 @@ use super::structure::{HypercubeStructure, HypercubeTypeData};
 struct SerializableHypercubeStructureData<'a, G: Serialize> {
     p: SerializableCyclotomicGaloisGroupEl<'a>,
     d: usize,
-    ms: &'a [usize],
+    ls: &'a [usize],
     gs: G,
     choice: &'a HypercubeTypeData
 }
@@ -44,7 +44,7 @@ impl Serialize for HypercubeStructure {
             choice: &self.choice,
             d: self.d,
             p: SerializableCyclotomicGaloisGroupEl::new(&self.galois_group, self.p),
-            ms: &self.ls,
+            ls: &self.ls,
             gs: SerializableSeq::new(self.gs.as_fn().map_fn(|g| SerializableCyclotomicGaloisGroupEl::new(&self.galois_group, *g)))
         })).serialize(serializer)
     }
@@ -70,7 +70,7 @@ impl_deserialize_seed_for_dependent_struct!{
     pub struct HypercubeStructureData<'de> using DeserializeSeedHypercubeStructureData {
         p: CyclotomicGaloisGroupEl: derive_single_galois_group_deserializer,
         d: usize: |_| PhantomData,
-        ms: Vec<usize>: |_| PhantomData,
+        ls: Vec<usize>: |_| PhantomData,
         gs: Vec<CyclotomicGaloisGroupEl>: derive_multiple_galois_group_deserializer,
         choice: HypercubeTypeData: |_| PhantomData
     }
@@ -89,7 +89,7 @@ impl<'de> Deserialize<'de> for HypercubeStructure {
                 DeserializeSeedHypercubeStructureData { galois_group }
             }
         )).deserialize(deserializer).map(|data| {
-            let mut result = HypercubeStructure::new(deserialized_galois_group.take().unwrap(), data.p, data.d, data.ms, data.gs);
+            let mut result = HypercubeStructure::new(deserialized_galois_group.take().unwrap(), data.p, data.d, data.ls, data.gs);
             result.choice = data.choice;
             return result;
         })

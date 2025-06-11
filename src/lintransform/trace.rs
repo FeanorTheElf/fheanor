@@ -40,7 +40,7 @@ pub fn trace_circuit<R>(ring: &R, galois_group: &CyclotomicGaloisGroup, relative
 
     let extend_circuit = RefCell::new(|l_idx: usize, r_idx: usize, l_num: usize| {
         take_mut::take(&mut circuit, |circuit| PlaintextCircuit::identity(circuit.output_count(), ring).tensor(PlaintextCircuit::add(ring).compose(
-            PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::gal(galois_group.pow(relative_galois_group_gen, l_num as i64), ring), ring), ring
+            PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::gal(galois_group.pow(relative_galois_group_gen, l_num as i64), galois_group, ring), ring), ring
         ), ring).compose(
             PlaintextCircuit::select(circuit.output_count(), &(0..circuit.output_count()).chain([l_idx, r_idx].into_iter()).collect::<Vec<_>>(), ring), ring
         ).compose(

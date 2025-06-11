@@ -8,8 +8,8 @@
 #![feature(associated_type_defaults)]
 #![feature(generic_arg_infer)]
 #![feature(min_specialization)]
+#![feature(int_roundings)]
 #![feature(array_chunks)]
-
 #![feature(mapped_lock_guards)]
 
 #![allow(non_snake_case)]
