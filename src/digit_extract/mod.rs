@@ -8,17 +8,20 @@ use feanor_math::ring::*;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::zn_64::Zn;
 use feanor_math::homomorphism::*;
-use polys::{digit_retain_poly, poly_to_circuit, precomputed_p_2};
+use digit_extract_polys::{digit_retain_poly, poly_to_circuit, precomputed_p_2};
 use tracing::instrument;
 
 use crate::circuit::PlaintextCircuit;
+use crate::digit_extract::digit_extract_polys::digit_retain_circuit;
 use crate::{ZZbig, ZZi64};
 
 ///
 /// Contains various tools to digit extraction polynomials and convert them into circuits,
 /// in particular [`polys::poly_to_circuit()`].
 /// 
-pub mod polys;
+pub mod digit_extract_polys;
+
+pub mod paterson_stockmeyer;
 
 ///
 /// The digit extraction operation, as required during BFV and
@@ -90,9 +93,10 @@ impl DigitExtract {
         let v = e - r;
         
         let digit_extraction_circuits = (1..=v).rev().map(|i| {
-            let required_digits = (2..=(v - i + 1)).chain([r + v - i + 1].into_iter()).collect::<Vec<_>>();
-            let poly_ring = DensePolyRing::new(Zn::new(StaticRing::<i64>::RING.pow(p, *required_digits.last().unwrap()) as u64), "X");
-            let circuit = poly_to_circuit(&poly_ring, &required_digits.iter().map(|j| digit_retain_poly(&poly_ring, *j)).collect::<Vec<_>>());
+            // let required_digits = (2..=(v - i + 1)).chain([r + v - i + 1].into_iter()).collect::<Vec<_>>();
+            let required_digits = (2..=(r + v - i + 1)).collect::<Vec<_>>();
+            let circuit = digit_retain_circuit(p, r + v - i + 1);
+            assert_eq!(required_digits.len(), circuit.output_count());
             return (required_digits, circuit);
         }).collect::<Vec<_>>();
         assert!(digit_extraction_circuits.is_sorted_by_key(|(digits, _)| *digits.last().unwrap()));

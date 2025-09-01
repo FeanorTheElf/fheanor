@@ -108,7 +108,7 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
         }
     }
 
-    fn from<S: RingStore<Type = R> + Copy>(el: El<S>, ring: S) -> Self {
+    pub fn from<S: RingStore<Type = R> + Copy>(el: El<S>, ring: S) -> Self {
         if ring.is_zero(&el) {
             Coefficient::Zero
         } else if ring.is_one(&el) {
@@ -546,6 +546,31 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
                 constant: Coefficient::Zero,
                 factors: (0..(2 * len)).map(|j|
                     if (j % len) == i { Coefficient::One } else { Coefficient::Zero }).collect()
+            }).collect()
+        };
+        return result;
+    }
+
+    /// 
+    /// Creates the circuit consisting of `len` scalar multiplication gates
+    /// ```text
+    ///       |        |              |     
+    ///   |‾‾‾‾‾‾| |‾‾‾‾‾‾|     |‾‾‾‾‾‾‾‾‾‾| 
+    ///   |* a[0]| |* a[1]| ... |* a[l - 1]|  
+    ///   |______| |______|     |__________| 
+    ///       |        |              |       
+    /// ```
+    /// This is a special case of [`PlaintextCircuit::linear_transform()`], in many cases
+    /// the latter is more convenient to use.
+    /// 
+    pub fn vec_mul_scalar<S: RingStore<Type = R>>(scalars: &[El<S>], ring: S) -> Self {
+        let result = Self {
+            input_count: scalars.len(),
+            gates: Vec::new(),
+            output_transforms: scalars.iter().enumerate().map(|(i, x)| LinearCombination {
+                constant: Coefficient::Zero,
+                factors: (0..scalars.len()).map(|j|
+                    if j == i { Coefficient::from(ring.clone_el(x), &ring) } else { Coefficient::Zero }).collect()
             }).collect()
         };
         return result;
