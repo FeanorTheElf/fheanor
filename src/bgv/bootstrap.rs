@@ -46,7 +46,6 @@ pub struct ThinBootstrapParams<Params: BGVInstantiation> {
 impl<Params> ThinBootstrapParams<Params>
     where Params: BGVInstantiation, 
         <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>,
-        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>,
         Params::PlaintextRing: SerializableElementRing
 {
     pub fn build_pow2<M: BGVModswitchStrategy<Params>, const LOG: bool>(&self, C: &CiphertextRing<Params>, modswitch_strategy: M, cache_dir: Option<&str>) -> ThinBootstrapData<Params, M> {
@@ -117,8 +116,7 @@ impl<Params> ThinBootstrapParams<Params>
 pub struct ThinBootstrapData<Params, Strategy>
     where Params: BGVInstantiation, 
         Strategy: BGVModswitchStrategy<Params>,
-        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>,
-        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
+        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>
 {
     modswitch_strategy: Strategy,
     digit_extract: DigitExtract,
@@ -133,8 +131,7 @@ pub struct ThinBootstrapData<Params, Strategy>
 impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
     where Params: BGVInstantiation, 
         Strategy: BGVModswitchStrategy<Params>,
-        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>,
-        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
+        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>
 {
     pub fn new_with_digit_extract_and_lin_transform(
         params: &ThinBootstrapParams<Params>, 
@@ -181,8 +178,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
 impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
     where Params: BGVInstantiation, 
         Strategy: BGVModswitchStrategy<Params>,
-        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>,
-        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
+        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>
 {
     pub fn create(
         params: &ThinBootstrapParams<Params>, 
@@ -445,9 +441,7 @@ impl DigitExtract {
         rk: &RelinKey<'a, Params>,
         key_switches: &mut usize,
         debug_sk: Option<&SecretKey<Params>>
-    ) -> (ModulusAwareCiphertext<Params, Strategy>, ModulusAwareCiphertext<Params, Strategy>)
-        where DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
-    {
+    ) -> (ModulusAwareCiphertext<Params, Strategy>, ModulusAwareCiphertext<Params, Strategy>) {
         assert!(LOG || debug_sk.is_none());
 
         let (p, actual_r) = is_prime_power(ZZbig, &int_cast(P_base.base_ring().integer_ring().clone_el(P_base.base_ring().modulus()), ZZbig, P_base.base_ring().integer_ring())).unwrap();

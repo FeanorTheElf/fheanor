@@ -73,8 +73,7 @@ use crate::{NiceZn};
 /// 
 pub struct MatmulTransform<R>
     where R: NumberRingQuotient,
-        <<R as RingExtension>::BaseRing as RingStore>::Type: NiceZn,
-        DecoratedBaseRingBase<RingValue<R>>: CanIsoFromTo<<<R as RingExtension>::BaseRing as RingStore>::Type>
+        <<R as RingExtension>::BaseRing as RingStore>::Type: NiceZn
 {
     data: Vec<(
         // a representation of the used Galois automorphism w.r.t. the hypercube structure;
@@ -90,8 +89,7 @@ pub struct MatmulTransform<R>
 
 impl<R> MatmulTransform<R>
     where R: NumberRingQuotient,
-        <<R as RingExtension>::BaseRing as RingStore>::Type: NiceZn,
-        DecoratedBaseRingBase<RingValue<R>>: CanIsoFromTo<<<R as RingExtension>::BaseRing as RingStore>::Type>
+        <<R as RingExtension>::BaseRing as RingStore>::Type: NiceZn
 {
     ///
     /// Checks whether `self` represents the same linear transform as `other`,
@@ -182,8 +180,7 @@ impl<R> MatmulTransform<R>
         fn apply_frobenius<S>(generator_frobenius_conjugates: &Vec<Vec<El<SlotRingOf<S>>>>, slot_ring: &SlotRingOf<S>, d: usize, x: &El<SlotRingOf<S>>, count: usize) -> El<SlotRingOf<S>>
             where S: RingStore,
                 S::Type: NumberRingQuotient,
-                <<S::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn,
-                DecoratedBaseRingBase<S>: CanIsoFromTo<<<S::Type as RingExtension>::BaseRing as RingStore>::Type>
+                <<S::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn
         {
             let mut result = slot_ring.zero();
             let x_wrt_basis = slot_ring.wrt_canonical_basis(x);
@@ -314,7 +311,6 @@ impl<R> MatmulTransform<R>
     pub fn switch_ring<H, S>(&self, hom: H) -> MatmulTransform<S>
         where S: NumberRingQuotient,
             <S::BaseRing as RingStore>::Type: NiceZn,
-            DecoratedBaseRingBase<RingValue<S>>: CanIsoFromTo<<<S as RingExtension>::BaseRing as RingStore>::Type>,
             H: Homomorphism<R, S>
     {
         MatmulTransform::<S> {

@@ -1,6 +1,5 @@
 use feanor_math::algorithms::unity_root::is_prim_root_of_unity;
 use feanor_math::divisibility::DivisibilityRingStore;
-use feanor_math::homomorphism::CanIsoFromTo;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::*;
 use feanor_math::ring::*;
@@ -63,8 +62,7 @@ fn pow2_bitreversed_dwt_butterfly<G, R>(H: &HypercubeIsomorphism<R>, dim_index: 
     where G: Fn(&[usize]) -> GaloisGroupEl,
         R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -145,8 +143,7 @@ fn pow2_bitreversed_inv_dwt_butterfly<G, R>(H: &HypercubeIsomorphism<R>, dim_ind
     where G: Fn(&[usize]) -> GaloisGroupEl,
         R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -246,8 +243,7 @@ fn pow2_bitreversed_dwt<G, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, row
     where G: Fn(&[usize]) -> GaloisGroupEl,
         R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     let dim_len = H.hypercube().dim_length(dim_index);
     let log2_len = ZZi64.abs_log2_ceil(&(dim_len as i64)).unwrap();
@@ -281,8 +277,7 @@ fn pow2_bitreversed_inv_dwt<G, R>(H: &HypercubeIsomorphism<R>, dim_index: usize,
     where G: Fn(&[usize]) -> GaloisGroupEl,
         R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     let dim_len = H.hypercube().dim_length(dim_index);
     let log2_len = ZZi64.abs_log2_ceil(&(dim_len as i64)).unwrap();
@@ -322,8 +317,7 @@ fn pow2_bitreversed_inv_dwt<G, R>(H: &HypercubeIsomorphism<R>, dim_index: usize,
 pub fn slots_to_coeffs_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_coeffs_thin_impl(H))
 }
@@ -332,8 +326,7 @@ pub fn slots_to_coeffs_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<
 fn slots_to_coeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     let m = H.galois_group().m();
     let log2_m = ZZi64.abs_log2_ceil(&(m as i64)).unwrap();
@@ -392,8 +385,7 @@ fn slots_to_coeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransf
 fn slots_to_coeffs_thin_inv<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     let m = H.galois_group().m();
     let log2_m = ZZi64.abs_log2_ceil(&(m as i64)).unwrap();
@@ -459,8 +451,7 @@ fn slots_to_coeffs_thin_inv<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransfo
 pub fn coeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     let mut result = slots_to_coeffs_thin_inv(H);
     let last = MatmulTransform::mult_scalar_slots(H, &H.slot_ring().inclusion().map(H.slot_ring().base_ring().invert(&H.slot_ring().base_ring().int_hom().map(H.slot_ring().rank() as i32)).unwrap()));

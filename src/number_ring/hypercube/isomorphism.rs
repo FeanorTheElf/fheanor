@@ -130,8 +130,7 @@ pub type DecoratedBaseRingBase<R> = AsLocalPIRBase<RingValue<BaseRing<R>>>;
 pub struct HypercubeIsomorphism<R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     ring: R,
     e: usize,
@@ -147,8 +146,7 @@ pub struct HypercubeIsomorphism<R>
 impl<R> HypercubeIsomorphism<R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     ///
     /// Most general way to create a new [`HypercubeIsomorphism`].
@@ -200,8 +198,7 @@ impl<R> HypercubeIsomorphism<R>
     pub fn change_modulus<RNew>(&self, new_ring: RNew) -> HypercubeIsomorphism<RNew>
         where RNew: RingStore,
             RNew::Type: NumberRingQuotient,
-            BaseRing<RNew>: NiceZn,
-            DecoratedBaseRingBase<RNew>: CanIsoFromTo<BaseRing<RNew>>
+            BaseRing<RNew>: NiceZn
     {
         let (p, e) = is_prime_power(&ZZbig, &new_ring.characteristic(&ZZbig).unwrap()).unwrap();
         let d = self.hypercube().d();
@@ -568,8 +565,7 @@ impl<R> SerializeDeserializeWith<R> for HypercubeIsomorphism<R>
     where R: RingStore + Clone,
         R::Type: NumberRingQuotient,
         BaseRing<R>: SerializableElementRing,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     type SerializeWithData<'a> = SerializableHypercubeIsomorphismWithoutRing<'a, R> where Self: 'a, R: 'a;
     type DeserializeWithData<'a> = DeserializeSeedHypercubeIsomorphismWithoutRing<R> where Self: 'a, R: 'a;
@@ -817,8 +813,7 @@ fn test_serialization() {
     fn test_with_test_ring<R>((ring, hypercube_structure): (R, HypercubeStructure))
         where R: RingStore + Clone,
             R::Type: NumberRingQuotient,
-            BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<zn_64::ZnBase>,
-            DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+            BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<zn_64::ZnBase>
     {
         let hypercube = HypercubeIsomorphism::new::<false>(&ring, &hypercube_structure, None);
         let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();

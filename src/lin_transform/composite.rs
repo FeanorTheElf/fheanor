@@ -69,8 +69,7 @@ fn dwt1d_inv_matrix<R>(H: &HypercubeStructure, slot_ring: &SlotRingOver<R>, dim_
 fn dwt1d<'a, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOf<R>>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -95,8 +94,7 @@ fn dwt1d<'a, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertable: 
 fn dwt1d_inv<'a, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOf<R>>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -136,8 +134,7 @@ fn dwt1d_inv<'a, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertab
 fn slots_to_powcoeffs_fat_fst_step<R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOf<R>>) -> OwnedMatrix<El<<R::Type as RingExtension>::BaseRing>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
     let Gal = H.galois_group();
@@ -177,8 +174,7 @@ fn slots_to_powcoeffs_fat_fst_step<R>(H: &HypercubeIsomorphism<R>, dim_index: us
 pub fn slots_to_powcoeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_fat_impl(H))
 }
@@ -186,8 +182,7 @@ pub fn slots_to_powcoeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircui
 fn slots_to_powcoeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -226,8 +221,7 @@ fn slots_to_powcoeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTran
 pub fn powcoeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_fat_impl(H))
 }
@@ -235,8 +229,7 @@ pub fn powcoeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircui
 fn powcoeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -273,8 +266,7 @@ fn powcoeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTran
 pub fn slots_to_powcoeffs_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_thin_impl(H))
 }
@@ -282,8 +274,7 @@ pub fn slots_to_powcoeffs_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircu
 fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -308,8 +299,7 @@ fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTra
 pub fn powcoeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_thin_impl(H))
 }
@@ -317,8 +307,7 @@ pub fn powcoeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircu
 fn powcoeffs_to_slots_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     let mut result = powcoeffs_to_slots_fat_impl(H);
     let discard_unused = MatmulTransform::blockmatmul0d(

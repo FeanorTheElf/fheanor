@@ -9,7 +9,7 @@ use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::eea::signed_gcd;
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::algorithms::rational_reconstruction::reduce_2d_modular_relation_basis;
-use feanor_math::homomorphism::{CanIsoFromTo, Homomorphism};
+use feanor_math::homomorphism::*;
 use feanor_math::integer::{int_cast, BigIntRing, IntegerRingStore};
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ordered::OrderedRingStore;
@@ -349,9 +349,7 @@ pub trait BGVInstantiation {
     /// Designed for debugging.
     /// 
     #[instrument(skip_all)]
-    fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>, cache_dir: Option<&str>)
-        where DecoratedBaseRingBase<PlaintextRing<Self>>: CanIsoFromTo<BaseRing<PlaintextRing<Self>>>
-    {
+    fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>, cache_dir: Option<&str>) {
         let ZZ = P.base_ring().integer_ring();
         let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
         let hypercube = if P.number_ring().galois_group().m() % 2 == 0 {

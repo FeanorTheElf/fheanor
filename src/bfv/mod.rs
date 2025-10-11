@@ -5,13 +5,11 @@ use std::alloc::{Allocator, Global};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::ops::Range;
-use std::cell::RefCell;
 use std::fmt::Display;
 
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::algorithms::miller_rabin::prev_prime;
 use feanor_math::matrix::OwnedMatrix;
-use feanor_math::primitive_int::StaticRingBase;
 use feanor_math::ring::*;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::zn::*;
@@ -28,8 +26,9 @@ use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::{perform_rns_op, RNSFactorCongruence};
 use crate::ciphertext_ring::BGFVCiphertextRing;
 use crate::circuit::evaluator::DefaultCircuitEvaluator;
-use crate::circuit::{Coefficient, PlaintextCircuit};
-use crate::gadget_product::{digits::*, RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
+use crate::circuit::PlaintextCircuit;
+use crate::gadget_product::digits::*;
+use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
 use crate::ntt::{FheanorNegacyclicNTT, FheanorConvolution};
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::number_ring::galois::*;
@@ -152,7 +151,7 @@ pub trait BFVInstantiation {
     ///
     /// Type of the plaintext ring `R/tR`.
     /// 
-    type PlaintextRing: NumberRingQuotient<BaseRing = RingValue<Self::PlaintextZnRing>, NumberRing = Self::NumberRing>;
+    type PlaintextRing: NumberRingQuotient<BaseRing = RingValue<Self::PlaintextZnRing>, NumberRing = Self::NumberRing> + SelfIso;
 
     ///
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
@@ -297,9 +296,7 @@ pub trait BFVInstantiation {
     /// Designed for debugging purposes.
     /// 
     #[instrument(skip_all)]
-    fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>, dir: Option<&str>)
-        where DecoratedBaseRingBase<PlaintextRing<Self>>: CanIsoFromTo<BaseRing<PlaintextRing<Self>>>
-    {
+    fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>, dir: Option<&str>) {
         let ZZ = P.base_ring().integer_ring();
         let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
         let hypercube = if P.number_ring().galois_group().m() % 2 == 0 {

@@ -12,7 +12,6 @@ use feanor_math::ring::*;
 use feanor_math::algorithms::linsolve::LinSolveRingStore;
 
 use crate::circuit::PlaintextCircuit;
-use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::SlotRingOver;
 use crate::{NiceZn, ZZbig, ZZi64};
@@ -135,6 +134,8 @@ use feanor_math::rings::zn::zn_64::*;
 use crate::ntt::dyn_convolution::*;
 #[cfg(test)]
 use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
+#[cfg(test)]
+use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 #[cfg(test)]
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 #[cfg(test)]

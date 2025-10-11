@@ -387,7 +387,6 @@ pub fn drop_rns_factors_balanced(key_digits: &RNSGadgetVectorDigitIndices, drop_
     return result;
 }
 
-
 ///
 /// Default modulus-switch strategy for BGV, which performs a certain number of modulus-switches
 /// before each multiplication.

@@ -2,7 +2,6 @@ use std::alloc::Global;
 use std::marker::PhantomData;
 
 use feanor_math::group::*;
-use feanor_math::homomorphism::*;
 use feanor_math::ring::*;
 use feanor_math::rings::local::AsLocalPIR;
 use feanor_math::rings::poly::PolyRing;
@@ -23,7 +22,7 @@ use crate::number_ring::hypercube::isomorphism::create_convolution;
 use crate::number_ring::*;
 use crate::{NiceZn, ZZbig};
 
-use super::isomorphism::{BaseRing, DecoratedBaseRingBase, HypercubeIsomorphism};
+use super::isomorphism::HypercubeIsomorphism;
 use super::structure::{HypercubeStructure, HypercubeTypeData};
 
 impl Serialize for HypercubeStructure {
@@ -108,8 +107,7 @@ impl<'de> Deserialize<'de> for HypercubeStructure {
 pub struct SerializableHypercubeIsomorphismWithoutRing<'a, R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
 {
     hypercube_isomorphism: &'a HypercubeIsomorphism<R>
 }
@@ -117,8 +115,7 @@ pub struct SerializableHypercubeIsomorphismWithoutRing<'a, R>
 impl<'a, R> SerializableHypercubeIsomorphismWithoutRing<'a, R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
 {
     pub fn new(hypercube_isomorphism: &'a HypercubeIsomorphism<R>) -> Self {
         Self { hypercube_isomorphism }
@@ -128,8 +125,7 @@ impl<'a, R> SerializableHypercubeIsomorphismWithoutRing<'a, R>
 impl<'a, R> Serialize for SerializableHypercubeIsomorphismWithoutRing<'a, R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
 {
     #[instrument(skip_all)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -146,7 +142,7 @@ impl<'a, R> Serialize for SerializableHypercubeIsomorphismWithoutRing<'a, R>
             slot_ring_moduli: Vec<SerializeOwnedWithRing<R>>
         }
 
-        let decorated_base_ring: RingValue<DecoratedBaseRingBase<R>> = AsLocalPIR::from_zn(RingValue::from(self.hypercube_isomorphism.ring().base_ring().get_ring().clone())).unwrap();
+        let decorated_base_ring = AsLocalPIR::from_zn(RingValue::from(self.hypercube_isomorphism.ring().base_ring().get_ring().clone())).unwrap();
         let ZpeX = DensePolyRing::new(decorated_base_ring, "X");
         let hom = ZnReductionMap::new(self.hypercube_isomorphism.slot_ring().base_ring(), ZpeX.base_ring()).unwrap();
         SerializableHypercubeIsomorphismData {
@@ -168,8 +164,7 @@ impl<'a, R> Serialize for SerializableHypercubeIsomorphismWithoutRing<'a, R>
 pub struct DeserializeSeedHypercubeIsomorphismWithoutRing<R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
 {
     ring: R
 }
@@ -177,8 +172,7 @@ pub struct DeserializeSeedHypercubeIsomorphismWithoutRing<R>
 impl<R> DeserializeSeedHypercubeIsomorphismWithoutRing<R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
 {
     pub fn new(ring: R) -> Self {
         Self { ring }
@@ -188,8 +182,7 @@ impl<R> DeserializeSeedHypercubeIsomorphismWithoutRing<R>
 impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithoutRing<R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
 {
     type Value = HypercubeIsomorphism<R>;
 
@@ -223,7 +216,7 @@ impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithout
             } where R: RingStore, R::Type: PolyRing + SerializableElementRing
         }
 
-        let Zpe: RingValue<DecoratedBaseRingBase<R>> = AsLocalPIR::from_zn(RingValue::from(self.ring.base_ring().get_ring().clone())).unwrap();
+        let Zpe = AsLocalPIR::from_zn(RingValue::from(self.ring.base_ring().get_ring().clone())).unwrap();
         let convolution = create_convolution(self.ring.rank(), Zpe.integer_ring().abs_log2_ceil(Zpe.modulus()).unwrap());
         let ZpeX = DensePolyRing::new_with_convolution(Zpe, "X", Global, convolution);
         let deserialized = DeserializeSeedHypercubeIsomorphismData { poly_ring: &ZpeX }.deserialize(deserializer)?;
@@ -244,8 +237,7 @@ impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithout
 impl<R> Serialize for HypercubeIsomorphism<R>
     where R: RingStore + Serialize,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
 {
     #[instrument(skip_all)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -258,8 +250,7 @@ impl<R> Serialize for HypercubeIsomorphism<R>
 impl<'de, R> Deserialize<'de> for HypercubeIsomorphism<R>
     where R: RingStore + Deserialize<'de>,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
 {
     #[instrument(skip_all)]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
