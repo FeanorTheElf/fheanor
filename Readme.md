@@ -80,19 +80,6 @@ Of course, this is only included on test builds, in library builds, the parent a
 This library has been designed for research on homomorphic encryption.
 I did not have practical considerations (like side-channel resistance) in mind, and advise against using using it in production.
 
-## How to cite Fheanor
-
-Please use the following bibtex entry to cite Fheanor:
-```text
-@misc{cryptoeprint:2025/864,
-    author = {Hiroki Okada and Rachel Player and Simon Pohmann},
-    title = {Fheanor: a new, modular {FHE} library for designing and optimising schemes},
-    howpublished = {Cryptology {ePrint} Archive, Paper 2025/864},
-    year = {2025},
-    url = {https://eprint.iacr.org/2025/864}
-}
-```
-
 ## License
 
 Fheanor is licensed under the [MIT license](https://choosealicense.com/licenses/mit/).
