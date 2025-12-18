@@ -5,8 +5,8 @@
 
 use std::time::Instant;
 
-use fheanor::number_ring::pow2_cyclotomic::*;
-use fheanor::number_ring::quotient_by_int::NumberRingQuotientByInt;
+use anonymizedhelibrary::number_ring::pow2_cyclotomic::*;
+use anonymizedhelibrary::number_ring::quotient_by_int::NumberRingQuotientByInt;
 use feanor_math::homomorphism::*;
 use feanor_math::ring::*;
 use feanor_math::rings::zn::*;

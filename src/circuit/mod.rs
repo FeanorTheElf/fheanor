@@ -976,8 +976,8 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// # Example
     /// 
     /// ```
-    /// # use fheanor::circuit::*;
-    /// # use fheanor::circuit::evaluator::*;
+    /// # use anonymizedhelibrary::circuit::*;
+    /// # use anonymizedhelibrary::circuit::evaluator::*;
     /// # use feanor_math::ring::*;
     /// # use feanor_math::primitive_int::*;
     /// let circuit = PlaintextCircuit::add(StaticRing::<i64>::RING);

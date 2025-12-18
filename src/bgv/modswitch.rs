@@ -364,9 +364,9 @@ pub trait AsBGVPlaintext<Params: BGVInstantiation>: RingBase + CanHomFrom<BigInt
 /// # Example
 /// ```rust
 /// # use feanor_math::seq::*;
-/// # use fheanor::gadget_product::*;
-/// # use fheanor::bgv::modswitch::drop_rns_factors_balanced;
-/// # use fheanor::gadget_product::digits::*;
+/// # use anonymizedhelibrary::gadget_product::*;
+/// # use anonymizedhelibrary::bgv::modswitch::drop_rns_factors_balanced;
+/// # use anonymizedhelibrary::gadget_product::digits::*;
 /// let digits = RNSGadgetVectorDigitIndices::from([0..3, 3..5].clone_els());
 /// // remove the first two indices from 0..3, and the first index from 3..5 - the resulting ranges both have length 1
 /// assert_eq!(&[0usize, 1, 3][..] as &[usize], &*drop_rns_factors_balanced(&digits, 3) as &[usize]);

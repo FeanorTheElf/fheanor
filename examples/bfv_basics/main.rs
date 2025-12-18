@@ -12,10 +12,10 @@ use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::seq::VectorView;
 use feanor_math::integer::*;
 use feanor_math::rings::zn::ZnRingStore;
-use fheanor::number_ring::NumberRingQuotientStore;
-use fheanor::bfv::*;
-use fheanor::number_ring::galois::CyclotomicGaloisGroupOps;
-use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
+use anonymizedhelibrary::number_ring::NumberRingQuotientStore;
+use anonymizedhelibrary::bfv::*;
+use anonymizedhelibrary::number_ring::galois::CyclotomicGaloisGroupOps;
+use anonymizedhelibrary::gadget_product::digits::RNSGadgetVectorDigitIndices;
 
 fn main() {    
     let params = Pow2BFV::new(1 << 13);

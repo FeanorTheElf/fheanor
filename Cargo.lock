@@ -27,6 +27,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "anonymizedhelibrary"
+version = "0.9.1"
+dependencies = [
+ "backtrace",
+ "debugit",
+ "feanor-math",
+ "feanor-math-hexl",
+ "feanor-mempool",
+ "feanor-serde",
+ "oorandom",
+ "postcard",
+ "rand",
+ "rand_distr",
+ "serde",
+ "serde_assert",
+ "serde_json",
+ "serde_path_to_error",
+ "take_mut",
+ "thread_local",
+ "tracing",
+ "tracing-chrome",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "append-only-vec"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -181,9 +206,9 @@ checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "feanor-math"
-version = "3.5.3"
+version = "3.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd7dfb633ae25310c1d7af7e996a59a0659fa87072182f5211f2287fe963ea4d"
+checksum = "4c70adf8d968aa6aefb857bdb8709ec6dcfe6346047ef1c0453b49148e66986b"
 dependencies = [
  "append-only-vec",
  "atomicbox",
@@ -226,31 +251,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71fa2c7f5c1d04782a554cc8c74e5936d8316463c9c32c9f6e622b354a845ca3"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "fheanor"
-version = "0.9.1"
-dependencies = [
- "backtrace",
- "debugit",
- "feanor-math",
- "feanor-math-hexl",
- "feanor-mempool",
- "feanor-serde",
- "oorandom",
- "postcard",
- "rand",
- "rand_distr",
- "serde",
- "serde_assert",
- "serde_json",
- "serde_path_to_error",
- "take_mut",
- "thread_local",
- "tracing",
- "tracing-chrome",
- "tracing-subscriber",
 ]
 
 [[package]]

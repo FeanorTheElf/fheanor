@@ -26,7 +26,7 @@ use crate::ciphertext_ring::indices::RNSFactorIndexList;
 /// # Example
 /// ```rust
 /// # use feanor_math::seq::*;
-/// # use fheanor::gadget_product::digits::*;
+/// # use anonymizedhelibrary::gadget_product::digits::*;
 /// let digits = RNSGadgetVectorDigitIndices::from([3..7, 0..3, 7..10].clone_els());
 /// assert_eq!(3, digits.len());
 /// 
@@ -101,7 +101,7 @@ impl RNSGadgetVectorDigitIndices {
     /// # Example
     /// ```
     /// # use feanor_math::seq::*;
-    /// # use fheanor::gadget_product::digits::*;
+    /// # use anonymizedhelibrary::gadget_product::digits::*;
     /// let digits = RNSGadgetVectorDigitIndices::select_digits(3, 10);
     /// assert_eq!(3, digits.len());
     /// assert_eq!(0..4, digits.at(0));
@@ -134,8 +134,8 @@ impl RNSGadgetVectorDigitIndices {
     /// # Example
     /// ```
     /// # use feanor_math::seq::*;
-    /// # use fheanor::gadget_product::digits::*;
-    /// # use fheanor::ciphertext_ring::indices::RNSFactorIndexList;
+    /// # use anonymizedhelibrary::gadget_product::digits::*;
+    /// # use anonymizedhelibrary::ciphertext_ring::indices::RNSFactorIndexList;
     /// let original_digits = RNSGadgetVectorDigitIndices::from([0..3, 3..5, 5..7].clone_els());
     /// let digits = original_digits.remove_indices(RNSFactorIndexList::from_ref(&[1, 2, 5], 7));
     /// assert_eq!(3, digits.len());
@@ -146,8 +146,8 @@ impl RNSGadgetVectorDigitIndices {
     /// If all indices from a given digit are removed, the whole digit is removed.
     /// ```
     /// # use feanor_math::seq::*;
-    /// # use fheanor::gadget_product::digits::*;
-    /// # use fheanor::ciphertext_ring::indices::RNSFactorIndexList;
+    /// # use anonymizedhelibrary::gadget_product::digits::*;
+    /// # use anonymizedhelibrary::ciphertext_ring::indices::RNSFactorIndexList;
     /// let original_digits = RNSGadgetVectorDigitIndices::from([0..3, 3..5, 5..7].clone_els());
     /// let digits = original_digits.remove_indices(RNSFactorIndexList::from_ref(&[0, 1, 2, 5], 7));
     /// assert_eq!(2, digits.len());

@@ -3,10 +3,10 @@
 // For a guided explanation of this example, see the doc
 #![doc = include_str!("Readme.md")]
 
-use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
-use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-use fheanor::number_ring::*;
-use fheanor::number_ring::galois::CyclotomicGaloisGroupOps;
+use anonymizedhelibrary::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
+use anonymizedhelibrary::gadget_product::digits::RNSGadgetVectorDigitIndices;
+use anonymizedhelibrary::number_ring::*;
+use anonymizedhelibrary::number_ring::galois::CyclotomicGaloisGroupOps;
 use feanor_math::group::AbelianGroupStore;
 
 use feanor_math::rings::poly::dense_poly::DensePolyRing;

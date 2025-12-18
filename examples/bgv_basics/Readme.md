@@ -38,8 +38,8 @@ While there is no central object storing all of this, Fheanor does provide a sim
 There are multiple structs that represent a set of parameters for BGV each, since each of them will lead to a different type for the involved rings.
 For example, to setup BGV in a power-of-two cyclotomic number ring `Z[X]/(X^N + 1)`, we could proceed as follows:
 ```rust
-# use fheanor::bgv::*;
-# use fheanor::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::bgv::*;
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
 # use std::marker::PhantomData;
 let log2_N = 13;
 let params = Pow2BGV::new(2 << log2_N);
@@ -48,8 +48,8 @@ Here, we set the RLWE dimension to `2^log2_N = 2^13 = 8192`.
 
 Using this, we can now create the plaintext ring and initial ciphertext ring via
 ```rust
-# use fheanor::bgv::*;
-# use fheanor::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::bgv::*;
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
@@ -77,9 +77,9 @@ Next, let's generate the keys we will require later.
 Since the type of the ciphertext ring depends on the type of the chosen parameters, all further functions are associated functions of `Pow2BGV`.
 While it would be preferable for the BGV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVInstantiation`].
 ```rust
-# use fheanor::bgv::*;
-# use fheanor::DefaultNegacyclicNTT;
-# use fheanor::gadget_product::digits::*;
+# use anonymizedhelibrary::bgv::*;
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
@@ -112,9 +112,9 @@ Next, let's encrypt a message.
 The plaintext space of BGV is the ring `R_t = Z[X]/(Phi_m(X), t)`, which we already have created previously.
 To encrypt, we now need to encode whatever data we have as an element of this ring (e.g. via [`feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()`] ), and can then encrypt it as follows:
 ```rust
-# use fheanor::bgv::*;
-# use fheanor::DefaultNegacyclicNTT;
-# use fheanor::gadget_product::digits::*;
+# use anonymizedhelibrary::bgv::*;
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
@@ -157,9 +157,9 @@ BGV supports three types of homomorphic operations on ciphertexts:
 
 Since we already have a relinearization key, we can perform a homomorphic multiplication.
 ```rust
-# use fheanor::bgv::*;
-# use fheanor::DefaultNegacyclicNTT;
-# use fheanor::gadget_product::digits::*;
+# use anonymizedhelibrary::bgv::*;
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
@@ -199,9 +199,9 @@ Here, we don't have any special modulus, thus we pass `C_initial` twice, and an 
 Let's assume we want to compute a fourth power, i.e. square `enc_x_sqr` again.
 The naïve way would be to compute
 ```rust
-# use fheanor::bgv::*;
-# use fheanor::DefaultNegacyclicNTT;
-# use fheanor::gadget_product::digits::*;
+# use anonymizedhelibrary::bgv::*;
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
@@ -242,11 +242,11 @@ In particular, this depends on the size of the ring we work in, and also on the 
 Once we decided on the number of factors to drop, we can use the function [`crate::bgv::modswitch::drop_rns_factors_balanced()`] to choose the exact factors to drop in such a way as to preserve the quality of the relinearization key.
 Alternatively, these can also determined manually: [`crate::bgv::BGVInstantiation::mod_switch_ct()`] takes a list of indices, which refer to the indices of the factors of `q` that will be dropped.
 ```rust
-# use fheanor::bgv::*;
-# use fheanor::DefaultNegacyclicNTT;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
-# use fheanor::gadget_product::digits::*;
-# use fheanor::bgv::modswitch::drop_rns_factors_balanced;
+# use anonymizedhelibrary::bgv::*;
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::ciphertext_ring::BGFVCiphertextRing;
+# use anonymizedhelibrary::gadget_product::digits::*;
+# use anonymizedhelibrary::bgv::modswitch::drop_rns_factors_balanced;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
@@ -290,11 +290,11 @@ Indeed, there is no noise overflow anymore!
 
 We can even reduce the noise growth slightly more by using hybrid key switching as follows.
 ```rust
-# use fheanor::bgv::*;
-# use fheanor::DefaultNegacyclicNTT;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
-# use fheanor::gadget_product::digits::*;
-# use fheanor::bgv::modswitch::drop_rns_factors_balanced;
+# use anonymizedhelibrary::bgv::*;
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::ciphertext_ring::BGFVCiphertextRing;
+# use anonymizedhelibrary::gadget_product::digits::*;
+# use anonymizedhelibrary::bgv::modswitch::drop_rns_factors_balanced;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
@@ -346,14 +346,14 @@ The main difficulty here is that a good strategy for modulus-switching requires 
 Nevertheless, I have already used this system with some success.
 For example, we could implement the above evaluation instead as follows:
 ```rust
-# use fheanor::bgv::*;
-# use fheanor::bgv::modswitch::*;
-# use fheanor::bgv::noise_estimator::NaiveBGVNoiseEstimator;
-# use fheanor::DefaultNegacyclicNTT;
-# use fheanor::circuit::*;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
-# use fheanor::ciphertext_ring::indices::RNSFactorIndexList;
-# use fheanor::gadget_product::digits::*;
+# use anonymizedhelibrary::bgv::*;
+# use anonymizedhelibrary::bgv::modswitch::*;
+# use anonymizedhelibrary::bgv::noise_estimator::NaiveBGVNoiseEstimator;
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::circuit::*;
+# use anonymizedhelibrary::ciphertext_ring::BGFVCiphertextRing;
+# use anonymizedhelibrary::ciphertext_ring::indices::RNSFactorIndexList;
+# use anonymizedhelibrary::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;

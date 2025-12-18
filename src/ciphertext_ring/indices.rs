@@ -130,7 +130,7 @@ impl RNSFactorIndexList {
     /// 
     /// # Example
     /// ```
-    /// # use fheanor::ciphertext_ring::indices::RNSFactorIndexList;
+    /// # use anonymizedhelibrary::ciphertext_ring::indices::RNSFactorIndexList;
     /// assert_eq!(1, RNSFactorIndexList::from_ref(&[2, 5], 8).num_within(&(0..5)));
     /// ```
     /// 
@@ -165,7 +165,7 @@ impl RNSFactorIndexList {
     /// 
     /// # Example
     /// ```
-    /// # use fheanor::ciphertext_ring::indices::RNSFactorIndexList;
+    /// # use anonymizedhelibrary::ciphertext_ring::indices::RNSFactorIndexList;
     /// assert_eq!(&[1usize, 3, 5][..], &RNSFactorIndexList::from_ref(&[1, 2, 4, 5, 7], 8).pushforward(RNSFactorIndexList::from_ref(&[2, 5], 8)) as &[usize])
     /// ```
     /// 
@@ -207,7 +207,7 @@ impl RNSFactorIndexList {
     /// 
     /// # Example
     /// ```
-    /// # use fheanor::ciphertext_ring::indices::RNSFactorIndexList;
+    /// # use anonymizedhelibrary::ciphertext_ring::indices::RNSFactorIndexList;
     /// assert_eq!(&[1, 2, 3, 5, 6][..], &RNSFactorIndexList::from_ref(&[1, 2, 4], 6).pullback(RNSFactorIndexList::from_ref(&[2, 5], 8)) as &[usize])
     /// ```
     /// 

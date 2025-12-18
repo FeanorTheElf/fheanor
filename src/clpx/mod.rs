@@ -32,7 +32,7 @@ use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::*;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::ciphertext_ring::double_rns_managed::*;
-use crate::ntt::FheanorNegacyclicNTT;
+use crate::ntt::ForRingCreatableNegacyclicNTT;
 use crate::number_ring::composite_cyclotomic::*;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::rns_conv::bfv_rescale::AlmostExactRescalingConvert;
@@ -600,7 +600,7 @@ pub trait CLPXInstantiation {
 
 pub type Pow2CLPX<A = DefaultCiphertextAllocator, C = DefaultNegacyclicNTT> = Pow2BFV<A, C>;
 
-impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> CLPXInstantiation for Pow2CLPX<A, C> {
+impl<A: Allocator + Clone , C: ForRingCreatableNegacyclicNTT<Zn>> CLPXInstantiation for Pow2CLPX<A, C> {
 
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
 

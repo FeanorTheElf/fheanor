@@ -17,7 +17,7 @@ More concretely, an instantiation of BFV consists of the following:
 While there is no central object storing all of this, Fheanor does use structs to represent an instantiation of BFV over a specific number ring.
 For example, to setup BFV in a power-of-two cyclotomic number ring `Z[X]/(X^N + 1)`, we could proceed as follows:
 ```rust
-# use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
+# use anonymizedhelibrary::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
 # use std::marker::PhantomData;
 let log2_N = 12;
 let params = Pow2BFV::new(2 << log2_N);
@@ -26,7 +26,7 @@ Here, we set the RLWE dimension to `2^log2_N = 2^12 = 4096`.
 
 Once we setup the parameters, we can create plaintext and ciphertext rings:
 ```rust
-# use fheanor::bfv::*;
+# use anonymizedhelibrary::bfv::*;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -50,8 +50,8 @@ While it would be preferable for the BFV implementation not to be tied to any sp
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::integer::*;
-# use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-# use fheanor::bfv::*;
+# use anonymizedhelibrary::gadget_product::digits::RNSGadgetVectorDigitIndices;
+# use anonymizedhelibrary::bfv::*;
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2BFV::new(2 << log2_N);
@@ -83,8 +83,8 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::seq::VectorView;
-# use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-# use fheanor::bfv::*;
+# use anonymizedhelibrary::gadget_product::digits::RNSGadgetVectorDigitIndices;
+# use anonymizedhelibrary::bfv::*;
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2BFV::new(2 << log2_N);
@@ -121,8 +121,8 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::ring::*;
 # use feanor_math::seq::VectorView;
-# use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-# use fheanor::bfv::*;
+# use anonymizedhelibrary::gadget_product::digits::RNSGadgetVectorDigitIndices;
+# use anonymizedhelibrary::bfv::*;
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2BFV::new(2 << log2_N);
@@ -150,8 +150,8 @@ Note that the plaintext ring is actually quite large - we chose `N = 4096` - so 
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::seq::VectorView;
-# use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-# use fheanor::bfv::*;
+# use anonymizedhelibrary::gadget_product::digits::RNSGadgetVectorDigitIndices;
+# use anonymizedhelibrary::bfv::*;
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2BFV::new(2 << log2_N);

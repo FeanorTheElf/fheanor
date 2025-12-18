@@ -50,10 +50,10 @@ use super::PreparedMultiplicationRing;
 /// immutable, which leads to maximal reuse of representations. For example, the following
 /// code only requires a single representation conversion:
 /// ```rust
-/// # use fheanor::ciphertext_ring::double_rns_managed::*;
-/// # use fheanor::ciphertext_ring::*;
-/// # use fheanor::number_ring::*;
-/// # use fheanor::number_ring::pow2_cyclotomic::*;
+/// # use anonymizedhelibrary::ciphertext_ring::double_rns_managed::*;
+/// # use anonymizedhelibrary::ciphertext_ring::*;
+/// # use anonymizedhelibrary::number_ring::*;
+/// # use anonymizedhelibrary::number_ring::pow2_cyclotomic::*;
 /// # use feanor_math::assert_el_eq;
 /// # use feanor_math::rings::zn::*;
 /// # use feanor_math::rings::extension::FreeAlgebraStore;

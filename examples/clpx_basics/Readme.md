@@ -8,8 +8,8 @@ In this example, we will then focus on the points that are different from standa
 
 The design of CLPX is exactly as for BFV (or BGV), so we start by choosing a ciphertext ring instantiation (i.e. a type implementing [`crate::clpx::CLPXInstantiation`], which determines the type of the ciphertext ring that will be used) and use it to set up the ciphertext ring.
 ```rust
-# use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
-# use fheanor::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
 # use std::marker::PhantomData;
 let log2_N = 12;
 let params = Pow2CLPX::new(2 << log2_N);
@@ -23,8 +23,8 @@ Generally speaking, this can be a rough bound, since its impact on performance i
 
 Next, we create the plaintext ring.
 ```rust,should_panic
-# use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
-# use fheanor::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2CLPX::new(2 << log2_N);
@@ -57,10 +57,10 @@ Indeed, as this table shows, a suitable choice of `t` means that we can effectiv
 The ring returned by `create_plaintext_ring()` looks like `(Z/p^eZ)[X]/(f(X))`, but it supports lifting to and reducing from `Z[X]/(Phi_m(X))` via the functions [`crate::clpx::encoding::CLPXPlaintextRingBase::small_lift()`] and [`crate::clpx::encoding::CLPXPlaintextRingBase::reduce_mod_t()`].
 Hence, we can use CLPX as follows:
 ```rust
-# use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
-# use fheanor::DefaultNegacyclicNTT;
-# use fheanor::number_ring::AbstractNumberRing;
-# use fheanor::number_ring::galois::CyclotomicGaloisGroupOps;
+# use anonymizedhelibrary::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::number_ring::AbstractNumberRing;
+# use anonymizedhelibrary::number_ring::galois::CyclotomicGaloisGroupOps;
 # use feanor_math::group::AbelianGroupStore;
 # use feanor_math::rings::poly::dense_poly::DensePolyRing;
 # use feanor_math::rings::poly::*;
@@ -91,11 +91,11 @@ assert_el_eq!(P, &m, &res);
 ```
 Applying homomorphic operations is just as easy as for BFV as well. 
 ```rust
-# use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
-# use fheanor::DefaultNegacyclicNTT;
-# use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-# use fheanor::number_ring::AbstractNumberRing;
-# use fheanor::number_ring::galois::CyclotomicGaloisGroupOps;
+# use anonymizedhelibrary::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
+# use anonymizedhelibrary::DefaultNegacyclicNTT;
+# use anonymizedhelibrary::gadget_product::digits::RNSGadgetVectorDigitIndices;
+# use anonymizedhelibrary::number_ring::AbstractNumberRing;
+# use anonymizedhelibrary::number_ring::galois::CyclotomicGaloisGroupOps;
 # use feanor_math::group::AbelianGroupStore;
 # use feanor_math::rings::poly::dense_poly::DensePolyRing;
 # use feanor_math::rings::poly::*;

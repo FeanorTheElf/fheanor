@@ -188,9 +188,9 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// # use feanor_math::algorithms::fft::cooley_tuckey::CooleyTuckeyFFT;
     /// # use feanor_math::rings::extension::FreeAlgebraStore;
     /// # use feanor_math::seq::*;
-    /// # use fheanor::ciphertext_ring::double_rns_managed::*;
-    /// # use fheanor::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-    /// # use fheanor::gadget_product::*;
+    /// # use anonymizedhelibrary::ciphertext_ring::double_rns_managed::*;
+    /// # use anonymizedhelibrary::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+    /// # use anonymizedhelibrary::gadget_product::*;
     /// let rns_base = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     /// let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     /// let ring = ManagedDoubleRNSRingBase::new(number_ring, zn_rns::Zn::new(rns_base.clone(), BigIntRing::RING));
@@ -227,9 +227,9 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// # use feanor_math::algorithms::fft::cooley_tuckey::CooleyTuckeyFFT;
     /// # use feanor_math::rings::extension::FreeAlgebraStore;
     /// # use feanor_math::seq::*;
-    /// # use fheanor::ciphertext_ring::double_rns_managed::*;
-    /// # use fheanor::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-    /// # use fheanor::gadget_product::*;
+    /// # use anonymizedhelibrary::ciphertext_ring::double_rns_managed::*;
+    /// # use anonymizedhelibrary::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+    /// # use anonymizedhelibrary::gadget_product::*;
     /// # let rns_base = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     /// # let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     /// # let ring = ManagedDoubleRNSRingBase::new(number_ring, zn_rns::Zn::new(rns_base.clone(), BigIntRing::RING));

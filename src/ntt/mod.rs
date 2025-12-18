@@ -19,7 +19,7 @@ use feanor_math::rings::zn::*;
 /// A convolution as in [`ConvolutionAlgorithm`], that can additionally be created for
 /// a given ring and length. This is required in many use cases within Fheanor.
 /// 
-pub trait FheanorConvolution<R>: ConvolutionAlgorithm<R::Type>
+pub trait ForRingCreatableConvolution<R>: ConvolutionAlgorithm<R::Type>
     where R: RingStore
 {
     fn ring(&self) -> RingRef<'_, R::Type>;
@@ -27,7 +27,7 @@ pub trait FheanorConvolution<R>: ConvolutionAlgorithm<R::Type>
     fn new(ring: R, max_log2_len: usize) -> Self;
 }
 
-impl<R> FheanorConvolution<R> for NTTConvolution<R::Type, R::Type, Identity<R>>
+impl<R> ForRingCreatableConvolution<R> for NTTConvolution<R::Type, R::Type, Identity<R>>
     where R: RingStore + Clone,
         R::Type: ZnRing
 {
@@ -41,7 +41,7 @@ impl<R> FheanorConvolution<R> for NTTConvolution<R::Type, R::Type, Identity<R>>
     }
 }
 
-impl FheanorConvolution<Zn> for NTTConvolution<ZnBase, ZnFastmulBase, CanHom<ZnFastmul, Zn>> {
+impl ForRingCreatableConvolution<Zn> for NTTConvolution<ZnBase, ZnFastmulBase, CanHom<ZnFastmul, Zn>> {
 
     fn new(ring: Zn, max_log2_len: usize) -> Self {
         assert!(ring.integer_ring().is_one(&ring.integer_ring().euclidean_rem(ring.integer_ring().clone_el(ring.modulus()), &ring.integer_ring().power_of_two(max_log2_len))));
@@ -54,7 +54,7 @@ impl FheanorConvolution<Zn> for NTTConvolution<ZnBase, ZnFastmulBase, CanHom<ZnF
 }
 
 #[cfg(feature = "use_hexl")]
-impl FheanorConvolution<zn_64::Zn> for feanor_math_hexl::conv::HEXLConvolution {
+impl ForRingCreatableConvolution<zn_64::Zn> for feanor_math_hexl::conv::HEXLConvolution {
 
     fn new(ring: zn_64::Zn, max_log2_len: usize) -> Self {
         assert!(ring.integer_ring().is_one(&ring.integer_ring().euclidean_rem(ring.integer_ring().clone_el(ring.modulus()), &ring.integer_ring().power_of_two(max_log2_len + 1))));
@@ -70,7 +70,7 @@ impl FheanorConvolution<zn_64::Zn> for feanor_math_hexl::conv::HEXLConvolution {
 /// An object that supports computing a negacyclic NTT, i.e the evaluation of a polynomial
 /// at all primitive `m`-th roots of unity, where `m` is a power of two.
 /// 
-pub trait FheanorNegacyclicNTT<R>: PartialEq
+pub trait ForRingCreatableNegacyclicNTT<R>: PartialEq
     where R: RingStore
 {
     ///
@@ -153,7 +153,7 @@ impl<R> RustNegacyclicNTT<R>
     }
 }
 
-impl<R> FheanorNegacyclicNTT<R> for RustNegacyclicNTT<R> 
+impl<R> ForRingCreatableNegacyclicNTT<R> for RustNegacyclicNTT<R> 
     where R: RingStore + Clone,
         R::Type: ZnRing
 {
@@ -190,7 +190,7 @@ impl<R> FheanorNegacyclicNTT<R> for RustNegacyclicNTT<R>
 }
 
 #[cfg(feature = "use_hexl")]
-impl FheanorNegacyclicNTT<Zn> for feanor_math_hexl::hexl::HEXLNegacyclicNTT {
+impl ForRingCreatableNegacyclicNTT<Zn> for feanor_math_hexl::hexl::HEXLNegacyclicNTT {
 
     fn bitreversed_negacyclic_fft_base<const INV: bool>(&self, input: &mut [El<Zn>], output: &mut [El<Zn>]) {
         feanor_math_hexl::hexl::HEXLNegacyclicNTT::unordered_negacyclic_fft_base::<INV>(self, input, output)
@@ -214,7 +214,7 @@ impl FheanorNegacyclicNTT<Zn> for feanor_math_hexl::hexl::HEXLNegacyclicNTT {
 /// of a polynomial at all `m`-th roots of unity, for an arbitrary `m` which usually 
 /// is not a power of two.
 /// 
-pub trait FheanorGeneralNTT<R>: PartialEq
+pub trait ForRingCreatableNTT<R>: PartialEq
     where R: RingStore
 {
     ///
@@ -236,21 +236,21 @@ pub trait FheanorGeneralNTT<R>: PartialEq
     fn new(ring: R, m: usize) -> Self;
 }
 
-impl<R_main, R_twiddle> FheanorGeneralNTT<R_main> for BluesteinFFT<R_main::Type, R_twiddle, CanHom<RingValue<R_twiddle>, R_main>>
+impl<R_main, R_twiddle> ForRingCreatableNTT<R_main> for BluesteinFFT<R_main::Type, R_twiddle, CanHom<RingValue<R_twiddle>, R_main>>
     where R_main: RingStore + Clone,
         R_twiddle: ZnRing + FromModulusCreateableZnRing + Clone,
         R_main::Type: FiniteRing + CanHomFrom<R_twiddle>
 {
     fn fft_base<const INV: bool>(&self, input: &mut [El<R_main>], output: &mut [El<R_main>]) {
-        assert_eq!(input.len(), FheanorGeneralNTT::len(self));
-        assert_eq!(output.len(), FheanorGeneralNTT::len(self));
+        assert_eq!(input.len(), ForRingCreatableNTT::len(self));
+        assert_eq!(output.len(), ForRingCreatableNTT::len(self));
         if INV {
-            <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::inv_fft(&self, &mut *input, FheanorGeneralNTT::ring(self));
+            <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::inv_fft(&self, &mut *input, ForRingCreatableNTT::ring(self));
         } else {
-            <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::fft(&self, &mut *input, FheanorGeneralNTT::ring(self));
+            <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::fft(&self, &mut *input, ForRingCreatableNTT::ring(self));
         }
         for i in 0..input.len() {
-            output[i] = FheanorGeneralNTT::ring(self).clone_el(&input[i]);
+            output[i] = ForRingCreatableNTT::ring(self).clone_el(&input[i]);
         }
     }
 

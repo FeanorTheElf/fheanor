@@ -4,11 +4,11 @@
 // For a guided explanation of this example, see the doc
 #![doc = include_str!("Readme.md")]
 
-use fheanor::bgv::*;
-use fheanor::number_ring::NumberRingQuotientStore;
-use fheanor::bgv::modswitch::drop_rns_factors_balanced;
-use fheanor::number_ring::galois::CyclotomicGaloisGroupOps;
-use fheanor::gadget_product::digits::*;
+use anonymizedhelibrary::bgv::*;
+use anonymizedhelibrary::number_ring::NumberRingQuotientStore;
+use anonymizedhelibrary::bgv::modswitch::drop_rns_factors_balanced;
+use anonymizedhelibrary::number_ring::galois::CyclotomicGaloisGroupOps;
+use anonymizedhelibrary::gadget_product::digits::*;
 use rand::{SeedableRng, rngs::StdRng};
 use feanor_math::integer::*;
 use feanor_math::primitive_int::*;

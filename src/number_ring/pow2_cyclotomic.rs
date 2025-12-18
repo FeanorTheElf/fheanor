@@ -14,7 +14,7 @@ use feanor_math::rings::poly::*;
 use feanor_math::rings::zn::zn_64;
 use feanor_math::seq::*;
 
-use crate::ntt::FheanorNegacyclicNTT;
+use crate::ntt::ForRingCreatableNegacyclicNTT;
 use crate::number_ring::galois::*;
 use crate::number_ring::*;
 use crate::DefaultNegacyclicNTT;
@@ -33,7 +33,7 @@ impl Pow2CyclotomicNumberRing {
 }
 
 impl<N> Pow2CyclotomicNumberRing<N>
-    where N: FheanorNegacyclicNTT<zn_64::Zn>
+    where N: ForRingCreatableNegacyclicNTT<zn_64::Zn>
 {
     pub fn new_with_ntt(m: u64) -> Self {
         assert!(m > 2);
@@ -52,7 +52,7 @@ impl<N> Pow2CyclotomicNumberRing<N>
 }
 
 impl<N> Debug for Pow2CyclotomicNumberRing<N>
-    where N: FheanorNegacyclicNTT<zn_64::Zn>
+    where N: ForRingCreatableNegacyclicNTT<zn_64::Zn>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Z[𝝵_{}]", self.m())
@@ -60,7 +60,7 @@ impl<N> Debug for Pow2CyclotomicNumberRing<N>
 }
 
 impl<N> Clone for Pow2CyclotomicNumberRing<N>
-    where N: FheanorNegacyclicNTT<zn_64::Zn>
+    where N: ForRingCreatableNegacyclicNTT<zn_64::Zn>
 {    
     fn clone(&self) -> Self {
         Self::new_with_ntt(1 << self.log2_m)
@@ -75,7 +75,7 @@ impl<N> PartialEq for Pow2CyclotomicNumberRing<N> {
 }
 
 impl<N> AbstractNumberRing for Pow2CyclotomicNumberRing<N>
-    where N: FheanorNegacyclicNTT<zn_64::Zn>
+    where N: ForRingCreatableNegacyclicNTT<zn_64::Zn>
 {
     type NumberRingQuotientBases = Pow2CyclotomicNumberRingQuotientBases<N, Global>;
 
@@ -120,7 +120,7 @@ impl<N> AbstractNumberRing for Pow2CyclotomicNumberRing<N>
 }
 
 pub struct Pow2CyclotomicNumberRingQuotientBases<N, A> 
-    where N: FheanorNegacyclicNTT<zn_64::Zn>,
+    where N: ForRingCreatableNegacyclicNTT<zn_64::Zn>,
         A: Allocator
 {
     log2_m: usize,
@@ -130,7 +130,7 @@ pub struct Pow2CyclotomicNumberRingQuotientBases<N, A>
 }
 
 impl<N, A> PartialEq for Pow2CyclotomicNumberRingQuotientBases<N, A> 
-    where N: FheanorNegacyclicNTT<zn_64::Zn>,
+    where N: ForRingCreatableNegacyclicNTT<zn_64::Zn>,
         A: Allocator
 {
     fn eq(&self, other: &Self) -> bool {
@@ -139,7 +139,7 @@ impl<N, A> PartialEq for Pow2CyclotomicNumberRingQuotientBases<N, A>
 }
 
 impl<N, A> NumberRingQuotientBases for Pow2CyclotomicNumberRingQuotientBases<N, A> 
-    where N: FheanorNegacyclicNTT<zn_64::Zn>,
+    where N: ForRingCreatableNegacyclicNTT<zn_64::Zn>,
         A: Allocator
 {
     fn galois_group(&self) -> &CyclotomicGaloisGroup {
