@@ -69,8 +69,7 @@ fn dwt1d_inv_matrix<R>(H: &HypercubeStructure, slot_ring: &SlotRingOver<R>, dim_
 fn dwt1d<'a, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOf<R>>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -95,8 +94,7 @@ fn dwt1d<'a, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertable: 
 fn dwt1d_inv<'a, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOf<R>>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -136,8 +134,7 @@ fn dwt1d_inv<'a, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertab
 fn slots_to_powcoeffs_fat_fst_step<R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOf<R>>) -> OwnedMatrix<El<<R::Type as RingExtension>::BaseRing>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
     let Gal = H.galois_group();
@@ -177,8 +174,7 @@ fn slots_to_powcoeffs_fat_fst_step<R>(H: &HypercubeIsomorphism<R>, dim_index: us
 pub fn slots_to_powcoeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_fat_impl(H))
 }
@@ -186,8 +182,7 @@ pub fn slots_to_powcoeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircui
 fn slots_to_powcoeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -226,8 +221,7 @@ fn slots_to_powcoeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTran
 pub fn powcoeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_fat_impl(H))
 }
@@ -235,8 +229,7 @@ pub fn powcoeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircui
 fn powcoeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -273,8 +266,7 @@ fn powcoeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTran
 pub fn slots_to_powcoeffs_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_thin_impl(H))
 }
@@ -282,8 +274,7 @@ pub fn slots_to_powcoeffs_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircu
 fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     assert_hypercube_supported(H.hypercube());
 
@@ -308,8 +299,7 @@ fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTra
 pub fn powcoeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_thin_impl(H))
 }
@@ -317,16 +307,36 @@ pub fn powcoeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircu
 fn powcoeffs_to_slots_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+        BaseRing<R>: NiceZn
 {
-    let mut result = powcoeffs_to_slots_fat_impl(H);
-    let discard_unused = MatmulTransform::blockmatmul0d(
-        H, 
-        |i, j, _idxs| if j == 0 && i == 0 { H.slot_ring().base_ring().one() } else { H.slot_ring().base_ring().zero() }
-    );
-    let last_step = result.last_mut().unwrap();
-    *last_step = discard_unused.compose(H.ring(), H.hypercube(), last_step);
+    assert_hypercube_supported(H.hypercube());
+
+    let mut result = Vec::new();
+    let zeta_powertable = PowerTable::new(H.slot_ring(), H.slot_ring().canonical_gen(), H.galois_group().m() as usize);
+
+    for i in (1..H.hypercube().dim_count()).rev() {
+        result.extend(dwt1d_inv(H, i, &zeta_powertable));
+    }
+
+    let mut A = slots_to_powcoeffs_fat_fst_step(H, 0, &zeta_powertable);
+    let mut rhs = OwnedMatrix::identity(H.hypercube().dim_length(0) * H.slot_ring().rank(), H.hypercube().dim_length(0) * H.slot_ring().rank(), H.slot_ring().base_ring());
+    let mut sol = OwnedMatrix::zero(H.hypercube().dim_length(0) * H.slot_ring().rank(), H.hypercube().dim_length(0) * H.slot_ring().rank(), H.slot_ring().base_ring());
+    <_ as LinSolveRingStore>::solve_right(H.slot_ring().base_ring(), A.data_mut(), rhs.data_mut(), sol.data_mut()).assert_solved();
+
+    for row_idx in 0..sol.row_count() {
+        if row_idx % H.slot_ring().rank() != 0 {
+            for col_idx in 0..sol.col_count() {
+                *sol.at_mut(row_idx, col_idx) = H.slot_ring().base_ring().zero();
+            }
+        }
+    }
+
+    result.push(MatmulTransform::blockmatmul1d(
+        H,
+        0,
+        |(i, k), (j, l), _idxs| H.slot_ring().base_ring().clone_el(sol.at(i * H.slot_ring().rank() + k, j * H.slot_ring().rank() + l))
+    ));
+
     return result;
 }
 

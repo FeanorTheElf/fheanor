@@ -48,9 +48,11 @@ pub mod matrix_lift;
 /// RLWE-based HE.
 /// 
 /// When we then have an object representing such a map, we can pass it to
-/// [`crate::ciphertext_ring::perform_rns_op()`] or similar functions. This 
-/// way, we can perform some operations on double-RNS-represented ring element 
-/// very easily and efficiently (without arbitrary-precision arithmetic).
+/// [`perform_rns_op()`] or similar functions. This way, we can perform some
+/// operations on double-RNS-represented ring element very easily and efficiently
+/// (without arbitrary-precision arithmetic).
+/// 
+/// [`perform_rns_op()`]: crate::ciphertext_ring::perform_rns_op()
 /// 
 pub trait RNSOperation {
 

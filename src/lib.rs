@@ -27,7 +27,6 @@ use feanor_math::primitive_int::*;
 use feanor_math::homomorphism::*;
 use feanor_math::serialization::SerializableElementRing;
 use feanor_math::algorithms::linsolve::LinSolveRing;
-use feanor_math::rings::local::*;
 use feanor_math::rings::zn::{ZnRing, FromModulusCreateableZnRing};
 use feanor_math::ring::*;
 
@@ -59,8 +58,9 @@ fn ring_literal<R>(ring: R, data: &[i32]) -> El<R>
 /// It is also a good choice when instantiating homomorphic encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of convolution (default
-/// [`feanor_math::algorithms::convolution::ntt::NTTConvolution`]), but can be changed 
-/// by using the feature `use_hexl`.
+/// [`ntt::NTTConvolution`]), but can be changed by using the feature `use_hexl`.
+/// 
+/// [`NTTConvolution`]: feanor_math::algorithms::convolution::ntt::NTTConvolution
 /// 
 #[cfg(feature = "use_hexl")]
 pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
@@ -70,8 +70,9 @@ pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
 /// It is also a good choice when instantiating homomorphic encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of convolution (default
-/// [`feanor_math::algorithms::convolution::ntt::NTTConvolution`]), but can be changed 
-/// by using the feature `use_hexl`.
+/// [`NTTConvolution`]), but can be changed by using the feature `use_hexl`.
+/// 
+/// [`NTTConvolution`]: feanor_math::algorithms::convolution::ntt::NTTConvolution
 /// 
 #[cfg(not(feature = "use_hexl"))]
 pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConvolution<feanor_math::rings::zn::zn_64::ZnBase, feanor_math::rings::zn::zn_64::ZnFastmulBase, feanor_math::homomorphism::CanHom<feanor_math::rings::zn::zn_64::ZnFastmul, feanor_math::rings::zn::zn_64::Zn>>;
@@ -82,8 +83,9 @@ pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConv
 /// encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of the negacyclic NTT
-/// (default [`crate::ntt::RustNegacyclicNTT`]), but can be  changed by using
-/// the feature `use_hexl`.
+/// (default [`RustNegacyclicNTT`]), but can be  changed by using the feature `use_hexl`.
+/// 
+/// [`RustNegacyclicNTT`]: crate::ntt::RustNegacyclicNTT
 /// 
 #[cfg(feature = "use_hexl")]
 pub type DefaultNegacyclicNTT = feanor_math_hexl::hexl::HEXLNegacyclicNTT;
@@ -94,8 +96,9 @@ pub type DefaultNegacyclicNTT = feanor_math_hexl::hexl::HEXLNegacyclicNTT;
 /// encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of the negacyclic NTT
-/// (default [`crate::ntt::RustNegacyclicNTT`]), but can be changed by using the
-/// feature `use_hexl`.
+/// (default [`RustNegacyclicNTT`]), but can be  changed by using the feature `use_hexl`.
+/// 
+/// [`RustNegacyclicNTT`]: crate::ntt::RustNegacyclicNTT
 /// 
 #[cfg(not(feature = "use_hexl"))]
 pub type DefaultNegacyclicNTT = crate::ntt::RustNegacyclicNTT<feanor_math::rings::zn::zn_64::Zn>;
@@ -153,9 +156,7 @@ pub fn log_time<F, T, const LOG: bool, const COUNTER_VAR_COUNT: usize>(descripti
 /// 
 pub trait NiceZn: Sized + Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing  {}
 
-impl<R: Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing> NiceZn for R
-    where AsLocalPIRBase<RingValue<R>>: CanIsoFromTo<R>
-{}
+impl<R: Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing> NiceZn for R {}
 
 ///
 /// The ring of integers, implemented using arbitrary precision
@@ -250,12 +251,6 @@ pub mod clpx;
 
 ///
 /// This is a workaround for displaying examples on `docs.rs`.
-/// 
-/// Contains an empty submodule for each example, whose documentation gives
-/// a guide to the corresponding concepts of Fheanor.
-/// 
-/// Note that this module is only included when building the documentation,
-/// you cannot use it when importing `fheanor` as a crate.
 /// 
 #[cfg(any(doc, doctest))]
 pub mod examples {

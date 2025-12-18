@@ -191,7 +191,8 @@ impl<R: RingBase> PlaintextCircuit<R> {
                     Coefficient::Zero => dst,
                     Coefficient::One => Params::hom_add(C, dst, ct),
                     Coefficient::NegOne => Params::hom_sub(C, dst, ct),
-                    x => ring.get_ring().hom_fma(P, C, dst, &x.clone(ring).to_ring_el(ring), ct)
+                    Coefficient::Integer(x) => ring.get_ring().hom_fma(P, C, dst, &ring.int_hom().map(*x), ct),
+                    Coefficient::Other(x) => ring.get_ring().hom_fma(P, C, dst, x, ct)
                 }
             ).with_mul(|lhs, rhs| {
                 **key_switches.borrow_mut() += 1;

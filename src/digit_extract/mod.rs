@@ -6,6 +6,7 @@ use feanor_math::ordered::*;
 use feanor_math::primitive_int::{StaticRing, StaticRingBase};
 use feanor_math::ring::*;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
+use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::rings::zn::zn_64::Zn;
 use feanor_math::homomorphism::*;
 use polys::{digit_retain_poly, poly_to_circuit, precomputed_p_2};
@@ -110,13 +111,16 @@ impl DigitExtract {
     /// 
     #[instrument(skip_all)]
     pub fn new_bounded_error(p: i64, e: usize, B: i64) -> Self {
-        assert!(is_prime(&StaticRing::<i64>::RING, &p, 10));
+        assert!(is_prime(&ZZi64, &p, 10));
         assert!(B >= 0);
         assert!(2 * B + 1 <= p);
         
         let poly_ring = DensePolyRing::new(Zn::new(StaticRing::<i64>::RING.pow(p, e) as u64), "X");
+        let p_half = poly_ring.inclusion().map(poly_ring.base_ring().coerce(&ZZi64, p / 2));
         let digit_extraction_circuits = vec![
-            (vec![e], poly_to_circuit(&poly_ring, &[bounded_digit_retain_poly(&poly_ring, B)]))
+            (vec![e], poly_to_circuit(&poly_ring, &[
+                poly_ring.add(poly_ring.evaluate(&bounded_digit_retain_poly(&poly_ring, B), &poly_ring.sub_ref_snd(poly_ring.indeterminate(), &p_half), poly_ring.inclusion()), p_half)
+            ]))
         ];
         
         return Self::new_with_circuits(int_cast(p, ZZbig, ZZi64), e, e - 1, StaticRing::<i64>::RING, digit_extraction_circuits);
@@ -271,12 +275,14 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
     /// 
     /// This function is designed to test digit extraction, since `quo` and `rem` will be computed
     /// exactly in the same way as in a homomorphic setting. Note also that performing euclidean
-    /// division can be done much easier with [`feanor_math::pid::EuclideanRing::euclidean_div_rem()`]
+    /// division can be done much easier with [`EuclideanRing::euclidean_div_rem()`]
     /// when you have access to the ring elements.
     /// 
     /// This function does not perform any checks on the underlying ring, in particular, you can
     /// call it on an input in `Z/p^e'Z` with `e' > e` or an input in `Z`. Of course, in any case,
     /// the output will only be correct modulo `p^r` resp. `p^e`.
+    /// 
+    /// [`EuclideanRing::euclidean_div_rem()`]: feanor_math::pid::EuclideanRing::euclidean_div_rem()
     /// 
     pub fn evaluate<H, S>(&self, input: S::Element, hom: H) -> (S::Element, S::Element)
         where H: Homomorphism<R, S>,

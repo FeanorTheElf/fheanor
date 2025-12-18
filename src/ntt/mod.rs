@@ -17,7 +17,7 @@ use feanor_math::rings::zn::*;
 
 ///
 /// A convolution as in [`ConvolutionAlgorithm`], that can additionally be created for
-/// a given ring and length. This is required in many use cases within Fheanor.
+/// a given ring and length.
 /// 
 pub trait ForRingCreatableConvolution<R>: ConvolutionAlgorithm<R::Type>
     where R: RingStore

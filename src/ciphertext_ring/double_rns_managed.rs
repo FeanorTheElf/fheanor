@@ -585,7 +585,7 @@ impl<NumberRing, A> PreparedMultiplicationRing for ManagedDoubleRNSRingBase<Numb
 {
     type PreparedMultiplicant = ();
 
-    fn mul_prepared(&self, lhs: &Self::Element, _lhs_prep: &(), rhs: &Self::Element, _rhs_prep: &()) -> Self::Element {
+    fn mul_prepared(&self, lhs: &Self::Element, _: Option<&()>, rhs: &Self::Element, _: Option<&()>) -> Self::Element {
         self.mul_ref(lhs, rhs)
     }
 
@@ -594,8 +594,12 @@ impl<NumberRing, A> PreparedMultiplicationRing for ManagedDoubleRNSRingBase<Numb
         return ();
     }
 
+    fn fma_prepared(&self, lhs: &Self::Element, _: Option<&()>, rhs: &Self::Element, _: Option<&()>, dst: Self::Element) -> Self::Element {
+        self.fma(lhs, rhs, dst)
+    }
+
     fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
-        where I: IntoIterator<Item = (&'a Self::Element, &'a (), &'a Self::Element, &'a ())>,
+        where I: IntoIterator<Item = (&'a Self::Element, Option<&'a ()>, &'a Self::Element, Option<&'a ()>)>,
             Self: 'a
     {
         <_ as ComputeInnerProduct>::inner_product_ref(self, parts.into_iter().map(|(lhs, _, rhs, _)| (lhs, rhs)))
@@ -700,33 +704,17 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
     }
 
     #[instrument(skip_all)]
-    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, mut output: SubmatrixMut<V, zn_64::ZnEl>)
+    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, zn_64::ZnEl>)
         where V: AsPointerToSlice<zn_64::ZnEl>
     {
-        let matrix = self.base.as_matrix_wrt_small_basis(self.to_small_basis(x).unwrap_or(&self.zero));
-        assert_eq!(output.row_count(), matrix.row_count());
-        assert_eq!(output.col_count(), matrix.col_count());
-        for i in 0..matrix.row_count() {
-            for j in 0..matrix.col_count() {
-                *output.at_mut(i, j) = *matrix.at(i, j);
-            }
-        }
+        self.base.as_representation_wrt_small_generating_set_non_fft(self.to_small_basis(x).unwrap_or(&self.zero), output);
     }
 
     #[instrument(skip_all)]
     fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, zn_64::ZnEl>) -> Self::Element
         where V: AsPointerToSlice<zn_64::ZnEl>
     {
-        let mut x = self.base.zero_non_fft();
-        let mut x_as_matrix = self.base.as_matrix_wrt_small_basis_mut(&mut x);
-        assert_eq!(data.row_count(), x_as_matrix.row_count());
-        assert_eq!(data.col_count(), x_as_matrix.col_count());
-        for i in 0..data.row_count() {
-            for j in 0..data.col_count() {
-                *x_as_matrix.at_mut(i, j) = self.base.base_ring().at(i).clone_el(data.at(i, j));
-            }
-        }
-        return self.from_small_basis_repr(x);
+        self.from_small_basis_repr(self.base.from_representation_wrt_small_generating_set_non_fft(data))
     }
 }
 
@@ -843,12 +831,34 @@ impl<NumberRing, A> RingBase for ManagedDoubleRNSRingBase<NumberRing, A>
     }
 
     fn mul_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
-        let result = if let (Some(lhs), Some(rhs)) = (self.to_doublerns(lhs), self.to_doublerns(rhs)) {
-            self.base.mul_ref(&*lhs, &*rhs)
+        if let (Some(lhs), Some(rhs)) = (self.to_doublerns(lhs), self.to_doublerns(rhs)) {
+            self.from_double_rns_repr(self.base.mul_ref(&*lhs, &*rhs))
         } else {
-            return self.zero();
-        };
-        return self.from_double_rns_repr(result);
+            self.zero()
+        }
+    }
+
+    fn fma(&self, lhs: &Self::Element, rhs: &Self::Element, summand: Self::Element) -> Self::Element {
+        if let (Some(lhs), Some(rhs)) = (self.to_doublerns(lhs), self.to_doublerns(rhs)) {
+            match summand.internal.get_repr() {
+                ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) => {
+                    return self.from_double_rns_repr(self.unmanaged_ring().fma(lhs, rhs, double_rns_repr.to_owned(|x| self.unmanaged_ring().clone_el(x))));
+                },
+                ManagedDoubleRNSElRepresentation::Sum(parts) => {
+                    return self.new_element_sum(
+                        self.unmanaged_ring().get_ring().clone_el_non_fft(&parts.0),
+                        self.unmanaged_ring().fma(lhs, rhs, self.unmanaged_ring().clone_el(&parts.1))
+                    )
+                },
+                ManagedDoubleRNSElRepresentation::Zero => {
+                    return self.from_double_rns_repr(self.unmanaged_ring().mul_ref(lhs, rhs))
+                },
+                _ => {}
+            };
+            return self.add(summand, self.from_double_rns_repr(self.unmanaged_ring().mul_ref(lhs, rhs)));
+        } else {
+            return summand;
+        }
     }
 
     fn pow_gen<R: IntegerRingStore>(&self, x: Self::Element, power: &El<R>, integers: R) -> Self::Element 
@@ -989,8 +999,8 @@ impl<NumberRing, A> ComputeInnerProduct for ManagedDoubleRNSRingBase<NumberRing,
     {
         self.from_double_rns_repr(<_ as ComputeInnerProduct>::inner_product_ref(
             &self.base, 
-            els.map(|(l, r)| (self.to_doublerns(l), self.to_doublerns(r)))
-                .filter_map(|(l, r)| l.and_then(|l| r.map(|r| (l, r))))
+            els.filter(|(l, r)| l.internal.get_repr().get_kind() != ManagedDoubleRNSElRepresentationKind::Zero && r.internal.get_repr().get_kind() != ManagedDoubleRNSElRepresentationKind::Zero)
+                .map(|(l, r)| (self.to_doublerns(l).unwrap(), self.to_doublerns(r).unwrap()))
         ))
     }
 
@@ -1376,6 +1386,16 @@ fn test_ring_axioms() {
     let (ring, elements) = ring_and_elements();
     feanor_math::ring::generic_tests::test_ring_axioms(&ring, elements.iter().map(|x| ring.clone_el(x)));
     feanor_math::ring::generic_tests::test_self_iso(&ring, elements.iter().map(|x| ring.clone_el(x)));
+}
+
+#[test]
+fn test_inner_product() {
+    let (ring, elements) = ring_and_elements();
+    assert_el_eq!(
+        &ring,
+        ring.sum(elements.iter().zip(elements.iter().skip(2)).map(|(l, r)| ring.mul_ref(l, r))),
+        ring.get_ring().inner_product_ref(elements.iter().zip(elements.iter().skip(2)))
+    );
 }
 
 #[test]

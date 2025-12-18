@@ -1,6 +1,6 @@
-# Implementing BFV using Fheanor, version 1
+# Implementing BFV using this crate, version 1
 
-Fheanor is designed to facilitate the implementation of new, or variants of known HE schemes. To demonstrate which features come in useful in this case, this example walks you through a simple implementation of the BFV scheme.
+This crate is designed to facilitate the implementation of new, or variants of known HE schemes. To demonstrate which features come in useful in this case, this example walks you through a simple implementation of the BFV scheme.
 In this first example, we will not optimize for performance, we defer this to the follow-up [`crate::examples::bfv_impl_v2`].
 If you are just interested in how to use BFV, have a look at [`crate::examples::bfv_basics`].
 
@@ -29,17 +29,17 @@ With these parameters, the scheme can be described as follows:
 Before we come to implementing the first operations, let's discuss how we represent the involved rings.
 In particular, we will have to perform arithmetic operations in `R_t` and in `R_q`.
 
-Fortunately, there are already various ring implementations available, in both `feanor-math` and `fheanor`.
+Fortunately, there are already various ring implementations available, in both `feanor-math` and this crate.
 For `R_t`, we have the following options:
- - Use [`feanor_math::rings::extension::extension_impl::FreeAlgebraImpl`], this is a general implementation of ring extensions of the form `BaseRing[X]/(f(X))`. By choosing `BaseRing` to be `Z/(t)` and `f(X) = Phi_m(X)`, we get the desired ring.
- - Use [`crate::number_ring::quotient_by_int::NumberRingQuotientByInt`], which is an implementation of `R/(t)` for any integer `t` and ring `R` that is represented abstractly using [`crate::number_ring::AbstractNumberRing`].
+ - Use [`FreeAlgebraImpl`], this is a general implementation of ring extensions of the form `BaseRing[X]/(f(X))`. By choosing `BaseRing` to be `Z/(t)` and `f(X) = Phi_m(X)`, we get the desired ring.
+ - Use [`NumberRingQuotientByInt`], which is an implementation of `R/(t)` for any integer `t` and ring `R` that is represented abstractly using [`AbstractNumberRing`].
  - Implement our own ring!
 
 Perhaps unsurprisingly, `NumberRingQuotientByInt` is actually perfectly suited for this purpose (after all, this is what it was designed to do).
 
 For `R_q`, we again have some options:
  - The same options as before - indeed, none of those makes assumptions on `t` that would cause a problem when we replace it by `q`
- - However, we have additional options: Since we can choose `q` freely, we can use an RNS representation, implementations of which are provided by [`crate::ciphertext_ring::double_rns_ring::DoubleRNSRing`] and [`crate::ciphertext_ring::single_rns_ring::SingleRNSRing`].
+ - However, we have additional options: Since we can choose `q` freely, we can use an RNS representation, implementations of which are provided by [`DoubleRNSRing`] and [`SingleRNSRing`].
 
 For practical purposes, it turns out that we should absolutely use an RNS-based implementation, since those are much faster than general ones.
 However, for our first "unoptimized" implementation of BFV, we will in fact use again `NumberRingQuotientByInt`.
@@ -64,7 +64,7 @@ Both are implementations (from `feanor-math`) of `Z/(m)` for some integer modulu
 57 bits are sufficient for all common choices of the BFV plaintext modulus, but certainly not enough for the ciphertext space.
 
 Once we have these types, creating the actual objects is quite simple.
-There is only a small quirk - caused by how `feanor-math` always wraps rings in a [`feanor_math::ring::RingStore`] - which means that the `new()` function belongs to `<CiphertextRing as RingStore>::Type` and not to `CiphertextRing`.
+There is only a small quirk - caused by how `feanor-math` always wraps rings in a [`RingStore`] - which means that the `new()` function belongs to `<CiphertextRing as RingStore>::Type` and not to `CiphertextRing`.
 ```rust
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
@@ -962,3 +962,10 @@ In particular, we lose a lot of time due to the following points:
  - Finally, if we choose a gadget vector for relinearization that is compatible with the RNS system, we can also perform the gadget-decomposition and relinearization without big integers.
 
 We discuss a more efficient implementation in [`crate::examples::bfv_impl_v2`].
+
+[`FreeAlgebraImpl`]: feanor_math::rings::extension::extension_impl::FreeAlgebraImpl
+[`NumberRingQuotientByInt`]: crate::number_ring::quotient_by_int::NumberRingQuotientByInt
+[`AbstractNumberRing`]: crate::number_ring::AbstractNumberRing
+[`SingleRNSRing`]: crate::ciphertext_ring::single_rns_ring::SingleRNSRing
+[`DoubleRNSRing`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRing
+[`RingStore`]: feanor_math::ring::RingStore

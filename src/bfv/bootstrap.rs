@@ -2,6 +2,7 @@
 use std::cell::LazyCell;
 
 use feanor_math::algorithms::int_factor::is_prime_power;
+use feanor_math::delegate::WrapHom;
 use feanor_math::homomorphism::*;
 use feanor_math::assert_el_eq;
 use feanor_math::integer::{int_cast, IntegerRingStore};
@@ -9,6 +10,9 @@ use feanor_math::ring::*;
 use feanor_math::rings::zn::ZnRingStore;
 
 use crate::bfv::eval::AsBFVPlaintext;
+use crate::bfv::eval::EncodedBFVPlaintextRing;
+use crate::bfv::eval::EncodedBFVPlaintextRingBase;
+use crate::bgv::SecretKeyDistribution;
 use crate::bgv::modswitch::compute_optimal_special_modulus;
 use crate::circuit::create_circuit_cached;
 use crate::digit_extract::DigitExtract;
@@ -18,69 +22,211 @@ use crate::lin_transform::pow2;
 use super::*;
 
 ///
-/// Parameters for an instantiation of BFV bootstrapping.
+/// Precomputed public data that is required to bootstrap BFV ciphertexts
+/// over a fixed plaintext and ciphertext ring.
 /// 
-#[derive(Clone, Debug)]
-pub struct ThinBootstrapParams<Params: BFVInstantiation> {
-    /// Parameters of the scheme to be bootstrapped.
-    pub scheme_params: Params,
-    /// The additional exponent of the intermediate bootstrapping plaintext modulus.
+/// # Example
+/// 
+/// ```rust
+/// # use anonymizedhelibrary::bfv::*;
+/// # use anonymizedhelibrary::bfv::bootstrap::*;
+/// # use anonymizedhelibrary::gadget_product::digits::RNSGadgetVectorDigitIndices;
+/// # use feanor_math::ring::*;
+/// # use feanor_math::integer::*;
+/// # use feanor_math::primitive_int::*;
+/// # use feanor_math::homomorphism::*;
+/// # use feanor_math::assert_el_eq;
+/// # use feanor_math::seq::*;
+/// # use rand::rng;
+/// # let ZZbig = BigIntRing::RING;
+/// # let ZZi64 = StaticRing::<i64>::RING;
+/// // setting up the scheme
+/// let params = Pow2BFV::new(1 << 10);
+/// let P = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
+/// let (C, C_mul) = params.create_ciphertext_rings(420..440);
+/// let digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
+/// let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, &digits, Some("."));
+/// 
+/// // creating keys
+/// let sk = Pow2BFV::gen_sk(&C, rng(), SecretKeyDistribution::UniformTernary);
+/// let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+///     let gk = Pow2BFV::gen_gk(&C, rng(), &sk, &g, &digits, 3.2);
+///     (g, gk)
+/// }).collect::<Vec<_>>();
+/// let rk = Pow2BFV::gen_rk(&C, rng(), &sk, &digits, 3.2);
+/// 
+/// // sparse key encapsulation is optional, but can make bootstrapping work
+/// // with much smaller parameters (e.g. here we use intermediate plaintext modulus
+/// // p^v = 17, which wouldn't be possible without sparse key encapsulation).
+/// let encaps = SparseKeyEncapsulationKey::new(bootstrapper.intermediate_plaintext_ring(), &C, &sk, 2, 16, rng(), 3.2);
+/// 
+/// let m = P.int_hom().map(2);
+/// let ct = Pow2BFV::enc_sym(&P, &C, rng(), &m, &sk, 3.2);
+/// let res_ct = bootstrapper.bootstrap_thin::<true>(
+///     &C, 
+///     &C_mul, 
+///     &P, 
+///     ct, 
+///     &rk, 
+///     &gk,
+///     Some(&encaps),
+///     Some(&sk)
+/// );
+/// assert_el_eq!(P, P.int_hom().map(2), Pow2BFV::dec(&P, &C, res_ct, &sk));
+/// ```
+/// 
+pub struct ThinBootstrapper<Params: BFVInstantiation> {
+    digit_extract: DigitExtract,
+    slots_to_coeffs_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Params>>,
+    coeffs_to_slots_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Params>>,
     /// 
-    /// When bootstrapping, we convert the input ciphertext into a ciphertext modulo
-    /// `p^(r + v)`, where the original plaintext modulus is `p^r`. This fits into a
-    /// plaintext with plaintext modulus `p^(r + v)`, so we can homomorphically evaluate
-    /// the decryption here. For this to work, we require that modulus-switching to
-    /// `p^(r + v)` does not cause noise overflow, hence `v` must scale with the `l_1`-norm
-    /// of the secret key.
-    pub v: usize,
-    /// Bound on the inf-norm of the error during digit extraction. If this is set, it
-    /// is required that [`ThinBootstrapParams::v`] is `1`, if this is not set, it will
-    /// be implicitly assumed to be `p^v / 2`
-    pub B: Option<usize>,
-    /// The plaintext modulus w.r.t. which the bootstrapped input is defined. 
-    /// Must be a power of a prime 
-    pub t: El<BigIntRing>,
-    /// The number of RNS factors required to evaluate the Slots-to-Coeffs transform
-    /// without noise overflow, assuming hybrid key-switching is used for the Galois
-    /// automorphisms.
+    /// The plaintext rings `R/p^kR` for every `r < k < e`, which all are used
+    /// as intermediate plaintext rings during bootstrapping.
     /// 
-    /// The first step of thin bootstrapping is the Slots-to-Coeffs transform, which
-    /// is still applied to the original ciphertext. Since the ciphertext is homomorphically
-    /// decrypted directly afterwards, we don't need much precision at this point anymore.
-    /// Hence, we modulus-switch it to a modulus with this many RNS factors, to save
-    /// time during the Slots-to-Coeffs transform.
-    /// 
-    /// Note that the Slots-to-Coeffs transform explicitly uses hybrid key-switching, hence
-    /// it will use some additional RNS factors to offset the noise added by the linear
-    /// transform. In other words, this number should be large enough for the Slots-to-Coeffs
-    /// transform, assuming the Galois automorphisms don't produce noise.
-    pub pre_bootstrap_rns_factors: usize
+    plaintext_ring_hierarchy: Vec<PlaintextRing<Params>>,
+    slots_to_coeffs_plaintext_ring: EncodedBFVPlaintextRing<Params>,
+    intermediate_plaintext_ring: EncodedBFVPlaintextRing<Params>
 }
 
-impl<Params> ThinBootstrapParams<Params>
-    where Params: BFVInstantiation, 
-        Params::PlaintextRing: SerializableElementRing,
-        NumberRing<Params>: Clone,
-        Params::PlaintextRing: AsBFVPlaintext<Params>,
-        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
-{
-    pub fn build_pow2<const LOG: bool>(&self, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
-        let log2_m = ZZi64.abs_log2_ceil(&(self.scheme_params.number_ring().galois_group().m() as i64)).unwrap();
-        assert_eq!(self.scheme_params.number_ring().galois_group().m(), 1 << log2_m);
+impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
 
-        let (p, r) = is_prime_power(&ZZbig, &self.t).unwrap();
-        let v = self.v;
+    ///
+    /// Creates a new [`ThinBootstrapper`]. In many cases, it is easier to create
+    /// a [`ThinBootstrapper`] using [`ThinBootstrapper::build_pow2()`] or
+    /// [`ThinBootstrapper::build_odd()`].
+    /// 
+    /// Bootstrapping for BFV consists of the following steps.
+    ///  - **Slots-to-Coeffs**: Move the values stored in the slots of the input
+    ///    ciphertext into its coefficients
+    ///  - **Mod-switch**: Modulus-switches the ciphertext to an intermediate
+    ///    plaintext modulus `p^e`. This means the ciphertext now can be used
+    ///    as a plaintext.
+    ///  - **Noisy expansion**: Converts the modulus-switched ciphertext into
+    ///    a low-noise ciphertext, which encrypts the same coefficients as the
+    ///    the modulus-switched ciphertext, plus some noise. This requires an
+    ///    encryption of the secret key.
+    ///  - **Coeffs-to-Slots**: Moves the coefficients (with noise) into the
+    ///    slots of the ciphertext.
+    ///  - **Digit Extraction**: Removes the noise from the encoded values and
+    ///    scales them down.
+    /// 
+    /// The parameters are as follows:
+    ///  - `instantiation` describes the scheme whose ciphertexts are to be bootstrapped
+    ///  - `C` is the ciphertext ring over which a to-be-bootstrapped input ciphertext 
+    ///    should be defined
+    ///  - `slots_to_coeffs_thin` is the circuit which is used to compute the 
+    ///    Slots-to-Coeffs transform. The coefficients of this circuit should be
+    ///    taken from the plaintext ring of the scheme with modulus `t`.
+    ///  - `coeffs_to_slots_thin` is the circuit which is used to compute the
+    ///    Coeffs-to-Slots transform. The coefficients of this circuit should be
+    ///    taken from the plaintext ring of the scheme with modulus `p^e`.
+    ///  - `digit_extract` is the function used for digit extraction.
+    ///  - `slots_to_coeffs_ciphertext_ring` is a intermediate, reduced-modulus
+    ///    ciphertext ring used for the Slots-to-Coeffs transform. More concretely,
+    ///    since the result of the Slots-to-Coeffs transform does not have to have
+    ///    any noise budget left, the input ciphertext can be mod-switched to a lower
+    ///    modulus ciphertext ring before the Slots-to-Coeffs transform, which will
+    ///    improve performance of the Slots-to-Coeffs transform. Note that the current
+    ///    implementation of BFV does not use hybrid key switching (although it pretends
+    ///    to in some cases), and this should be considered when calculating how large
+    ///    the modulus of this ring should be.
+    /// 
+    /// The parameters corresponding to the plaintext space (i.e. `t = p^r`) are
+    /// implicitly given through the `digit_extract` parameter.
+    /// 
+    /// For an example on how to do bootstrapping, see the top-level doc [`ThinBootstrapper`].
+    /// 
+    #[instrument(skip_all)]
+    pub fn create(
+        instantiation: &Params,
+        original_plaintext_ring: PlaintextRing<Params>,
+        intermediate_plaintext_ring: PlaintextRing<Params>,
+        C: CiphertextRing<Params>,
+        slots_to_coeffs_thin: PlaintextCircuit<Params::PlaintextRing>, 
+        coeffs_to_slots_thin: PlaintextCircuit<Params::PlaintextRing>,
+        digit_extract: DigitExtract, 
+        slots_to_coeffs_ciphertext_ring: CiphertextRing<Params>
+    ) -> Self {
+        let p = digit_extract.p();
+        let r = digit_extract.r();
+        let e = digit_extract.e();
+        let plaintext_ring_hierarchy = ((r + 1)..e).map(|k| instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
+        let slots_to_coeffs_plaintext_ring = EncodedBFVPlaintextRingBase::new(original_plaintext_ring, slots_to_coeffs_ciphertext_ring);
+        let intermediate_plaintext_ring = EncodedBFVPlaintextRingBase::new(intermediate_plaintext_ring, C);
+        let coeffs_to_slots_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Params>> = coeffs_to_slots_thin.change_ring_uniform(|x| 
+            x.change_ring(|x| WrapHom::to_delegate_ring(intermediate_plaintext_ring.get_ring()).map(x))
+        );
+        let slots_to_coeffs_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Params>> = slots_to_coeffs_thin.change_ring_uniform(|x| 
+            x.change_ring(|x| WrapHom::to_delegate_ring(slots_to_coeffs_plaintext_ring.get_ring()).map(x))
+        );
+        Self {
+            digit_extract,
+            coeffs_to_slots_thin,
+            slots_to_coeffs_thin,
+            intermediate_plaintext_ring,
+            plaintext_ring_hierarchy,
+            slots_to_coeffs_plaintext_ring
+        }
+    }
+
+    ///
+    /// Creates a new [`ThinBootstrapper`] for BFV instantiated over a power-of-two cyclotomic
+    /// number ring. This function makes good default choices for the algorithms used in the
+    /// various steps of bootstrapping.
+    /// 
+    /// Parameters:
+    ///  - `instantiation` describes the scheme whose ciphertexts are to be bootstrapped.
+    ///  - `P` is the plaintext ring which the input ciphertext encrypts an element from.
+    ///    Its modulus `t` should be a power of a prime, i.e. `t = p^r`.
+    ///  - `C` is the ciphertext ring over which a to-be-bootstrapped input ciphertext 
+    ///    should be defined.
+    ///  - `v` is the number of digits to remove. In other words, during bootstrapping the
+    ///    noise is removed from an intermediate "noisy decryption" using a rounded division
+    ///    by `p^v`. Hence, `p^v/2` should be larger than the expected magnitude of the noise,
+    ///    after modulus-switching to `p^e` with `e = v + r`.
+    ///  - `digit_extract_error_bound` allows to give a tighter bound on the noise. If `p` is
+    ///    large, even with `v = 1` the bound on the noise `p^v/2` is often far from tight.
+    ///    Setting this to a tighter bound will enable the use of more efficient digit extraction
+    ///    polynomials. Note that if this is set, it is required that `v = 1`.
+    ///  - `gk_digits` specifies the gadget vector used for Galois keys. This is required to
+    ///    estimate the number of RNS factors used for the Slots-to-Coeffs transform.
+    ///  - `cache_dir` specifies a directory to load and store precomputed data. If it is `None`,
+    ///    no data will be read or written, but always computed from scratch.
+    /// 
+    /// For an example on how to do bootstrapping, see the top-level doc [`ThinBootstrapper`].
+    /// 
+    #[instrument(skip_all)]
+    pub fn build_pow2<const LOG: bool>(
+        instantiation: &Params,
+        P: &PlaintextRing<Params>,
+        C: &CiphertextRing<Params>, 
+        v: usize,
+        digit_extract_error_bound: Option<usize>,
+        gk_digits: &RNSGadgetVectorDigitIndices, 
+        cache_dir: Option<&str>
+    ) -> Self
+        where Params::PlaintextRing: SerializableElementRing,
+            Params::CiphertextRing: Clone
+    {
+        let log2_m = ZZi64.abs_log2_ceil(&(instantiation.number_ring().galois_group().m() as i64)).unwrap();
+        assert_eq!(instantiation.number_ring().galois_group().m(), 1 << log2_m);
+
+        let t = int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring());
+        let (p, r) = is_prime_power(&ZZbig, &t).unwrap();
         let e = r + v;
         if LOG {
-            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", ZZbig.format(&p), r, ZZbig.format(&self.t), self.scheme_params.number_ring().galois_group().m());
+            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring {:?}", ZZbig.format(&p), r, ZZbig.format(&t), instantiation.number_ring());
             println!("Using e = r + v = {} + {}", r, v);
         }
 
-        let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
-        let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        let plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
+        // we don't use P here, but recreate the plaintext ring through modulus-switching, since we need the
+        // structure of `plaintext_ring` and `original_plaintext_ring` to be compatible. Since we only take
+        // encrypted plaintexts embedded into the ciphertext ring as input, this is fine.
+        let original_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
 
-        let digit_extract = if let Some(B) = self.B {
-            assert_eq!(1, self.v);
+        let digit_extract = if let Some(B) = digit_extract_error_bound {
+            assert_eq!(1, v, "if `digit_extract_error_bound` is set, `v` must be 1");
             DigitExtract::new_bounded_error(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, B as i64)
         } else {
             DigitExtract::new_default(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, r)
@@ -96,205 +242,165 @@ impl<Params> ThinBootstrapParams<Params>
         let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
         let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || pow2::coeffs_to_slots_thin(&H));
 
-        return ThinBootstrapData::create(self, digit_extract, slots_to_coeffs, coeffs_to_slots);
+        // we estimate the noise growth of the slots-to-coeffs transform as `log2(|Gal|)` multiplications by
+        // ring elements of size at most `t`
+        let min_rns_factor_log2 = C.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
+        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * (P.acting_galois_group().group_order() as f64).log2() / min_rns_factor_log2).ceil() as usize; 
+        let slots_to_coeffs_ciphertext_ring = {
+            let (drop_additional, special_modulus) = compute_optimal_special_modulus(C.get_ring(), RNSFactorIndexList::empty_ref(), C.base_ring().len().saturating_sub(slots_to_coeffs_rns_factors), gk_digits);
+            RingValue::from(C.get_ring().drop_rns_factor(&drop_additional.subtract(&special_modulus)))
+        };
+
+        return Self::create(
+            instantiation, 
+            original_plaintext_ring,
+            plaintext_ring,
+            C.clone(),
+            slots_to_coeffs, 
+            coeffs_to_slots,
+            digit_extract, 
+            slots_to_coeffs_ciphertext_ring
+        );
     }
 
-    pub fn build_odd<const LOG: bool>(&self, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
-        assert!(self.scheme_params.number_ring().galois_group().m() % 2 != 0);
+    ///
+    /// Creates a new [`ThinBootstrapper`] for BFV instantiated over an odd cyclotomic
+    /// number ring. This function makes good default choices for the algorithms used in the
+    /// various steps of bootstrapping.
+    /// 
+    /// Parameters:
+    ///  - `instantiation` describes the scheme whose ciphertexts are to be bootstrapped.
+    ///  - `P` is the plaintext ring which the input ciphertext encrypts an element from.
+    ///    Its modulus `t` should be a power of a prime, i.e. `t = p^r`.
+    ///  - `C` is the ciphertext ring over which a to-be-bootstrapped input ciphertext 
+    ///    should be defined.
+    ///  - `v` is the number of digits to remove. In other words, during bootstrapping the
+    ///    noise is removed from an intermediate "noisy decryption" using a rounded division
+    ///    by `p^v`. Hence, `p^v/2` should be larger than the expected magnitude of the noise,
+    ///    after modulus-switching to `p^e` with `e = v + r`.
+    ///  - `digit_extract_error_bound` allows to give a tighter bound on the noise. If `p` is
+    ///    large, even with `v = 1` the bound on the noise `p^v/2` is often far from tight.
+    ///    Setting this to a tighter bound will enable the use of more efficient digit extraction
+    ///    polynomials. Note that if this is set, it is required that `v = 1`.
+    ///  - `gk_digits` specifies the gadget vector used for Galois keys. This is required to
+    ///    estimate the number of RNS factors used for the Slots-to-Coeffs transform.
+    ///  - `cache_dir` specifies a directory to load and store precomputed data. If it is `None`,
+    ///    no data will be read or written, but always computed from scratch.
+    /// 
+    /// For an example on how to do bootstrapping, see the top-level doc [`ThinBootstrapper`].
+    /// 
+    #[instrument(skip_all)]
+    pub fn build_odd<const LOG: bool>(
+        instantiation: &Params,
+        P: &PlaintextRing<Params>,
+        C: &CiphertextRing<Params>, 
+        v: usize,
+        digit_extract_error_bound: Option<usize>,
+        gk_digits: &RNSGadgetVectorDigitIndices, 
+        cache_dir: Option<&str>
+    ) -> Self
+        where Params::PlaintextRing: SerializableElementRing,
+            Params::CiphertextRing: Clone
+    {
+        assert!(instantiation.number_ring().galois_group().m() % 2 != 0);
 
-        let (p, r) = is_prime_power(&ZZbig, &self.t).unwrap();
-        let v = self.v;
+        let t = int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring());
+        let (p, r) = is_prime_power(&ZZbig, &t).unwrap();
         let e = r + v;
         if LOG {
-            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", ZZbig.format(&p), r, ZZbig.format(&self.t), self.scheme_params.number_ring().galois_group().m());
+            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring {:?}", ZZbig.format(&p), r, ZZbig.format(&t), instantiation.number_ring());
             println!("Using e = r + v = {} + {}", r, v);
         }
 
-        let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
-        let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        let plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
+        let original_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
 
         let p_i64 = int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig);
-        let digit_extract = if p_i64 == 2 && e <= 23 {
-            assert!(self.B.is_none());
+        let digit_extract = if p_i64 == 2 && e <= 23 && digit_extract_error_bound.is_none() {
             DigitExtract::new_precomputed_p_is_2(p_i64, e, r)
-        } else if let Some(B) = self.B {
-            assert_eq!(1, self.v);
+        } else if let Some(B) = digit_extract_error_bound {
+            assert_eq!(1, v, "if `digit_extract_error_bound` is set, `v` must be 1");
             DigitExtract::new_bounded_error(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, B as i64)
         } else {
             DigitExtract::new_default(p_i64, e, r)
         };
 
-        let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
-            HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, &hypercube, cache_dir)
-        });
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
+        let H = LazyCell::new(|| HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, &hypercube, cache_dir));
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
         let m = plaintext_ring.number_ring().galois_group().m();
         let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
         let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || composite::powcoeffs_to_slots_thin(&H));
 
-        return ThinBootstrapData::create(self, digit_extract, slots_to_coeffs, coeffs_to_slots);
-    }
-}
+        // we estimate the noise growth of the slots-to-coeffs transform as `log2(m)` multiplications by
+        // ring elements of size at most `t`
+        let min_rns_factor_log2 = C.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
+        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * (hypercube.dim_count() as f64 + 1.0) / min_rns_factor_log2).ceil() as usize; 
+        let slots_to_coeffs_ciphertext_ring = {
+            let (drop_additional, special_modulus) = compute_optimal_special_modulus(C.get_ring(), RNSFactorIndexList::empty_ref(), C.base_ring().len().saturating_sub(slots_to_coeffs_rns_factors), gk_digits);
+            RingValue::from(C.get_ring().drop_rns_factor(&drop_additional.subtract(&special_modulus)))
+        };
 
-///
-/// Data required for performing thin bootstrapping with sparse key encapsulation.
-/// 
-/// Sparse key encapsulation refers to key-switching a ciphertext to a sparse secret key
-/// just before homomorphic decryption (which happens at a very low ciphertext modulus,
-/// which can offset the security loss due to key sparsity), and thus introduce much less
-/// noise that has to be homomorphically removed.
-/// 
-pub struct SparseKeyEncapsulationData<Params: BFVInstantiation> {
-    /// A reduced-modulus ciphertext ring `R/q'R`, where we can publish a key-switching key
-    /// from the standard secret key to the sparse secret key. 
-    /// 
-    /// Such a key-switching key (or indeed any ciphertext encrypted with the sparse secret key)
-    /// usually cannot be published for the normal ciphertext ring `R/qR` since a sparse secret key
-    /// provides less security at the same ciphertext modulus. However, for a reduced ciphertext
-    /// modulus, a sparse secret key can still be secure.
-    pub C_switch_to_sparse: CiphertextRing<Params>,
-    /// A key-switch key for switching from the standard secret key to the sparse secret
-    /// key. This should be defined over the ciphertext ring [`SparseKeyEncapsulationData::C_switch_to_sparse`].
-    pub switch_to_sparse_key: KeySwitchKey<Params>,
-    /// An encryption of the sparse secret key w.r.t. the standard secret key. This should be
-    /// defined over the standard BFV ciphertext ring.
-    pub encapsulated_key: Ciphertext<Params>,
-    /// The plaintext modulus w.r.t. which the sparse key is encrypted to get the
-    /// [`SparseKeyEncapsulationData::encapsulated_key`]
-    pub encapsulated_key_plaintext_modulus: El<BigIntRing>
-}
-
-impl<Params> SparseKeyEncapsulationData<Params>
-    where Params: BFVInstantiation, 
-        Params::PlaintextRing: AsBFVPlaintext<Params>,
-        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
-{
-    pub fn create<R: CryptoRng + Rng>(P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_switch_to_sparse: CiphertextRing<Params>, sparse_sk: SecretKey<Params>, standard_sk: &SecretKey<Params>, mut rng: R, noise_sigma: f64) -> Self {
-        let switch_to_sparse_key = Params::gen_switch_key(
-            &C_switch_to_sparse, 
-            &mut rng,
-            &Params::mod_switch_sk(P, &C_switch_to_sparse, C, standard_sk),
-            &Params::mod_switch_sk(P, &C_switch_to_sparse, C, &sparse_sk),
-            &RNSGadgetVectorDigitIndices::select_digits(C_switch_to_sparse.base_ring().len(), C_switch_to_sparse.base_ring().len()),
-            noise_sigma
+        return Self::create(
+            instantiation, 
+            original_plaintext_ring,
+            plaintext_ring,
+            C.clone(),
+            slots_to_coeffs, 
+            coeffs_to_slots,
+            digit_extract, 
+            slots_to_coeffs_ciphertext_ring
         );
-        let ZZ_to_Pbase = P.base_ring().can_hom(P.base_ring().integer_ring()).unwrap().compose(P.base_ring().integer_ring().can_hom(&ZZbig).unwrap());
-        let sparse_sk_as_plain = P.from_canonical_basis(C.wrt_canonical_basis(&sparse_sk).iter().map(|x| ZZ_to_Pbase.map(C.base_ring().smallest_lift(x))));
-        let encapsulated_key = Params::enc_sym(P, C, &mut rng, &sparse_sk_as_plain, standard_sk, noise_sigma);
-        SparseKeyEncapsulationData { 
-            C_switch_to_sparse: C_switch_to_sparse, 
-            switch_to_sparse_key: switch_to_sparse_key, 
-            encapsulated_key: encapsulated_key,
-            encapsulated_key_plaintext_modulus: int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring())
-        }
     }
-}
 
-///
-/// Precomputed data required to perform BFV bootstrapping.
-/// 
-/// The standard way to create this data is to use [`ThinBootstrapParams::build_pow2()`]
-/// or [`ThinBootstrapParams::build_odd()`], but note that the involved computation is very expensive.
-/// 
-pub struct ThinBootstrapData<Params: BFVInstantiation> {
-    /// The [`DigitExtract`] object used to compute the digit extraction step
-    /// of BFV bootstrapping
-    digit_extract: DigitExtract,
-    /// The circuit used to compute the (thin) Slots-to-Coeffs linear transform
-    /// of BFV bootstrapping
-    slots_to_coeffs_thin: PlaintextCircuit<Params::PlaintextRing>,
-    /// The circuit used to compute the (thin) Coeffs-to-Slots linear transform
-    /// of BFV bootstrapping
-    coeffs_to_slots_thin: PlaintextCircuit<Params::PlaintextRing>,
-    /// The plaintext rings `R/p^kR` for every `r <= k <= e`, which all are used
-    /// as intermediate plaintext rings during bootstrapping
-    plaintext_ring_hierarchy: Vec<PlaintextRing<Params>>,
-    original_plaintext_ring: PlaintextRing<Params>,
-    /// The number of RNS factors required to evaluate the Slots-to-Coeffs transform
-    /// without noise overflow, assuming hybrid key-switching is used for the Galois
-    /// automorphisms. 
+    ///
+    /// Replaces the digit extraction object used by this bootstrapper.
     /// 
-    /// See [`ThinBootstrapParams::pre_bootstrap_rns_factors`] for more details.
-    pre_bootstrap_rns_factors: usize
-}
-
-impl<Params> ThinBootstrapData<Params>
-    where Params: BFVInstantiation, 
-        Params::PlaintextRing: AsBFVPlaintext<Params>,
-        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
-{
-    pub fn create(
-        params: &ThinBootstrapParams<Params>, 
-        digit_extract: DigitExtract, 
-        slots_to_coeffs_thin: PlaintextCircuit<Params::PlaintextRing>, 
-        coeffs_to_slots_thin: PlaintextCircuit<Params::PlaintextRing>
-    ) -> Self {
-        let (p, r) = is_prime_power(&ZZbig, &params.t).unwrap();
-        let v = params.v;
-        let e = r + v;
-        assert!(ZZbig.eq_el(&p, digit_extract.p()));
-        assert_eq!(r, digit_extract.r());
-        assert_eq!(e, digit_extract.e());
-        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| params.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
+    pub fn with_digit_extraction(self, new_digit_extraction: DigitExtract) -> Self {
+        assert_el_eq!(ZZbig, self.digit_extract.p(), new_digit_extraction.p());
+        assert_eq!(self.digit_extract.r(), new_digit_extraction.r());
+        assert_eq!(self.digit_extract.e(), new_digit_extraction.e());
         Self {
-            coeffs_to_slots_thin: coeffs_to_slots_thin,
-            digit_extract: digit_extract,
-            plaintext_ring_hierarchy: plaintext_ring_hierarchy,
-            pre_bootstrap_rns_factors: params.pre_bootstrap_rns_factors,
-            slots_to_coeffs_thin: slots_to_coeffs_thin,
-            original_plaintext_ring: params.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r))
+            coeffs_to_slots_thin: self.coeffs_to_slots_thin,
+            digit_extract: new_digit_extraction,
+            intermediate_plaintext_ring: self.intermediate_plaintext_ring,
+            plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
+            slots_to_coeffs_plaintext_ring: self.slots_to_coeffs_plaintext_ring,
+            slots_to_coeffs_thin: self.slots_to_coeffs_thin
         }
     }
     
-    fn r(&self) -> usize {
+    pub fn r(&self) -> usize {
         self.digit_extract.e() - self.digit_extract.v()
     }
 
-    fn e(&self) -> usize {
+    pub fn e(&self) -> usize {
         self.digit_extract.e()
     }
 
-    fn v(&self) -> usize {
+    pub fn v(&self) -> usize {
         self.digit_extract.v()
     }
 
-    fn p(&self) -> El<BigIntRing> {
+    pub fn p(&self) -> El<BigIntRing> {
         ZZbig.clone_el(self.digit_extract.p())
     }
 
     pub fn intermediate_plaintext_ring(&self) -> &PlaintextRing<Params> {
-        self.plaintext_ring_hierarchy.last().unwrap()
+        self.intermediate_plaintext_ring.get_ring().plaintext_ring()
     }
 
     pub fn base_plaintext_ring(&self) -> &PlaintextRing<Params> {
-        &self.original_plaintext_ring
+        self.slots_to_coeffs_plaintext_ring.get_ring().plaintext_ring()
     }
 
-    pub fn with_digit_extraction(self, new: DigitExtract) -> Self {
-        assert!(ZZbig.eq_el(&self.p(), new.p()));
-        assert_eq!(self.r(), new.r());
-        assert_eq!(self.e(), new.e());
-        Self {
-            coeffs_to_slots_thin: self.coeffs_to_slots_thin,
-            digit_extract: new,
-            original_plaintext_ring: self.original_plaintext_ring,
-            plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
-            pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors,
-            slots_to_coeffs_thin: self.slots_to_coeffs_thin
-        }
+    pub fn coeffs_to_slots_ciphertext_ring(&self) -> &CiphertextRing<Params> {
+        self.slots_to_coeffs_plaintext_ring.get_ring().ciphertext_ring()
     }
 
-    pub fn with_lin_transform(self, new_slots_to_coeffs: PlaintextCircuit<Params::PlaintextRing>, new_coeffs_to_slots: PlaintextCircuit<Params::PlaintextRing>) -> Self {
-        Self {
-            coeffs_to_slots_thin: new_coeffs_to_slots,
-            digit_extract: self.digit_extract,
-            original_plaintext_ring: self.original_plaintext_ring,
-            plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
-            pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors,
-            slots_to_coeffs_thin: new_slots_to_coeffs
-        }
+    pub fn main_ciphertext_ring(&self) -> &CiphertextRing<Params> {
+        self.intermediate_plaintext_ring.get_ring().ciphertext_ring()
     }
 
     pub fn required_galois_keys(&self, P: &PlaintextRing<Params>) -> Vec<GaloisGroupEl> {
@@ -312,13 +418,13 @@ impl<Params> ThinBootstrapData<Params>
     /// Parameters are as follows:
     ///  - `C` is the ciphertext ring w.r.t. which both input and output ciphertexts are defined
     ///  - `C_mul` is the extended ciphertext ring used for multiplications
-    ///  - `P_base` is the current plaintext ring; `ct` must be a valid BGV ciphertext encrypting
-    ///    a message from `P_base`
+    ///  - `P` is the current plaintext ring; `ct` must be a valid BGV ciphertext encrypting
+    ///    a message from `P`
     ///  - `ct` is the ciphertext to bootstrap; It must be thinly packed (i.e. each slot may only
     ///    contain an element of `Z/(t)`), otherwise this function will cause immediate noise overflow.
     ///  - `rk` is a relinearization key, to be used for computing products
     ///  - `gks` is a list of Galois keys, to be used for applying Galois automorphisms. This list
-    ///    must contain a Galois key for each Galois automorphism listed in [`ThinBootstrapData::required_galois_keys()`],
+    ///    must contain a Galois key for each Galois automorphism listed in [`ThinBootstrapper::required_galois_keys()`],
     ///    but may contain additional Galois keys
     ///  - `sparse_key_encapsulation` optionally contains all data required to temporarily switch
     ///    to a sparse secret key before bootstrapping. If used, this can make bootstrapping work
@@ -326,62 +432,64 @@ impl<Params> ThinBootstrapData<Params>
     ///  - `debug_sk` can be a reference to a secret key, which is used to print out decryptions
     ///    of intermediate results for debugging purposes. May only be set if `LOG == true`.
     /// 
+    /// For an example on how to do bootstrapping, see the top-level doc [`ThinBootstrapper`].
+    /// 
     #[instrument(skip_all)]
     pub fn bootstrap_thin<const LOG: bool>(
         &self,
         C: &CiphertextRing<Params>, 
         C_mul: &CiphertextRing<Params>, 
-        P_base: &PlaintextRing<Params>,
+        P: &PlaintextRing<Params>,
         ct: Ciphertext<Params>,
         rk: &RelinKey<Params>,
         gks: &[(GaloisGroupEl, KeySwitchKey<Params>)],
-        sk_encaps_data: Option<&SparseKeyEncapsulationData<Params>>,
+        sk_encaps_data: Option<&SparseKeyEncapsulationKey<Params>>,
         debug_sk: Option<&SecretKey<Params>>
     ) -> Ciphertext<Params> {
-
         assert!(LOG || debug_sk.is_none());
-        let ZZ = P_base.base_ring().integer_ring();
-        assert_el_eq!(ZZbig, ZZbig.pow(self.p(), self.r()), int_cast(ZZ.clone_el(P_base.base_ring().modulus()), ZZbig, ZZ));
+        let ZZ = P.base_ring().integer_ring();
+        assert_el_eq!(ZZbig, ZZbig.pow(self.p(), self.r()), int_cast(ZZ.clone_el(P.base_ring().modulus()), ZZbig, ZZ));
+        assert!(self.base_plaintext_ring().get_ring() == P.get_ring());
+        assert!(self.main_ciphertext_ring().get_ring() == C.get_ring());
+        let P_base = self.base_plaintext_ring();
+
         log_time::<_, _, LOG, _>("Performing thin bootstrapping", |[]| {
 
-            // if let Some(sk) = debug_sk {
-            //     Params::dec_println_slots(P_base, C, &ct, sk, None);
-            // }
+            if let Some(sk) = debug_sk {
+                Params::dec_println_slots(P_base, C, &ct, sk, None);
+            }
 
-            // First, we mod-switch the input ciphertext so that subsequent operations that less time; Note that we mod-switch it
-            // to `self.pre_bootstrap_rns_factors` + special moduli RNS factors, where the special moduli are designed to take care
-            // of the noise caused by the slots-to-coeffs transform 
-            let input_dropped_rns_factors = {
-                assert!(C.base_ring().len() >= self.pre_bootstrap_rns_factors);
-                let gk_digits = gks[0].1.0.gadget_vector_digits();
-                let (to_drop, special_modulus) = compute_optimal_special_modulus(
-                    C.get_ring(),
-                    RNSFactorIndexList::empty_ref(),
-                    C.base_ring().len() - self.pre_bootstrap_rns_factors,
-                    gk_digits
-                );
-                to_drop.subtract(&special_modulus)
-            };
-            let C_input = RingValue::from(C.get_ring().drop_rns_factor(&input_dropped_rns_factors));
+            let C_input = self.coeffs_to_slots_ciphertext_ring();
             let ct_input = Params::mod_switch_ct(P_base, &C_input, C, ct);
-            let sk_input = debug_sk.map(|sk| C_input.get_ring().drop_rns_factor_element(C.get_ring(), &input_dropped_rns_factors, &sk));
-            // if let Some(sk) = &sk_input {
-            //     Params::dec_println_slots(P_base, &C_input, &ct_input, sk, None);
-            // }
+            let C_to_C_input_drop_factors = RNSFactorIndexList::missing_from(C_input.base_ring(), C.base_ring());
+            let sk_input = debug_sk.map(|sk| C_input.get_ring().drop_rns_factor_element(C.get_ring(), &C_to_C_input_drop_factors, &sk));
+            if let Some(sk) = &sk_input {
+                Params::dec_println_slots(P_base, &C_input, &ct_input, sk, None);
+            }
 
             let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[key_switches]| {
                 let galois_group = P_base.acting_galois_group();
                 let modswitched_gks = self.slots_to_coeffs_thin.required_galois_keys(&galois_group).iter().map(|g| {
                     if let Some((_, gk)) = gks.iter().filter(|(provided_g, _)| galois_group.eq_el(g, provided_g)).next() {
                         (g.clone(), (
-                            gk.0.clone(C.get_ring()).modulus_switch(C_input.get_ring(), &input_dropped_rns_factors, C.get_ring()),
-                            gk.1.clone(C.get_ring()).modulus_switch(C_input.get_ring(), &input_dropped_rns_factors, C.get_ring()), 
+                            gk.0.clone(C.get_ring()).modulus_switch(C_input.get_ring(), &C_to_C_input_drop_factors, C.get_ring()),
+                            gk.1.clone(C.get_ring()).modulus_switch(C_input.get_ring(), &C_to_C_input_drop_factors, C.get_ring()), 
                         ))
                     } else {
                         panic!("missing galois key for {}", galois_group.underlying_ring().format(galois_group.as_ring_el(g)))
                     }
                 }).collect::<Vec<_>>();
-                let result = self.slots_to_coeffs_thin.evaluate_bfv::<Params, _>(P_base, P_base, &C_input, None, std::slice::from_ref(&ct_input), None, &modswitched_gks, key_switches, None);
+                let result = self.slots_to_coeffs_thin.evaluate_bfv::<Params, _>(
+                    &self.slots_to_coeffs_plaintext_ring, 
+                    P_base, 
+                    &C_input, 
+                    None, 
+                    std::slice::from_ref(&ct_input), 
+                    None, 
+                    &modswitched_gks, 
+                    key_switches, 
+                    None
+                );
                 assert_eq!(1, result.len());
                 return result.into_iter().next().unwrap();
             });
@@ -389,16 +497,20 @@ impl<Params> ThinBootstrapData<Params>
                 Params::dec_println(P_base, &C_input, &values_in_coefficients, sk);
             }
 
-            let P_main = self.plaintext_ring_hierarchy.last().unwrap();
+            let P_main = self.intermediate_plaintext_ring();
             assert_el_eq!(ZZbig, ZZbig.pow(self.p(), self.e()), int_cast(ZZ.clone_el(P_main.base_ring().modulus()), ZZbig, ZZ));
 
             let noisy_decryption = if let Some(sk_encaps_data) = sk_encaps_data {
                 let ct_with_sparse_key = log_time::<_, _, LOG, _>("2.1. Switching to sparse key", |[]| {
-                    let ct_modswitched = Params::mod_switch_ct(&P_base, &sk_encaps_data.C_switch_to_sparse, &C_input, values_in_coefficients);
-                    Params::key_switch(&sk_encaps_data.C_switch_to_sparse, ct_modswitched, &sk_encaps_data.switch_to_sparse_key)
+                    let ct_modswitched = Params::mod_switch_ct(&P_base, &sk_encaps_data.C_sparse_sk, &C_input, values_in_coefficients);
+                    Params::key_switch(&sk_encaps_data.C_sparse_sk, ct_modswitched, &sk_encaps_data.switch_to_sparse_key)
                 });
+                if let Some(sk) = &debug_sk {
+                    Params::dec_println(P_base, &sk_encaps_data.C_sparse_sk, &ct_with_sparse_key, &Params::mod_switch_sk(P_base, &sk_encaps_data.C_sparse_sk, C, sk));
+                }
+
                 log_time::<_, _, LOG, _>("2.2. Computing noisy decryption c0 + c1 * s", |[]| {
-                    let (c0, c1) = Params::mod_switch_to_plaintext(P_main, &sk_encaps_data.C_switch_to_sparse, ct_with_sparse_key);
+                    let (c0, c1) = Params::mod_switch_to_plaintext(P_main, &sk_encaps_data.C_sparse_sk, ct_with_sparse_key);
                     return Params::hom_add_plain(P_main, C, &c0, Params::hom_mul_plain(P_main, C, &c1, Params::clone_ct(C, &sk_encaps_data.encapsulated_key)));
                 })
             } else {
@@ -413,7 +525,17 @@ impl<Params> ThinBootstrapData<Params>
             }
 
             let noisy_decryption_in_slots = log_time::<_, _, LOG, _>("3. Computing Coeffs-to-Slots transform", |[key_switches]| {
-                let result = self.coeffs_to_slots_thin.evaluate_bfv::<Params, _>(P_main, P_main, C, None, std::slice::from_ref(&noisy_decryption), None, gks, key_switches, None);
+                let result = self.coeffs_to_slots_thin.evaluate_bfv::<Params, _>(
+                    &self.intermediate_plaintext_ring, 
+                    P_main, 
+                    C,
+                    None, 
+                    std::slice::from_ref(&noisy_decryption), 
+                    None, 
+                    gks, 
+                    key_switches, 
+                    None
+                );
                 assert_eq!(1, result.len());
                 return result.into_iter().next().unwrap();
             });
@@ -424,10 +546,70 @@ impl<Params> ThinBootstrapData<Params>
             let result = log_time::<_, _, LOG, _>("4. Performing digit extraction", |[key_switches]| {
                 let rounding_divisor_half = P_main.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(self.p(), self.v()), &ZZbig.int_hom().map(2)));
                 let digit_extraction_input = Params::hom_add_plain(P_main, C, &P_main.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots);
-                self.digit_extract.evaluate_bfv::<Params>(P_base, &self.plaintext_ring_hierarchy, C, C_mul, digit_extraction_input, rk, key_switches, debug_sk).0
+                self.digit_extract.evaluate_bfv::<Params>(P_base, &self.plaintext_ring_hierarchy, P_main, C, C_mul, digit_extraction_input, rk, key_switches, debug_sk).0
             });
             return result;
         })
+    }
+}
+
+///
+/// Data required for performing thin bootstrapping with sparse key encapsulation.
+/// 
+/// Sparse key encapsulation refers to key-switching a ciphertext to a sparse secret key
+/// just before homomorphic decryption (which happens at a very low ciphertext modulus,
+/// which can offset the security loss due to key sparsity), and thus introduce much less
+/// noise that has to be homomorphically removed.
+/// 
+pub struct SparseKeyEncapsulationKey<Params: BFVInstantiation> {
+    ///
+    /// Ciphertext ring with small modulus, over which encryptions with the
+    /// sparse key remain secure.
+    /// 
+    pub C_sparse_sk: CiphertextRing<Params>,
+    ///
+    /// Key-switch key to switch a ciphertext encrypted by the standard key
+    /// to a ciphertext encrypted by the sparse key.
+    /// 
+    /// This is defined w.r.t. the switch-to-sparse ciphertext ring, which has
+    /// a significantly smaller modulus than the standard ciphertext ring. This
+    /// is necessary for security.
+    /// 
+    pub switch_to_sparse_key: KeySwitchKey<Params>,
+    ///
+    /// An encryption of the sparse secret key (mapped into the plaintext ring
+    /// by taking a shortest lift to `R`) w.r.t. the standard secret key.
+    /// 
+    pub encapsulated_key: Ciphertext<Params>
+}
+
+impl<Params> SparseKeyEncapsulationKey<Params>
+    where Params: BFVInstantiation, 
+        Params::PlaintextRing: AsBFVPlaintext<Params>
+{
+    pub fn create<R: CryptoRng + Rng>(P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_sparse_sk: CiphertextRing<Params>, sparse_sk: SecretKey<Params>, standard_sk: &SecretKey<Params>, mut rng: R, noise_sigma: f64) -> Self {
+        let switch_to_sparse_key = Params::gen_switch_key(
+            &C_sparse_sk, 
+            &mut rng,
+            &Params::mod_switch_sk(P, &C_sparse_sk, C, standard_sk),
+            &sparse_sk,
+            &RNSGadgetVectorDigitIndices::select_digits(C_sparse_sk.base_ring().len(), C_sparse_sk.base_ring().len()),
+            noise_sigma
+        );
+        let ZZ_to_Pbase = P.base_ring().can_hom(P.base_ring().integer_ring()).unwrap().compose(P.base_ring().integer_ring().can_hom(&ZZbig).unwrap());
+        let sparse_sk_as_plain = P.from_canonical_basis(C_sparse_sk.wrt_canonical_basis(&sparse_sk).iter().map(|x| ZZ_to_Pbase.map(C_sparse_sk.base_ring().smallest_lift(x))));
+        let encapsulated_key = Params::enc_sym(P, C, &mut rng, &sparse_sk_as_plain, standard_sk, noise_sigma);
+        SparseKeyEncapsulationKey { 
+            switch_to_sparse_key: switch_to_sparse_key, 
+            encapsulated_key: encapsulated_key,
+            C_sparse_sk: C_sparse_sk
+        }
+    }
+
+    pub fn new<R: CryptoRng + Rng>(P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, standard_sk: &SecretKey<Params>, C_sparse_rns_factor_count: usize, hwt: usize, mut rng: R, noise_sigma: f64) -> Self {
+        let C_sparse_sk = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(C_sparse_rns_factor_count..C.base_ring().len(), C.base_ring().len())));
+        let sparse_sk = Params::gen_sk(&C_sparse_sk, &mut rng, SecretKeyDistribution::SparseWithHwt(hwt));
+        return Self::create(P, C, C_sparse_sk, sparse_sk, standard_sk, rng, noise_sigma);
     }
 }
 
@@ -441,27 +623,29 @@ impl DigitExtract {
     /// 
     pub fn evaluate_bfv<Params: BFVInstantiation>(&self, 
         P_base: &PlaintextRing<Params>, 
-        P: &[PlaintextRing<Params>], 
+        P_intermediate: &[PlaintextRing<Params>], 
+        P_main: &PlaintextRing<Params>,
         C: &CiphertextRing<Params>, 
         C_mul: &CiphertextRing<Params>, 
         input: Ciphertext<Params>, 
         rk: &RelinKey<Params>,
         key_switches: &mut usize,
         debug_sk: Option<&SecretKey<Params>>
-    ) -> (Ciphertext<Params>, Ciphertext<Params>)
-        where DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
-    {
+    ) -> (Ciphertext<Params>, Ciphertext<Params>) {
         let ZZ = P_base.base_ring().integer_ring();
         let (p, actual_r) = is_prime_power(ZZ, P_base.base_ring().modulus()).unwrap();
-        assert_el_eq!(ZZbig, self.p(), int_cast(ZZ.clone_el(&p), ZZbig, ZZ));
         assert!(actual_r >= self.r());
-        for i in 0..(self.e() - self.r()) {
-            assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), actual_r + i + 1), int_cast(ZZ.clone_el(P[i].base_ring().modulus()), ZZbig, ZZ));
+        assert_eq!(self.e() - self.r() - 1, P_intermediate.len());
+        assert_el_eq!(ZZbig, self.p(), int_cast(ZZ.clone_el(&p), ZZbig, ZZ));
+        for i in 0..(self.e() - self.r() - 1) {
+            assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), actual_r + i + 1), int_cast(ZZ.clone_el(P_intermediate[i].base_ring().modulus()), ZZbig, ZZ));
         }
         let get_P = |exp: usize| if exp == self.r() {
             P_base
+        } else if exp == self.e() {
+            P_main
         } else {
-            &P[exp - self.r() - 1]
+            &P_intermediate[exp - self.r() - 1]
         };
         let result = self.evaluate_generic(
             input,
@@ -496,25 +680,17 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
     // 8 slots of rank 16
     let params = Pow2BFV::new(1 << 8);
     let t = 17;
-    let digits = 3;
-    let bootstrap_params = ThinBootstrapParams {
-        scheme_params: params.clone(),
-        v: 2,
-        B: None,
-        t: int_cast(t, ZZbig, ZZi64),
-        pre_bootstrap_rns_factors: 2
-    };
-    let bootstrapper = bootstrap_params.build_pow2::<true>(Some("."));
-    
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
+    let digits = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, &digits, Some("."));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &digits, 3.2);
         (g, gk)
     }).collect::<Vec<_>>();
-    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &digits, 3.2);
     
     let m = P.int_hom().map(2);
     let ct = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
@@ -541,25 +717,17 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
     // 4 slots of rank 32
     let params = Pow2BFV::new(1 << 8);
     let t = 23;
-    let digits = 3;
-    let bootstrap_params = ThinBootstrapParams {
-        scheme_params: params.clone(),
-        v: 2,
-        B: None,
-        t: int_cast(t, ZZbig, ZZi64),
-        pre_bootstrap_rns_factors: 2
-    };
-    let bootstrapper = bootstrap_params.build_pow2::<true>(Some("."));
-    
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
+    let digits = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, &digits, Some("."));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &digits, 3.2);
         (g, gk)
     }).collect::<Vec<_>>();
-    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &digits, 3.2);
     
     let m = P.int_hom().map(2);
     let ct = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
@@ -583,28 +751,18 @@ fn test_pow2_bfv_thin_bootstrapping_sparse_key_encapsulation() {
     
     let params = Pow2BFV::new(1 << 8);
     let t = 17;
-    let digits = 3;
-    let bootstrap_params = ThinBootstrapParams {
-        scheme_params: params.clone(),
-        v: 2,
-        B: None,
-        t: int_cast(t, ZZbig, ZZi64),
-        pre_bootstrap_rns_factors: 2
-    };
-    let bootstrapper = bootstrap_params.build_pow2::<true>(Some("."));
-    
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
+    let digits = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, &digits, Some("."));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &digits, 3.2);
         (g, gk)
     }).collect::<Vec<_>>();
-    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
-    let sparse_sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(16));
-    let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(RNSFactorIndexList::from_ref(&[0, 3, 4], C.base_ring().len())));
-    let encaps = SparseKeyEncapsulationData::create(bootstrapper.plaintext_ring_hierarchy.last().unwrap(), &C, C_switch_to_sparse, sparse_sk, &sk, &mut rng, 3.2);
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &digits, 3.2);
+    let encaps = SparseKeyEncapsulationKey::new(bootstrapper.intermediate_plaintext_ring(), &C, &sk, 2, 16, &mut rng, 3.2);
 
     let m = P.int_hom().map(2);
     let ct = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
@@ -628,25 +786,18 @@ fn test_composite_bfv_thin_bootstrapping_2() {
     
     let params = CompositeBFV::new(31, 11);
     let t = 8;
-    let digits = 3;
-    let bootstrap_params = ThinBootstrapParams {
-        scheme_params: params.clone(),
-        v: 9,
-        B: None,
-        t: int_cast(t, ZZbig, ZZi64),
-        pre_bootstrap_rns_factors: 2
-    };
-    let bootstrapper = bootstrap_params.build_odd::<true>(Some("."));
     
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(685..700);
+    let digits = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
+    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C, 9, None, &digits, Some("."));
     
     let sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = CompositeBFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        let gk = CompositeBFV::gen_gk(&C, &mut rng, &sk, &g, &digits, 3.2);
         (g, gk)
     }).collect::<Vec<_>>();
-    let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+    let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, &digits, 3.2);
     
     let m = P.int_hom().map(2);
     let ct = CompositeBFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
@@ -679,7 +830,7 @@ fn test_digit_extract_homomorphic() {
     let ct = Pow2BFV::enc_sym(&P2, &C, &mut rng, &m, &sk, 3.2);
 
     let digitextract = DigitExtract::new_default(17, 2, 1);
-    let (ct_high, ct_low) = digitextract.evaluate_bfv::<Pow2BFV>(&P1, std::slice::from_ref(&P2), &C, &C_mul, ct, &rk, &mut 0, Some(&sk));
+    let (ct_high, ct_low) = digitextract.evaluate_bfv::<Pow2BFV>(&P1, &[], &P2, &C, &C_mul, ct, &rk, &mut 0, Some(&sk));
     let m_high = Pow2BFV::dec(&P1, &C, Pow2BFV::clone_ct(&C, &ct_high), &sk);
     assert!(P1.wrt_canonical_basis(&m_high).iter().skip(1).all(|x| P1.base_ring().is_zero(&x)));
     let m_high = P1.base_ring().smallest_positive_lift(P1.wrt_canonical_basis(&m_high).at(0));
@@ -702,28 +853,19 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
     
     let params = CompositeBFV::new(37, 949);
     let t = 4;
-    let digits = 7;
-    let bootstrap_params = ThinBootstrapParams {
-        scheme_params: params.clone(),
-        v: 6,
-        B: None,
-        t: int_cast(t, ZZbig, ZZi64),
-        pre_bootstrap_rns_factors: 2
-    };
-    let bootstrapper = bootstrap_params.build_odd::<true>(Some("."));
-    
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
+    let gk_digits = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
+    let rk_digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
+    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C, 6, None, &gk_digits, Some("."));
     
     let sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = CompositeBFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        let gk = CompositeBFV::gen_gk(&C, &mut rng, &sk, &g, &gk_digits, 3.2);
         (g, gk)
     }).collect::<Vec<_>>();
-    let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
-    let sparse_sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
-    let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(2..C.base_ring().len(), C.base_ring().len())));
-    let sparse_sk_encapsulation_data = SparseKeyEncapsulationData::create(bootstrapper.intermediate_plaintext_ring(), &C, C_switch_to_sparse, sparse_sk, &sk, &mut rng, 3.2);
+    let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, &rk_digits, 3.2);
+    let encaps = SparseKeyEncapsulationKey::new(bootstrapper.intermediate_plaintext_ring(), &C, &sk, 2, 32, &mut rng, 3.2);
 
     let m = P.int_hom().map(2);
     let ct = CompositeBFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
@@ -734,7 +876,7 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
         ct, 
         &rk, 
         &gk,
-        Some(&sparse_sk_encapsulation_data),
+        Some(&encaps),
         None
     );
 
@@ -753,28 +895,19 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping() {
     
     let params = Pow2BFV::new(1 << 16);
     let t = 257;
-    let digits = 7;
-    let bootstrap_params = ThinBootstrapParams {
-        scheme_params: params.clone(),
-        v: 1,
-        B: Some(5),
-        t: int_cast(t, ZZbig, ZZi64),
-        pre_bootstrap_rns_factors: 6
-    };
-    let bootstrapper = bootstrap_params.build_pow2::<true>(Some("."));
-    
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
+    let gk_digits = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
+    let rk_digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 1, Some(6), &gk_digits, Some("."));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &gk_digits, 3.2);
         (g, gk)
     }).collect::<Vec<_>>();
-    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
-    let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(2..C.base_ring().len(), C.base_ring().len())));
-    let sparse_sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(32));
-    let sparse_sk_encapsulation_data = SparseKeyEncapsulationData::create(bootstrapper.intermediate_plaintext_ring(), &C, C_switch_to_sparse, sparse_sk, &sk, &mut rng, 3.2);
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &rk_digits, 3.2);
+    let encaps = SparseKeyEncapsulationKey::new(bootstrapper.intermediate_plaintext_ring(), &C, &sk, 2, 32, &mut rng, 3.2);
 
     let m = P.int_hom().map(2);
     let ct = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
@@ -785,8 +918,8 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping() {
         ct, 
         &rk, 
         &gk,
-        Some(&sparse_sk_encapsulation_data),
-        Some(&sk)
+        Some(&encaps),
+        None
     );
 
     println!("final noise budget: {}", Pow2BFV::noise_budget(&P, &C, &res_ct, &sk));
@@ -804,28 +937,19 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     
     let params = CompositeSingleRNSBFV::new(37, 949);
     let t = 4;
-    let bootstrap_params = ThinBootstrapParams {
-        scheme_params: params.clone(),
-        v: 6,
-        B: None,
-        t: int_cast(t, ZZbig, ZZi64),
-        pre_bootstrap_rns_factors: 2
-    };
-    let bootstrapper = bootstrap_params.build_odd::<true>(Some("."));
-    
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
-    let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
+    let gk_digits = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
+    let rk_digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
+    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C, 6, None, &gk_digits, Some("."));
     
     let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, &g, &key_switch_params, 3.2);
+        let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, &g, &gk_digits, 3.2);
         return (g, gk);
     }).collect::<Vec<_>>();
-    let rk = CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, &key_switch_params, 3.2);
-    let sparse_sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
-    let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(2..C.base_ring().len(), C.base_ring().len())));
-    let sparse_sk_encapsulation_data = SparseKeyEncapsulationData::create(bootstrapper.intermediate_plaintext_ring(), &C, C_switch_to_sparse, sparse_sk, &sk, &mut rng, 3.2);
+    let rk = CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, &rk_digits, 3.2);
+    let encaps = SparseKeyEncapsulationKey::new(bootstrapper.intermediate_plaintext_ring(), &C, &sk, 2, 32, &mut rng, 3.2);
 
     let m = P.int_hom().map(2);
     let ct = CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
@@ -836,7 +960,7 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
         ct, 
         &rk, 
         &gk,
-        Some(&sparse_sk_encapsulation_data),
+        Some(&encaps),
         None
     );
 

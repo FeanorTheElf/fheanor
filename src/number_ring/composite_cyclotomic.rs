@@ -4,6 +4,7 @@ use std::fmt::{Debug, Formatter};
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::eea::{signed_eea, signed_gcd, signed_lcm};
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
+use feanor_math::algorithms::int_factor::factor;
 use feanor_math::integer::*;
 use feanor_math::rings::poly::*;
 use feanor_math::divisibility::*;
@@ -19,6 +20,7 @@ use tracing::instrument;
 
 use crate::number_ring::galois::*;
 use crate::number_ring::general_cyclotomic::*;
+use crate::ZZi64;
 use crate::number_ring::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 
@@ -30,7 +32,9 @@ use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 pub struct CompositeCyclotomicNumberRing<L: AbstractNumberRing = OddSquarefreeCyclotomicNumberRing, R: AbstractNumberRing = OddSquarefreeCyclotomicNumberRing> {
     left_factor: L,
     right_factor: R,
-    joint_galois_group: CyclotomicGaloisGroup
+    joint_galois_group: CyclotomicGaloisGroup,
+    powinf_to_coeffinf_expansion: f64,
+    coeffinf_to_powinf_expansion: f64
 }
 
 impl CompositeCyclotomicNumberRing {
@@ -51,7 +55,9 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> CompositeCyclotomicNumberRing
         Self {
             joint_galois_group: CyclotomicGaloisGroupBase::new(m1 * m2),
             left_factor: left,
-            right_factor: right
+            right_factor: right,
+            powinf_to_coeffinf_expansion: compute_powinf_to_coeffinf_expansion(m1 as i64 * m2 as i64),
+            coeffinf_to_powinf_expansion: compute_coeffinf_to_powinf_expansion(m1 as i64 * m2 as i64)
         }
     }
 
@@ -66,6 +72,23 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> CompositeCyclotomicNumberRing
     pub fn m(&self) -> u64 {
         self.m1() * self.m2()
     }
+
+    ///
+    /// Returns a bound on
+    /// ```text
+    ///   sup_(x, y in R \ {0}) | xy |_powinf / (|x|_powinf |y|_powinf)
+    /// ```
+    /// where `|x|_powinf` is the infinity norm w.r.t. the powerful
+    /// basis representation.
+    /// 
+    /// Note that the powerful basis means the tensor product of the coefficient
+    /// bases of all prime-power cyclotomic subfields. This is not always the
+    /// same as the small basis! (it is if both `left` and `right` are prime
+    /// power cyclotomics)
+    /// 
+    fn powinf_basis_product_expansion_factor(&self) -> f64 {
+        self.m() as f64 * 2f64.powi(factor(ZZi64, self.m() as i64).len() as i32)
+    }
 }
 
 impl<L: AbstractNumberRing, R: AbstractNumberRing> Clone for CompositeCyclotomicNumberRing<L, R> {
@@ -75,6 +98,8 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> Clone for CompositeCyclotomic
             joint_galois_group: self.joint_galois_group.clone(),
             left_factor: self.left_factor.clone(),
             right_factor: self.right_factor.clone(),
+            powinf_to_coeffinf_expansion: self.powinf_to_coeffinf_expansion,
+            coeffinf_to_powinf_expansion: self.coeffinf_to_powinf_expansion
         }
     }
 }
@@ -97,6 +122,28 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
 
     type NumberRingQuotientBases = CompositeCyclotomicNumberRingQuotientBases<L::NumberRingQuotientBases, R::NumberRingQuotientBases>;
 
+    fn small_basis_product_expansion_factor(&self) -> f64 {
+        // We use the tensor-product compatibility of the tensor product.
+        // Write `|x|` for the linf norm of `x` when represented in the small basis.
+        // Let `L` and `R` be the left resp. right tensor product factor of this number
+        // ring. Then `L` has a small basis `e_1, ..., e_l`. Every element of `L ⊗ R`
+        // has a unique representation as `sum_i e_i ⊗ a_i` for elements `a_i` in `R`.
+        // We have
+        // ```text
+        //   |(sum_i e_i ⊗ a_i)(sum_j e_j ⊗ a'_j)| <= sum_(i,j) |e_i e_j ⊗ a_i a'_j|
+        //     =  sum_(i, j) |e_i e_j| |a_i a'_j|
+        //     <= sum_(i, j) f_L f_R |a_i| |a'_j|
+        //     = f_L f_R (sum_i |a_i|)(sum_j |a'_j|)
+        //     = f_L f_R |sum_i e_i ⊗ a_i| |sum_j e_j ⊗ a_j|
+        // ```
+        self.left_factor.small_basis_product_expansion_factor() * self.right_factor.small_basis_product_expansion_factor()
+    }
+
+    fn coeff_basis_product_expansion_factor(&self) -> f64 {
+        // see the argument in general_cyclotomic
+        self.coeffinf_to_powinf_expansion * self.coeffinf_to_powinf_expansion * self.powinf_basis_product_expansion_factor() * self.powinf_to_coeffinf_expansion
+    }
+
     fn bases_mod_p(&self, Fp: Zn) -> Self::NumberRingQuotientBases {
         let r1 = self.left_factor.rank() as i64;
         let r2 = self.right_factor.rank() as i64;
@@ -114,15 +161,15 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
         let (s, t, d) = signed_eea(m1, m2, StaticRing::<i64>::RING);
         assert_eq!(1, d);
 
-        // the main task is to create a sparse representation of the two matrices that
-        // represent the conversion from powerful basis to coefficient basis and back;
-        // everything else is done by `SquarefreeCyclotomicNumberRing::mod_p()`
+        // the main task is to create a sparse representation of the matrix that
+        // represent the conversion from coefficient basis to the tensor product of the
+        // coefficient bases; everything else is done by `SquarefreeCyclotomicNumberRing::mod_p()`
 
         // it turns out to be no problem to store this matrix, using a sparse representation;
-        // however, the small_to_coeff_conversion_matrix turns has columns that often have
-        // close to `m` nonzero entries (instead of just `m1` resp. `m2`), and can thus take
+        // however, the reverse transform matrix has columns that often have close to `m`
+        // nonzero entries (instead of just `m1` resp. `m2`), and can thus take
         // significant time and space; hence, we instead use the cyclotomic poly reducer
-        let mut coeff_to_small_conversion_matrix = (0..(r1 * r2)).map(|_| Vec::new()).collect::<Vec<_>>();
+        let mut coeff_to_tensorcoeff_conversion_matrix = (0..(r1 * r2)).map(|_| Vec::new()).collect::<Vec<_>>();
 
         for i in 0..(r1 * r2) {
 
@@ -132,8 +179,8 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
 
             let X1_power_reduced = poly_ring.div_rem_monic(poly_ring.pow(poly_ring.indeterminate(), i1 as usize), &Phi_m1).1;
             let X2_power_reduced = poly_ring.div_rem_monic(poly_ring.pow(poly_ring.indeterminate(), i2 as usize), &Phi_m2).1;
-                
-            coeff_to_small_conversion_matrix[i as usize] = poly_ring.terms(&X1_power_reduced).flat_map(|(c1, j1)| poly_ring.terms(&X2_power_reduced).map(move |(c2, j2)| 
+
+            coeff_to_tensorcoeff_conversion_matrix[i as usize] = poly_ring.terms(&X1_power_reduced).flat_map(|(c1, j1)| poly_ring.terms(&X2_power_reduced).map(move |(c2, j2)| 
                 (j1 + j2 * r1 as usize, hom_ref.map(poly_ring.base_ring().mul_ref(c1, c2))
             ))).collect::<Vec<_>>();
         }
@@ -141,7 +188,7 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
         let cyclotomic_poly_reducer = CyclotomicPolyReducer::new(Fp, m as u64, STANDARD_CONVOLUTION);
 
         CompositeCyclotomicNumberRingQuotientBases {
-            coeff_to_small_conversion_matrix: coeff_to_small_conversion_matrix,
+            coeff_to_tensorcoeff_conversion_matrix: coeff_to_tensorcoeff_conversion_matrix,
             cyclotomic_poly_reducer: cyclotomic_poly_reducer,
             left_factor: self.left_factor.bases_mod_p(Fp.clone()),
             right_factor: self.right_factor.bases_mod_p(Fp),
@@ -152,14 +199,6 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
 
     fn mod_p_required_root_of_unity(&self) -> u64 {
         signed_lcm(self.left_factor.mod_p_required_root_of_unity().try_into().unwrap(), self.right_factor.mod_p_required_root_of_unity().try_into().unwrap(), StaticRing::<i64>::RING).try_into().unwrap()
-    }
-
-    fn inf_to_can_norm_expansion_factor(&self) -> f64 {
-        self.left_factor.inf_to_can_norm_expansion_factor() * self.right_factor.inf_to_can_norm_expansion_factor()
-    }
-
-    fn can_to_inf_norm_expansion_factor(&self) -> f64 {
-        self.left_factor.can_to_inf_norm_expansion_factor() * self.right_factor.can_to_inf_norm_expansion_factor()
     }
 
     fn generating_poly<P>(&self, poly_ring: P) -> El<P>
@@ -180,13 +219,21 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
 }
 
 ///
+/// The [`NumberRingQuotientBases`] for [`CompositeCyclotomicNumberRing`].
+/// 
 /// The small basis is given by 
 /// ```text
-///   1 ⊗ 1,            𝝵1 ⊗ 1,            𝝵1^2 ⊗ 1,           ...,  𝝵1^(m1 - 1) ⊗ 1,
-///   1 ⊗ 𝝵2,           𝝵1 ⊗ 𝝵2,           𝝵1^2 ⊗ 𝝵2,          ...,  𝝵1^(m1 - 1) ⊗ 𝝵2,
+///   e1 ⊗ e1',           e2 ⊗ e1',           e3 ⊗ e1',           ...,  e(m1 - 1) ⊗ e1',
+///   e1 ⊗ e2',           e2 ⊗ e2',           e3 ⊗ e2',           ...,  e(m1 - 1) ⊗ e2',
 ///   ...
-///   1 ⊗ 𝝵2^(m2 - 1),  𝝵1 ⊗ 𝝵2^(m2 - 1),  𝝵1^2 ⊗ 𝝵2^(m2 - 1), ...,  𝝵1^(m1 - 1) ⊗ 𝝵2^(m2 - 1)
+///   e1 ⊗ e(m2 - 1)',    e2 ⊗ e(m2 - 1)',    e3 ⊗ e(m2 - 1)',    ...,  e(m1 - 1) ⊗ e(m2 - 1)'
 /// ```
+/// where `e1, ..., e(m1 - 1)` and `e1', ..., e(m2 - 1)'` are the small bases of
+/// `left` and `right`, respectively.
+/// 
+/// In particular, this is the powerful basis if `m1` and `m2` are prime, and
+/// `left` and `right` use the coefficient basis as small basis.
+/// Otherwise, it is somewhere between coefficient and powerful basis.
 /// 
 pub struct CompositeCyclotomicNumberRingQuotientBases<L, R, A = Global> 
     where L: NumberRingQuotientBases,
@@ -198,7 +245,7 @@ pub struct CompositeCyclotomicNumberRingQuotientBases<L, R, A = Global>
     right_factor: R,
     // the `i`-th entry is none if the `i`-th small basis vector equals the `i`-th coeff basis vector,
     // and otherwise, it contains the coeff basis representation of the `i`-th small basis vector
-    coeff_to_small_conversion_matrix: Vec<Vec<(usize, ZnEl)>>,
+    coeff_to_tensorcoeff_conversion_matrix: Vec<Vec<(usize, ZnEl)>>,
     cyclotomic_poly_reducer: CyclotomicPolyReducer<Zn>,
     joint_galois_group: CyclotomicGaloisGroup
 }
@@ -253,7 +300,7 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
         let mut result = Vec::with_capacity_in(self.rank(), &self.allocator);
         result.resize_with(self.rank(), || self.base_ring().zero());
         for i in 0..self.rank() {
-            for (j, c) in &self.coeff_to_small_conversion_matrix[i] {
+            for (j, c) in &self.coeff_to_tensorcoeff_conversion_matrix[i] {
                 self.base_ring().add_assign(&mut result[*j], self.base_ring().mul_ref(data.at(i), c));
             }
         }

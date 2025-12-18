@@ -31,8 +31,8 @@ use super::RNSOperation;
 /// unless the shortest lift of the input is bounded by `Q/4`, in which case the result
 /// is always correct.
 /// 
-/// This has been deprecated, use [`crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion`]
-/// instead, which has the same functionality and much better performance.
+/// This has been deprecated, use [`AlmostExactMatrixBaseConversion`] instead, which has 
+/// the same functionality and much better performance.
 /// 
 /// # Implementation
 /// 
@@ -42,6 +42,8 @@ use super::RNSOperation;
 ///   lift(x) = sum_q lift(x * q/Q mod q) * Q/q
 /// ```
 /// modulo some `q'`.
+/// 
+/// [`AlmostExactMatrixBaseConversion`]: crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion
 /// 
 #[deprecated]
 pub struct AlmostExactBaseConversion<A = Global>

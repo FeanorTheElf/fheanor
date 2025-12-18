@@ -16,10 +16,10 @@ use crate::ciphertext_ring::indices::RNSFactorIndexList;
 /// ```
 /// for a list of digits `digits` and `p0, ..., p(rns_len - 1)` being the RNS factors.
 /// 
-/// This trait (and many other components in Fheanor) currently do not support
-/// digits that are not a contiguous range of indices. More concretely, it would make
-/// sense to decompose `0..6` into digits as `{0, 2, 3}, {1, 4, 5}`, but this is not
-/// supported. The reason is that this allows us to take slices of data corresponding
+/// This trait currently do not support digits that are not a contiguous
+/// range of indices. More concretely, it would make sense to decompose 
+/// `0..6` into digits as `{0, 2, 3}, {1, 4, 5}`, but this is not supported. 
+/// The reason is that this allows us to take slices of data corresponding
 /// to RNS factors, and get only the data corresponding to a single digit (hence avoid
 /// copying the data around).
 /// 

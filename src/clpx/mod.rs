@@ -329,7 +329,7 @@ pub trait CLPXInstantiation {
         let noise = C.sub(noisy_m, best_repr);
         let noise_coeffs = C.wrt_canonical_basis(&noise);
         let log2_size_of_noise: usize = (0..C.rank()).map(|i| C.base_ring().integer_ring().abs_log2_ceil(&C.base_ring().smallest_lift(noise_coeffs.at(i))).unwrap_or(0)).max().unwrap();
-        let log2_can_norm_t_estimate = P.get_ring().ZZX().terms(P.get_ring().t()).map(|(c, _)| ZZbig.abs_log2_ceil(c).unwrap()).max().unwrap() + C.number_ring().inf_to_can_norm_expansion_factor().log2().ceil() as usize;
+        let log2_can_norm_t_estimate = P.get_ring().ZZX().terms(P.get_ring().t()).map(|(c, _)| ZZbig.abs_log2_ceil(c).unwrap()).max().unwrap() + C.number_ring().small_basis_product_expansion_factor().log2().ceil() as usize;
         return ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap().saturating_sub(log2_size_of_noise + log2_can_norm_t_estimate);
     }
 
@@ -371,8 +371,8 @@ pub trait CLPXInstantiation {
             let mut payload = C.clone_el(&old_sk);
             C.inclusion().mul_assign_ref_map(&mut payload, &factor);
             C.add_assign_ref(&mut payload, &c0);
-            res0.set_rns_factor(C.get_ring(), i, payload);
-            res1.set_rns_factor(C.get_ring(), i, c1);
+            res0.set_component(C.get_ring(), i, payload);
+            res1.set_component(C.get_ring(), i, c1);
         }
         return (res0, res1);
     }
@@ -528,6 +528,8 @@ pub trait CLPXInstantiation {
     /// You can achieve the same effect by manually modulus-switching ciphertext to a higher
     /// modulus before calling `hom_galois()`.
     /// 
+    /// [`BFVInstantiation::hom_galois()`]: crate::bfv::BFVInstantiation::hom_galois()
+    /// 
     #[instrument(skip_all)]
     fn hom_galois_many<'b, V>(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[GaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
         where V: VectorFn<&'b KeySwitchKey<Self>>,
@@ -616,7 +618,7 @@ impl<A: Allocator + Clone , C: ForRingCreatableNegacyclicNTT<Zn>> CLPXInstantiat
         let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
         let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
 
-        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.product_expansion_factor().log2().ceil() as usize + log2_t_can_bound;
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.small_basis_product_expansion_factor().log2().ceil() as usize + log2_t_can_bound;
         let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
@@ -651,7 +653,7 @@ impl<A: Allocator + Clone > CLPXInstantiation for CompositeCLPX<A> {
         let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
         let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
 
-        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.product_expansion_factor().log2().ceil() as usize + log2_t_can_bound;
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.small_basis_product_expansion_factor().log2().ceil() as usize + log2_t_can_bound;
         let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 

@@ -426,6 +426,36 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     }
 
     #[instrument(skip_all)]
+    pub fn as_representation_wrt_small_generating_set_non_fft<V>(&self, x: &SmallBasisEl<NumberRing, A>, output: SubmatrixMut<V, ZnEl>)
+        where V: AsPointerToSlice<ZnEl>
+    {
+        assert_eq!(output.row_count(), self.base_ring().len());
+        assert_eq!(self.small_generating_set_len(), output.col_count());
+
+        for (dst, src) in output.row_iter().zip(self.as_matrix_wrt_small_basis(&x).row_iter()) {
+            dst.copy_from_slice(src);
+        }
+    }
+
+    #[instrument(skip_all)]
+    pub fn from_representation_wrt_small_generating_set_non_fft<V>(&self, data: Submatrix<V, ZnEl>) -> SmallBasisEl<NumberRing, A>
+        where V: AsPointerToSlice<ZnEl>
+    {
+        assert_eq!(data.row_count(), self.base_ring().len());
+        assert_eq!(self.small_generating_set_len(), data.col_count());
+
+        let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
+        for src in data.row_iter() {
+            result.extend(src.iter().copied());
+        }
+        return SmallBasisEl {
+            allocator: PhantomData,
+            el_wrt_small_basis: result,
+            number_ring: PhantomData
+        };
+    }
+
+    #[instrument(skip_all)]
     pub fn wrt_canonical_basis_non_fft<'a>(&'a self, el: SmallBasisEl<NumberRing, A>) -> DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> {
         let mut result = el.el_wrt_small_basis;
         for i in 0..self.base_ring().len() {
@@ -505,17 +535,24 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
         let rns_factors = rns_factors.collect::<Vec<_>>();
         assert_eq!(self.base_ring().len(), rns_factors.len());
 
-        let mut result = self.zero_non_fft();
-        let mut result_matrix = self.as_matrix_wrt_small_basis_mut(&mut result);
+        let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
         for (i, congruence) in rns_factors.iter().enumerate() {
-            if let RNSFactorCongruence::CongruentTo(other_ring, other_i, other_el) = congruence {
-                assert!(other_ring.base_ring().at(*other_i).get_ring() == self.base_ring().at(i).get_ring());
-                assert!(self.number_ring() == other_ring.number_ring());
-
-                result_matrix.row_mut_at(i).copy_from_slice(other_ring.as_matrix_wrt_small_basis(other_el).row_at(*other_i));
+            match congruence {
+                RNSFactorCongruence::CongruentTo(other_ring, other_i, other_el) => {
+                    assert!(other_ring.base_ring().at(*other_i).get_ring() == self.base_ring().at(i).get_ring());
+                    assert!(self.number_ring() == other_ring.number_ring());
+                    result.extend(other_ring.as_matrix_wrt_small_basis(other_el).row_at(*other_i).iter().copied());
+                },
+                RNSFactorCongruence::Zero => {
+                    result.extend((0..self.rank()).map(|_| self.base_ring().at(i).zero()));
+                }
             }
         }
-        return result;
+        return SmallBasisEl {
+            allocator: PhantomData,
+            el_wrt_small_basis: result,
+            number_ring: PhantomData
+        };
     }
 }
 
@@ -531,17 +568,24 @@ impl<NumberRing, A> BGFVCiphertextRing for DoubleRNSRingBase<NumberRing, A>
         let rns_factors = rns_factors.collect::<Vec<_>>();
         assert_eq!(self.base_ring().len(), rns_factors.len());
 
-        let mut result = self.zero();
-        let mut result_matrix = self.as_matrix_wrt_mult_basis_mut(&mut result);
+        let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
         for (i, congruence) in rns_factors.iter().enumerate() {
-            if let RNSFactorCongruence::CongruentTo(other_ring, other_i, other_el) = congruence {
-                assert!(other_ring.base_ring().at(*other_i).get_ring() == self.base_ring().at(i).get_ring());
-                assert!(self.number_ring() == other_ring.number_ring());
-
-                result_matrix.row_mut_at(i).copy_from_slice(other_ring.as_matrix_wrt_mult_basis(other_el).row_at(*other_i));
+            match congruence {
+                RNSFactorCongruence::CongruentTo(other_ring, other_i, other_el) => {
+                    assert!(other_ring.base_ring().at(*other_i).get_ring() == self.base_ring().at(i).get_ring());
+                    assert!(self.number_ring() == other_ring.number_ring());
+                    result.extend(other_ring.as_matrix_wrt_mult_basis(other_el).row_at(*other_i).iter().copied());
+                },
+                RNSFactorCongruence::Zero => {
+                    result.extend((0..self.rank()).map(|_| self.base_ring().at(i).zero()));
+                }
             }
         }
-        return result;
+        return DoubleRNSEl {
+            allocator: PhantomData,
+            el_wrt_mult_basis: result,
+            number_ring: PhantomData
+        };
     }
 
     fn collect_rns_factors_prepared<'a, I>(&self, _: I) -> Self::PreparedMultiplicant
@@ -570,27 +614,14 @@ impl<NumberRing, A> BGFVCiphertextRing for DoubleRNSRingBase<NumberRing, A>
     fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, ZnEl>)
         where V: AsPointerToSlice<ZnEl>
     {
-        assert_eq!(output.row_count(), self.base_ring().len());
-        assert_eq!(self.small_generating_set_len(), output.col_count());
-
-        let x_small_basis = self.undo_fft(self.clone_el(x));
-        for (dst, src) in output.row_iter().zip(self.as_matrix_wrt_small_basis(&x_small_basis).row_iter()) {
-            dst.copy_from_slice(src);
-        }
+        self.as_representation_wrt_small_generating_set_non_fft(&self.undo_fft(self.clone_el(x)), output);
     }
 
     #[instrument(skip_all)]
     fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, ZnEl>) -> Self::Element
         where V: AsPointerToSlice<ZnEl>
     {
-        assert_eq!(data.row_count(), self.base_ring().len());
-        assert_eq!(self.small_generating_set_len(), data.col_count());
-
-        let mut result = self.zero_non_fft();
-        for (dst, src) in self.as_matrix_wrt_small_basis_mut(&mut result).row_iter().zip(data.row_iter()) {
-            dst.copy_from_slice(src);
-        }
-        return self.do_fft(result);
+        self.do_fft(self.from_representation_wrt_small_generating_set_non_fft(data))
     }
 
     fn two_by_two_convolution(&self, lhs: [&Self::Element; 2], rhs: [&Self::Element; 2]) -> [Self::Element; 3] {
@@ -685,6 +716,45 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     }
 
     #[instrument(skip_all)]
+    fn mul_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
+        assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
+        assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
+        let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
+        result.extend((0..self.element_len()).map(|i| self.base_ring().at(i / self.rank()).mul(lhs.el_wrt_mult_basis[i], rhs.el_wrt_mult_basis[i])));
+        DoubleRNSEl {
+            el_wrt_mult_basis: result,
+            number_ring: PhantomData,
+            allocator: PhantomData
+        }
+    }
+
+    #[instrument(skip_all)]
+    fn add_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
+        assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
+        assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
+        let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
+        result.extend((0..self.element_len()).map(|i| self.base_ring().at(i / self.rank()).add(lhs.el_wrt_mult_basis[i], rhs.el_wrt_mult_basis[i])));
+        DoubleRNSEl {
+            el_wrt_mult_basis: result,
+            number_ring: PhantomData,
+            allocator: PhantomData
+        }
+    }
+
+    #[instrument(skip_all)]
+    fn sub_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
+        assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
+        assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
+        let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
+        result.extend((0..self.element_len()).map(|i| self.base_ring().at(i / self.rank()).sub(lhs.el_wrt_mult_basis[i], rhs.el_wrt_mult_basis[i])));
+        DoubleRNSEl {
+            el_wrt_mult_basis: result,
+            number_ring: PhantomData,
+            allocator: PhantomData
+        }
+    }
+
+    #[instrument(skip_all)]
     fn fma(&self, lhs: &Self::Element, rhs: &Self::Element, mut summand: Self::Element) -> Self::Element {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
@@ -717,6 +787,7 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
         }
     }
 
+    #[instrument(skip_all)]
     fn zero(&self) -> Self::Element {
         let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
         result.extend(self.base_ring().as_iter().flat_map(|Zp| (0..self.rank()).map(|_| Zp.zero())));
@@ -947,12 +1018,16 @@ impl<NumberRing, A> PreparedMultiplicationRing for DoubleRNSRingBase<NumberRing,
         ()
     }
 
-    fn mul_prepared(&self, lhs: &Self::Element, _: &(), rhs: &Self::Element, _: &()) -> Self::Element {
+    fn mul_prepared(&self, lhs: &Self::Element, _: Option<&()>, rhs: &Self::Element, _: Option<&()>) -> Self::Element {
         self.mul_ref(lhs, rhs)
+    }
+
+    fn fma_prepared(&self, lhs: &Self::Element, _: Option<&()>, rhs: &Self::Element, _: Option<&()>, dst: Self::Element) -> Self::Element {
+        self.fma(lhs, rhs, dst)
     }
     
     fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
-        where I: IntoIterator<Item = (&'a Self::Element, &'a (), &'a Self::Element, &'a ())>,
+        where I: IntoIterator<Item = (&'a Self::Element, Option<&'a ()>, &'a Self::Element, Option<&'a ()>)>,
             Self: 'a
     {
         <_ as ComputeInnerProduct>::inner_product_ref(self, parts.into_iter().map(|(lhs, _, rhs, _)| (lhs, rhs)))

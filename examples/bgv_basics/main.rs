@@ -1,4 +1,3 @@
-// Fheanor completely relies on unstable Rust features
 #![allow(non_snake_case)]
 
 // For a guided explanation of this example, see the doc
@@ -35,12 +34,12 @@ fn main() {
 
     let mut rng = StdRng::from_seed([1; 32]);
     let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C_initial.base_ring().len()));
+    let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C_initial.base_ring().len()), 3.2);
 
     let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
         P.base_ring().int_hom().map(i)
     ));
-    let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
+    let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk, 3.2);
 
     let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
     

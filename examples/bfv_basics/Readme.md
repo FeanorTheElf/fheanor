@@ -1,4 +1,4 @@
-# Homomorphic operations using the BFV scheme in Fheanor
+# Homomorphic operations using the BFV scheme
 
 BFV was proposed in "Somewhat practical fully homomorphic encryption" by Fan and Vercauteren (<https://ia.cr/2012/144>), and has become one of the most popular and often implemented HE schemes.
 In this example, we will show how to use the provided implementation of BFV, without going far into the details of the scheme itself.
@@ -7,14 +7,14 @@ For more details on how BFV works and can be implemented, see the original paper
 ## Setting up BFV
 
 In many libraries, there is a central context object that stores all parameters and data associated to the currently used HE scheme.
-In Fheanor, we intentionally avoid this approach, and instead have the user manage these parts themselves - don't worry, it's not that much.
+In this crate, we intentionally avoid this approach, and instead have the user manage these parts themselves - don't worry, it's not that much.
 More concretely, an instantiation of BFV consists of the following:
  - A ciphertext ring
  - An extended-modulus ciphertext ring, which is only used for intermediate results during homomorphic multiplication
  - One (or multiple) plaintext rings
  - Keys, possibly including a secret key, a relinearization key and Galois keys
 
-While there is no central object storing all of this, Fheanor does use structs to represent an instantiation of BFV over a specific number ring.
+While there is no central object storing all of this, this crate does use structs to represent an instantiation of BFV over a specific number ring.
 For example, to setup BFV in a power-of-two cyclotomic number ring `Z[X]/(X^N + 1)`, we could proceed as follows:
 ```rust
 # use anonymizedhelibrary::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
@@ -43,8 +43,8 @@ Here we create the ciphertext ring with modulus between `105` and `110` bits - t
 We also choose the plaintext modulus `t = 17`.
 
 Next, let's generate the keys we will require later.
-Since the type of the ciphertext ring depends on the type of the chosen parameters, all further functions are associated functions of [`crate::bfv::Pow2BFV`].
-While it would be preferable for the BFV implementation not to be tied to any specific parameter object, not doing this would prevent some optimizations, see the doc of [`crate::bfv::BFVInstantiation`].
+Since the type of the ciphertext ring depends on the type of the chosen parameters, all further functions are associated functions of [`Pow2BFV`].
+While it would be preferable for the BFV implementation not to be tied to any specific parameter object, not doing this would prevent some optimizations, see the doc of [`BFVInstantiation`].
 ```rust
 # use feanor_math::seq::VectorView;
 # use feanor_math::ring::RingExtensionStore;
@@ -62,18 +62,18 @@ let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()), 3.2);
 ```
 To generate the keys (as well as for encryption), we require a source of randomness.
-Fheanor is internally completely deterministic, hence it takes this source as parameter - in form of a [`rand::CryptoRng`].
+This crate is internally completely deterministic, hence it takes this source as parameter - in form of a [`rand::CryptoRng`].
 
 Furthermore, for the so-called "relinearization key" `rk`, which is required for multiplications, we have to choose a standard deviation of the included RLWE noise (`3.2` is the standard choice) and a decomposition of all RNS factors into "digits". 
 A large number of small digits will cause low noise growth, but larger key-switching keys and slower key-switching.
-The function [`crate::gadget_product::digits::RNSGadgetVectorDigitIndices::select_digits()`] will equally distribute all RNS factors across the given number of digits which is usually a reasonable choice.
+The function [`RNSGadgetVectorDigitIndices::select_digits()`] will equally distribute all RNS factors across the given number of digits which is usually a reasonable choice.
 Here, we choose 2 digits, which might be too low for complex scenarios, but is sufficient for this example.
 
 ## Encryption and Decryption
 
 Next, let's encrypt a message.
 The plaintext space of BFV is the ring `R_t = Z[X]/(Phi_m(X), t)`, which we already have created previously.
-To encrypt, we now need to encode whatever data we have as an element of this ring (e.g. via [`feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()`] ), and can then encrypt it as follows:
+To encrypt, we now need to encode whatever data we have as an element of this ring (e.g. via [`FreeAlgebra::from_canonical_basis()`] ), and can then encrypt it as follows:
 ```rust
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::ring::RingExtensionStore;
@@ -170,3 +170,10 @@ let dec_x_sqr = Pow2BFV::dec(&P, &C, enc_x_sqr, &sk);
 println!("{}", P.format(&dec_x_sqr));
 ```
 will result in quite a long response.
+
+[`BFVInstantiation`]: crate::bfv::BFVInstantiation
+[`Pow2BFV`]: crate::bfv::Pow2BFV
+[`RNSGadgetVectorDigitIndices`]: crate::gadget_product::digits::RNSGadgetVectorDigitIndices
+[`RNSGadgetVectorDigitIndices::select_digits()`]: crate::gadget_product::digits::RNSGadgetVectorDigitIndices::select_digits()
+[`FreeAlgebra`]: feanor_math::rings::extension::FreeAlgebra
+[`FreeAlgebra::from_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()

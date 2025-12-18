@@ -20,8 +20,10 @@ use super::RNSOperation;
 /// lift of the input is bounded by `aq/4`, in which case the result
 /// is always correct.
 /// 
-/// The functionality is exactly as for [`super::lift::AlmostExactBaseConversion`],
+/// The functionality is exactly as for [`AlmostExactMatrixBaseConversion`],
 /// except that it might be faster by reusing the shared factor `a`.
+/// 
+/// [`AlmostExactMatrixBaseConversion`]: crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion
 /// 
 pub struct AlmostExactSharedBaseConversion<A = Global>
     where A: Allocator + Clone

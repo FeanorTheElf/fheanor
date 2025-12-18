@@ -30,7 +30,7 @@ use crate::number_ring::galois::*;
 /// 
 /// We use the following notation:
 ///  - `G` is the Galois group of a number ring over a subring, thus a subgroup
-///    of `(Z/mZ)*` (since fheanor currently only supports cyclotomic rings)
+///    of `(Z/mZ)*` (currently only cyclotomic rings are implemented)
 ///  - `p` is a distinguished element of `G`; In applications, it will be the
 ///    Frobenius automorphism associated to a prime ideal of the subring
 ///  - `d` is the order of `<p>` as subgroup of `G`
@@ -432,9 +432,10 @@ impl HypercubeStructure {
     /// Alias for [`HypercubeStructure::element_count()`], which returns the
     /// number of elements in the hypercube.
     /// 
-    /// When used to build a [`crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism`],
-    /// this number is equal to the number of slots the ring decomposes into,
-    /// hence the name `slot_count()`.
+    /// When used to build a [`HypercubeIsomorphism`], this number is equal to the number 
+    /// of slots the ring decomposes into, hence the name `slot_count()`.
+    /// 
+    /// [`HypercubeIsomorphism`]: crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism
     /// 
     pub fn slot_count(&self) -> usize {
         self.element_count()

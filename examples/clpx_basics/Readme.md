@@ -1,4 +1,4 @@
-# Homomorphic operations using the CLPX scheme in Fheanor
+# Homomorphic operations using the CLPX scheme
 
 CLPX was proposed in "High-Precision Arithmetic in Homomorphic Encryption" by Chen, Laine, Player and Xia (<https://ia.cr/2017/809>), and can be described as a variant of BFV that supports computations with large integers.
 As such, its use is very similar to BFV, and we recommend the reader to first have a look at [`crate::examples::bfv_basics`].
@@ -6,7 +6,7 @@ In this example, we will then focus on the points that are different from standa
 
 ## Setting up CLPX
 
-The design of CLPX is exactly as for BFV (or BGV), so we start by choosing a ciphertext ring instantiation (i.e. a type implementing [`crate::clpx::CLPXInstantiation`], which determines the type of the ciphertext ring that will be used) and use it to set up the ciphertext ring.
+The design of CLPX is exactly as for BFV (or BGV), so we start by choosing a ciphertext ring instantiation (i.e. a type implementing [`CLPXInstantiation`], which determines the type of the ciphertext ring that will be used) and use it to set up the ciphertext ring.
 ```rust
 # use anonymizedhelibrary::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
 # use anonymizedhelibrary::DefaultNegacyclicNTT;
@@ -16,8 +16,8 @@ let params = Pow2CLPX::new(2 << log2_N);
 let log2_t_can_norm_bound = 10;
 let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, log2_t_can_norm_bound);
 ```
-It turns out that a lot of functionality of CLPX is exactly as in BFV, and the type [`crate::clpx::Pow2CLPX`] is actually just type aliases to its BFV equivalent.
-Really the only difference here is that [`crate::clpx::CLPXInstantiation::create_ciphertext_rings()`] takes another parameter - a bound on `log_2(| t |_can)`, which is required to compute how large the modulus of `C_for_multiplication` has to be.
+It turns out that a lot of functionality of CLPX is exactly as in BFV, and the type [`Pow2CLPX`] is actually just type aliases to its BFV equivalent.
+Really the only difference here is that [`CLPXInstantiation::create_ciphertext_rings()`] takes another parameter - a bound on `log_2(| t |_can)`, which is required to compute how large the modulus of `C_for_multiplication` has to be.
 Here we just set it to `10`, which means we can later choose any `t` with `| t |_can <= 1024`, which is satisfied by all `t` we might be interested in.
 Generally speaking, this can be a rough bound, since its impact on performance is not very large.
 
@@ -35,7 +35,7 @@ let P = params.create_plaintext_ring::<true>(todo!(), todo!(), todo!(), todo!())
 This is actually more involved than in the BFV setting, as you can see by the four parameters.
 The reason is that the plaintext ring of CLPX is `Z[X]/(Phi_m(X), t(X), p^e)` for a polynomial `t(X)` and a prime `p`, which should be isomorphic to `(Z/p^eZ)[X]/(f(X))` for some polynomial `f(X)`.
 It is important that we can compute this isomorphism - on the one hand, we usually want to think of plaintexts as elements of `(Z/p^eZ)[X]/(f(X))`, but when encrypting them, we need to find short lifts to `Z[X]/(Phi_m(X))`.
-The data associated to this isomorphism is mostly computed by [`crate::clpx::CLPXInstantiation::create_plaintext_ring()`], when given `Z[X]`, `t(X)` and `p`.
+The data associated to this isomorphism is mostly computed by [`CLPXInstantiation::create_plaintext_ring()`], when given `Z[X]`, `t(X)` and `p`.
 However, it currently does not compute one thing, and that is the subgroup of the Galois group that fixes the ideal `(t(𝝵), p^e)`.
 This is the group that then acts on the CLPX plaintext ring as kind of Galois group, and its order will be equal to the degree of `f(X)`.
 We have to manually pass this subgroup as fourth parameter, but the implementation will check that it is indeed correct.
@@ -54,7 +54,7 @@ As an example, consider the following possible choices of `m`, `p` and `t(X)`:
 
 Indeed, as this table shows, a suitable choice of `t` means that we can effectively perform arithmetic modulo some very large modulus.
 
-The ring returned by `create_plaintext_ring()` looks like `(Z/p^eZ)[X]/(f(X))`, but it supports lifting to and reducing from `Z[X]/(Phi_m(X))` via the functions [`crate::clpx::encoding::CLPXPlaintextRingBase::small_lift()`] and [`crate::clpx::encoding::CLPXPlaintextRingBase::reduce_mod_t()`].
+The ring returned by `create_plaintext_ring()` looks like `(Z/p^eZ)[X]/(f(X))`, but it supports lifting to and reducing from `Z[X]/(Phi_m(X))` via the functions [`CLPXPlaintextRingBase::small_lift()`] and [`CLPXPlaintextRingBase::reduce_mod_t()`].
 Hence, we can use CLPX as follows:
 ```rust
 # use anonymizedhelibrary::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
@@ -129,3 +129,11 @@ let res = Pow2CLPX::dec(&P, &C, ct_sqr, &sk);
 let res_constant_coeff = P.wrt_canonical_basis(&res).at(0);
 assert_el_eq!(BigIntRing::RING, BigIntRing::RING.power_of_two(200), P.base_ring().smallest_positive_lift(res_constant_coeff));
 ```
+
+[`CLPXPlaintextRingBase`]: crate::clpx::encoding::CLPXPlaintextRingBase
+[`CLPXPlaintextRingBase::small_lift()`]: crate::clpx::encoding::CLPXPlaintextRingBase::small_lift()
+[`CLPXPlaintextRingBase::reduce_mod_t()`]: crate::clpx::encoding::CLPXPlaintextRingBase::reduce_mod_t()
+[`CLPXInstantiation`]: crate::clpx::CLPXInstantiation
+[`CLPXInstantiation::create_plaintext_ring()`]: crate::clpx::CLPXInstantiation::create_plaintext_ring()
+[`CLPXInstantiation::create_ciphertext_rings()`]: crate::clpx::CLPXInstantiation::create_ciphertext_rings()
+[`Pow2CLPX`]: crate::clpx::Pow2CLPX

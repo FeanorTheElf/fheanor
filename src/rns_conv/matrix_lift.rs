@@ -28,9 +28,10 @@ use super::RNSOperation;
 /// 
 /// # Implementation
 /// 
-/// Similar to [`super::lift::AlmostExactBaseConversion`], but this
-/// implementation makes some assumptions on the sizes of the moduli, which allows
-/// to use a matrix multiplication for the performance-critical section.
+/// Similar to (the now deprecated) [`AlmostExactBaseConversion`], but this implementation
+/// writes the operation as integer matrix multiplication, and is usually more efficient.
+/// 
+/// [`AlmostExactBaseConversion`]: crate::rns_conv::lift::AlmostExactBaseConversion
 /// 
 pub struct AlmostExactMatrixBaseConversion<A = Global>
     where A: Allocator + Clone

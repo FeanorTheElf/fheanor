@@ -362,7 +362,8 @@ pub fn falling_factorial_poly<P>(poly_ring: P, m: usize) -> El<P>
 }
 
 ///
-/// Returns the lowest-degree polynomial `f` such that `f(x) = lift(x mod p) mod p^k`.
+/// Returns the lowest-degree polynomial `f` such that `f(x + py) = x mod p^k` for
+/// `x in { 0, ..., p - 1 }` and any `y`.
 /// 
 #[instrument(skip_all)]
 pub fn digit_retain_poly<P>(poly_ring: P, k: usize) -> El<P>

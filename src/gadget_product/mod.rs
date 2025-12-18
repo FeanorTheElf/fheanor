@@ -2,14 +2,13 @@ use std::alloc::{Allocator, Global};
 use std::ops::Range;
 
 use feanor_math::group::AbelianGroupStore;
-use feanor_math::integer::BigIntRing;
+use feanor_math::integer::{int_cast, BigIntRing};
 use feanor_math::matrix::*;
-use feanor_math::primitive_int::StaticRing;
-use feanor_math::rings::zn::zn_64;
 use feanor_math::ring::*;
-use feanor_math::rings::zn::{zn_64::Zn, zn_rns};
+use feanor_math::rings::zn::*;
 use feanor_math::seq::{VectorFn, VectorView};
 use feanor_math::homomorphism::Homomorphism;
+use tracing::instrument;
 
 use crate::ciphertext_ring::double_rns_ring::{DoubleRNSRing, DoubleRNSRingBase, SmallBasisEl};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
@@ -19,6 +18,7 @@ use crate::number_ring::{AbstractNumberRing, NumberRingQuotient};
 use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
+use crate::{ZZbig, ZZi64};
 
 ///
 /// Contains the type [`RNSGadgetVectorDigitIndices`] which is used to
@@ -43,7 +43,7 @@ pub struct RNSGadgetProductLhsOperand<R: PreparedMultiplicationRing> {
     /// We store the element once as `PreparedMultiplicant` for fast computation of gadget products, and 
     /// once as the element itself, since there currently is no way of getting the ring element out of
     /// a `PreparedMultiplicant`
-    element_decomposition: Vec<(R::PreparedMultiplicant, R::Element)>
+    element_decomposition: Vec<Option<(R::PreparedMultiplicant, R::Element)>>
 }
 
 impl<R: BGFVCiphertextRing> RNSGadgetProductLhsOperand<R> {
@@ -53,7 +53,7 @@ impl<R: BGFVCiphertextRing> RNSGadgetProductLhsOperand<R> {
     /// For an explanation of gadget products, see [`RNSGadgetProductLhsOperand::gadget_product()`].
     /// 
     pub fn from_element_with(ring: &R, el: &R::Element, digits: &RNSGadgetVectorDigitIndices) -> Self {
-        Self::from_element_map_ring_with(ring, el, digits, ring)
+        Self::scale_up_from_element_with(ring, el, ring, digits)
     }
 
     /// 
@@ -65,25 +65,36 @@ impl<R: BGFVCiphertextRing> RNSGadgetProductLhsOperand<R> {
     }
 
     /// 
-    /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits` over a different
-    /// ring that the original element is contained in.
+    /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits`,
+    /// for the element that is implicitly given by rescaling `el` from `el_ring` to
+    /// `main_ring`.
     /// 
-    /// More concretely, if we have a number ring modulo two different moduli `q, q'`, we can decompose
-    /// an element `x in Rq` as `x = sum_i g[i] x[i]` (the gadget vector is also defined modulo `q`), but
-    /// then map every `x[i]` into `Rq'`, via `shortest-lift(x[i]) mod q'`.
+    /// Clearly, this requires that `el_ring` and `main_ring` are quotients of the same number
+    /// ring, only possibly by a different modulus. The modulus of `el_ring` must divide the
+    /// modulus of `main_ring`.
     /// 
-    /// There are two use cases I can think of:
-    ///  - If `q | q'`, we basically compute a decomposition of `s * x`, where `s = 0 mod q'/q` and `s = 1 mod q`.
-    ///    This is necessary during hybrid key switching
-    ///  - If `q' < q` and the result of the gadget product is small, this allows to perform the computation for
-    ///    less RNS factors, improving performance. This is similiar to the LKSS key switching algorithm.
-    /// 
-    pub fn from_element_map_ring_with(ring: &R, el: &R::Element, digits: &RNSGadgetVectorDigitIndices, out_ring: &R) -> Self {
-        assert!(ring.number_ring() == out_ring.number_ring());
+    pub fn scale_up_from_element_with(el_ring: &R, el: &R::Element, main_ring: &R, digits: &RNSGadgetVectorDigitIndices) -> Self {
+        assert!(el_ring.number_ring() == main_ring.number_ring());
         assert!(digits.iter().all(|digit| digit.end > digit.start));
-        let decomposition = gadget_decompose(ring, el, digits, out_ring);
+        assert_eq!(main_ring.base_ring().len(), digits.rns_base_len());
+        let scale_by_factors = RNSFactorIndexList::missing_from_subset(el_ring.base_ring(), main_ring.base_ring()).unwrap();
+        let scaled_el = RingRef::new(main_ring).inclusion().mul_map(
+            main_ring.add_rns_factor_element(el_ring, &scale_by_factors, el),
+            main_ring.base_ring().coerce(&ZZbig, ZZbig.prod(scale_by_factors.iter().map(|i| int_cast(*main_ring.base_ring().at(*i).modulus(), ZZbig, ZZi64))))
+        );
+        let mut gadget_decomposition = gadget_decompose(
+            main_ring, 
+            &scaled_el, 
+            digits.iter().filter(|digit| scale_by_factors.num_within(digit) <  digit.end - digit.start), 
+            main_ring
+        ).into_iter();
+        let result = digits.iter().map(|digit| if scale_by_factors.num_within(&digit) <  digit.end - digit.start {
+            Some(gadget_decomposition.next().unwrap())
+        } else {
+            None
+        }).collect();
         return Self {
-            element_decomposition: decomposition
+            element_decomposition: result
         };
     }
 }
@@ -98,7 +109,7 @@ impl<NumberRing, A> RNSGadgetProductLhsOperand<DoubleRNSRingBase<NumberRing, A>>
     /// 
     pub fn from_double_rns_ring_with(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: &RNSGadgetVectorDigitIndices) -> Self {
         assert!(digits.iter().all(|digit| digit.end > digit.start));
-        let decomposition = gadget_decompose_doublerns(ring, el, digits);
+        let decomposition = gadget_decompose_doublerns(ring, el, digits.iter()).into_iter().map(Some).collect();
         return Self {
             element_decomposition: decomposition
         };
@@ -119,10 +130,10 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
         where R: NumberRingQuotient
     {
         Self {
-            element_decomposition: self.element_decomposition.iter().map(|(_prepared_el, el)| {
+            element_decomposition: self.element_decomposition.iter().map(|el| el.as_ref().map(|(_, el)|  {
                 let new_el = ring.apply_galois_action(el, g);
                 return (ring.prepare_multiplicant(&new_el), new_el);
-            }).collect()
+            })).collect()
         }
     }
 
@@ -131,14 +142,20 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     {
         let mut result = Vec::with_capacity(gs.len());
         result.resize_with(gs.len(), || RNSGadgetProductLhsOperand { element_decomposition: Vec::new() });
-        for (prepared_el, el) in self.element_decomposition {
-            let mut prepared_el = Some(prepared_el);
-            let new_els = ring.apply_galois_action_many(&el, gs);
-            for (i, (new_el, g)) in new_els.into_iter().zip(gs.iter()).enumerate() {
-                if ring.acting_galois_group().is_identity(g) {
-                    result[i].element_decomposition.push((prepared_el.take().unwrap(), new_el));
-                } else {
-                    result[i].element_decomposition.push((ring.prepare_multiplicant(&new_el), new_el));
+        for el in self.element_decomposition {
+            if let Some((prepared_el, el)) = el {
+                let mut prepared_el = Some(prepared_el);
+                let new_els = ring.apply_galois_action_many(&el, gs);
+                for (i, (new_el, g)) in new_els.into_iter().zip(gs.iter()).enumerate() {
+                    if ring.acting_galois_group().is_identity(g) {
+                        result[i].element_decomposition.push(Some((prepared_el.take().unwrap(), new_el)));
+                    } else {
+                        result[i].element_decomposition.push(Some((ring.prepare_multiplicant(&new_el), new_el)));
+                    }
+                }
+            } else {
+                for i in 0..gs.len() {
+                    result[i].element_decomposition.push(None);
                 }
             }
         }
@@ -204,7 +221,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// for i in 0..3 {
     ///     // set the i-th component to `gadget_vector(i) * rhs`, for now without noise
     ///     let component_at_i = ring.inclusion().mul_ref_map(&rhs, &rhs_op.gadget_vector(ring.get_ring()).at(i));
-    ///     rhs_op.set_rns_factor(ring.get_ring(), i, component_at_i);
+    ///     rhs_op.set_component(ring.get_ring(), i, component_at_i);
     /// }
     /// 
     /// // compute the gadget product
@@ -243,7 +260,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// for i in 0..3 {
     ///     // set the i-th component to `gadget_vector(i) * rhs`, with possibly some error included
     ///     let component_at_i = ring.inclusion().mul_ref_map(&rhs, &rhs_op.gadget_vector(ring.get_ring()).at(i));
-    ///     rhs_op.set_rns_factor(ring.get_ring(), i, ring.add(component_at_i, create_small_error()));
+    ///     rhs_op.set_component(ring.get_ring(), i, ring.add(component_at_i, create_small_error()));
     /// }
     /// 
     /// // compute the gadget product
@@ -263,19 +280,18 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
         assert_eq!(self.element_decomposition.len(), rhs.scaled_element.len(), "Gadget product operands created w.r.t. different digit sets");
         return ring.inner_product_prepared(
             self.element_decomposition.iter().zip(rhs.scaled_element.iter())
-                .filter_map(|((lhs_prep, lhs), rhs)| rhs.as_ref().map(|(rhs_prep, rhs)| (lhs, lhs_prep, rhs, rhs_prep)))
+                .filter_map(|(lhs, rhs)| rhs.as_ref().and_then(|(rhs_prep, rhs)| lhs.as_ref().map(|(lhs_prep, lhs)| (lhs, Some(lhs_prep), rhs, Some(rhs_prep)))))
                 .collect::<Vec<_>>()
         );
     }
 }
  
-fn gadget_decompose<R, S, V>(ring: &R, el: &R::Element, digits: V, out_ring: &S) -> Vec<(S::PreparedMultiplicant, S::Element)>
+#[instrument(skip_all)]
+fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S) -> Vec<(S::PreparedMultiplicant, S::Element)>
     where R: BGFVCiphertextRing,
         S: BGFVCiphertextRing,
-        V: VectorFn<Range<usize>>
+        I: Iterator<Item = Range<usize>>
 {
-    assert!(digits.iter().all(|digit| digit.end <= ring.base_ring().len()));
-    let ZZi64 = StaticRing::<i64>::RING;
     let mut result = Vec::new();
     let mut el_as_matrix = OwnedMatrix::zero(ring.base_ring().len(), ring.small_generating_set_len(), ring.base_ring().at(0));
     ring.as_representation_wrt_small_generating_set(el, el_as_matrix.data_mut());
@@ -285,9 +301,8 @@ fn gadget_decompose<R, S, V>(ring: &R, el: &R::Element, digits: V, out_ring: &S)
     current_row.resize_with(homs.len() * el_as_matrix.col_count(), || out_ring.base_ring().at(0).zero());
     let mut current_row = SubmatrixMut::from_1d(&mut current_row[..], homs.len(), el_as_matrix.col_count());
     
-    for i in 0..digits.len() {
-        
-        let digit = digits.at(i);
+    for digit in digits {
+
         let conversion = GadgetProductBaseConversion::new_with_alloc(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
             homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
@@ -308,19 +323,18 @@ fn gadget_decompose<R, S, V>(ring: &R, el: &R::Element, digits: V, out_ring: &S)
     return result;
 }
 
-fn gadget_decompose_doublerns<NumberRing, A, V>(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: V) -> Vec<(<DoubleRNSRingBase<NumberRing, A> as PreparedMultiplicationRing>::PreparedMultiplicant, El<DoubleRNSRing<NumberRing, A>>)>
+#[instrument(skip_all)]
+fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: I) -> Vec<(<DoubleRNSRingBase<NumberRing, A> as PreparedMultiplicationRing>::PreparedMultiplicant, El<DoubleRNSRing<NumberRing, A>>)>
     where NumberRing: AbstractNumberRing,
         A: Allocator + Clone,
-        V: VectorFn<Range<usize>>
+        I: Iterator<Item = Range<usize>>
 {
-    let ZZi64 = StaticRing::<i64>::RING;
     let mut result = Vec::new();
     let el_as_matrix = ring.as_matrix_wrt_small_basis(el);
     let homs = ring.base_ring().as_iter().map(|Zp| Zp.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
     
-    for i in 0..digits.len() {
-        
-        let digit = digits.at(i);
+    for digit in digits {
+
         let conversion = GadgetProductBaseConversion::new_with_alloc(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
             homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
@@ -381,7 +395,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductRhsOperand<R> {
     /// gadget vector should have the propery that any ring element `y` can be represented as
     /// a linear combination `sum_i g[i] * y[i]` with small ring elements `y[i]`.
     /// 
-    pub fn gadget_vector<'b>(&'b self, ring: &'b R) -> impl VectorFn<El<zn_rns::Zn<Zn, BigIntRing>>> + use<'b, R>
+    pub fn gadget_vector<'b>(&'b self, ring: &'b R) -> impl VectorFn<El<zn_rns::Zn<zn_64::Zn, BigIntRing>>> + use<'b, R>
         where R: RingExtension,
             R::BaseRing: RingStore<Type = zn_rns::ZnBase<zn_64::Zn, BigIntRing>>
     {
@@ -416,15 +430,15 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductRhsOperand<R> {
     /// 
     /// This will change the element represented by this [`RNSGadgetProductRhsOperand`].
     /// 
-    pub fn set_rns_factor(&mut self, ring: &R, i: usize, el: R::Element) {
+    pub fn set_component(&mut self, ring: &R, i: usize, el: R::Element) {
         self.scaled_element[i] = Some((ring.prepare_multiplicant(&el), el));
     }
     
     ///
     /// Returns the noisy approximation to `g[i] * x`, if it was previously set
-    /// via [`RNSGadgetProductRhsOperand::set_rns_factor()`].
+    /// via [`RNSGadgetProductRhsOperand::set_component()`].
     /// 
-    pub fn get_rns_factor<'a>(&'a self, _ring: &R, i: usize) -> Option<&'a R::Element> {
+    pub fn get_component<'a>(&'a self, _ring: &R, i: usize) -> Option<&'a R::Element> {
         self.scaled_element[i].as_ref().map(|(_, x)| x)
     }
 
@@ -463,6 +477,11 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductRhsOperand<R> {
 
 impl<R: BGFVCiphertextRing> RNSGadgetProductRhsOperand<R> {
 
+    ///
+    /// Modulus-switches this [`RNSGadgetProductRhsOperand`], i.e. reduces each of
+    /// its components modulo `q'`, where `q'` is a modulus dividing the current
+    /// modulus `q`.
+    /// 
     pub fn modulus_switch(&self, to: &R, dropped_rns_factors: &RNSFactorIndexList, from: &R) -> Self {
         assert_eq!(to.base_ring().get_ring().len() + dropped_rns_factors.len(), from.base_ring().get_ring().len());
         debug_assert_eq!(self.digits.len(), self.scaled_element.len());
@@ -491,6 +510,8 @@ impl<R: BGFVCiphertextRing> RNSGadgetProductRhsOperand<R> {
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
+use feanor_math::primitive_int::StaticRing;
+#[cfg(test)]
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
@@ -506,8 +527,8 @@ fn test_gadget_decomposition() {
     let hom_i32 = ring.base_ring().can_hom(&StaticRing::<i32>::RING).unwrap();
 
     let mut rhs = RNSGadgetProductRhsOperand::new(ring.get_ring(), 2);
-    rhs.set_rns_factor(ring.get_ring(), 0, ring.inclusion().map(from_congruence(&[1, 1, 0])));
-    rhs.set_rns_factor(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1])));
+    rhs.set_component(ring.get_ring(), 0, ring.inclusion().map(from_congruence(&[1, 1, 0])));
+    rhs.set_component(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1])));
 
     let lhs = RNSGadgetProductLhsOperand::from_element(ring.get_ring(), &ring.inclusion().map(hom_i32.map(1000)), 2);
 
@@ -522,8 +543,8 @@ fn test_modulus_switch() {
     let from_congruence = |data: &[i32]| rns_base.from_congruence(data.iter().enumerate().map(|(i, c)| rns_base.at(i).int_hom().map(*c)));
 
     let mut rhs = RNSGadgetProductRhsOperand::new(ring.get_ring(), 2);
-    rhs.set_rns_factor(ring.get_ring(), 0, ring.inclusion().map(from_congruence(&[1, 1, 0])));
-    rhs.set_rns_factor(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1])));
+    rhs.set_component(ring.get_ring(), 0, ring.inclusion().map(from_congruence(&[1, 1, 0])));
+    rhs.set_component(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1])));
 
     let smaller_ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(number_ring.clone(), zn_rns::Zn::create_from_primes(vec![17, 113], BigIntRing::RING));
     let rhs = rhs.modulus_switch(smaller_ring.get_ring(), RNSFactorIndexList::from_ref(&[1], rns_base.len()), ring.get_ring());
@@ -536,9 +557,9 @@ fn test_modulus_switch() {
     let from_congruence = |data: &[i32]| rns_base.from_congruence(data.iter().enumerate().map(|(i, c)| rns_base.at(i).int_hom().map(*c)));
 
     let mut rhs = RNSGadgetProductRhsOperand::new(ring.get_ring(), 3);
-    rhs.set_rns_factor(ring.get_ring(), 0, ring.inclusion().map(from_congruence(&[1000, 1000, 0, 0, 0])));
-    rhs.set_rns_factor(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1000, 1000, 0])));
-    rhs.set_rns_factor(ring.get_ring(), 2, ring.inclusion().map(from_congruence(&[0, 0, 0, 0, 1000])));
+    rhs.set_component(ring.get_ring(), 0, ring.inclusion().map(from_congruence(&[1000, 1000, 0, 0, 0])));
+    rhs.set_component(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1000, 1000, 0])));
+    rhs.set_component(ring.get_ring(), 2, ring.inclusion().map(from_congruence(&[0, 0, 0, 0, 1000])));
 
     let smaller_ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(number_ring, zn_rns::Zn::create_from_primes(vec![17, 193, 241], BigIntRing::RING));
     let rhs = rhs.modulus_switch(smaller_ring.get_ring(), RNSFactorIndexList::from_ref(&[1, 2], rns_base.len()), ring.get_ring());

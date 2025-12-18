@@ -5,13 +5,11 @@ use std::alloc::{Allocator, Global};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::ops::Range;
-use std::cell::RefCell;
 use std::fmt::Display;
 
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::algorithms::miller_rabin::prev_prime;
 use feanor_math::matrix::OwnedMatrix;
-use feanor_math::primitive_int::StaticRingBase;
 use feanor_math::ring::*;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::zn::*;
@@ -55,7 +53,8 @@ use rand_distr::StandardNormal;
 pub mod eval;
 
 ///
-/// Contains the implementation of bootstrapping for BFV.
+/// Contains [`bootstrap::ThinBootstrapper`], an implementation of
+/// thin bootstrapping for BFV.
 /// 
 pub mod bootstrap;
 
@@ -101,7 +100,7 @@ pub type SecretKeyDistribution = bgv::SecretKeyDistribution;
 /// 
 /// # Design
 /// 
-/// Generally speaking, Fheanor tries to avoid storing parameters, in particular
+/// Generally speaking, this crate tries to avoid storing parameters, in particular
 /// plaintext and ciphertext, in a single object. This allows users to work with
 /// multiple different plaintext and ciphertext moduli and rings in a single context.
 /// 
@@ -123,6 +122,9 @@ pub type SecretKeyDistribution = bgv::SecretKeyDistribution;
 /// 
 pub trait BFVInstantiation {
 
+    ///
+    /// The number ring which this instantiation of BFV is based on.
+    /// 
     type NumberRing: AbstractNumberRing;
 
     ///
@@ -138,7 +140,7 @@ pub trait BFVInstantiation {
     ///
     /// Type of the plaintext ring `R/tR`.
     /// 
-    type PlaintextRing: NumberRingQuotient<BaseRing = RingValue<Self::PlaintextZnRing>, NumberRing = Self::NumberRing>;
+    type PlaintextRing: NumberRingQuotient<BaseRing = RingValue<Self::PlaintextZnRing>, NumberRing = Self::NumberRing> + SelfIso;
 
     ///
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
@@ -154,6 +156,10 @@ pub trait BFVInstantiation {
     /// The modulus `q'` is chosen so that `R/qq'R` can represent the result of
     /// the intermediate product of the shortest lifts of two elements of `R/qR`.
     /// 
+    /// If the default choice of `q` and `q'` are not suitable for you, you can
+    /// also manually create the corresponding ciphertext rings, using for example
+    /// [`ManagedDoubleRNSRing::new()`] etc.
+    /// 
     fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>);
 
     ///
@@ -162,9 +168,7 @@ pub trait BFVInstantiation {
     fn create_plaintext_ring(&self, t: El<BigIntRing>) -> PlaintextRing<Self>;
 
     ///
-    /// Generates a secret key, which is either a sparse ternary element of the
-    /// ciphertext ring (with hamming weight `hwt`), or a uniform ternary element
-    /// of the ciphertext ring (if `hwt == None`).
+    /// Generates a secret key, according to the given distribution.
     /// 
     #[instrument(skip_all)]
     fn gen_sk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, hwt: SecretKeyDistribution) -> SecretKey<Self> {
@@ -284,9 +288,7 @@ pub trait BFVInstantiation {
     /// Designed for debugging purposes.
     /// 
     #[instrument(skip_all)]
-    fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>, dir: Option<&str>)
-        where DecoratedBaseRingBase<PlaintextRing<Self>>: CanIsoFromTo<BaseRing<PlaintextRing<Self>>>
-    {
+    fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>, dir: Option<&str>) {
         let ZZ = P.base_ring().integer_ring();
         let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
         let hypercube = if P.number_ring().galois_group().m() % 2 == 0 {
@@ -314,7 +316,7 @@ pub trait BFVInstantiation {
     fn hom_add(C: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: &Ciphertext<Self>) -> Ciphertext<Self> {
         let (lhs0, lhs1) = lhs;
         let (rhs0, rhs1) = rhs;
-        return (C.add_ref(&lhs0, &rhs0), C.add_ref(&lhs1, &rhs1));
+        return (C.add_ref_snd(lhs0, &rhs0), C.add_ref_snd(lhs1, &rhs1));
     }
     
     ///
@@ -328,7 +330,7 @@ pub trait BFVInstantiation {
     fn hom_sub(C: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: &Ciphertext<Self>) -> Ciphertext<Self> {
         let (lhs0, lhs1) = lhs;
         let (rhs0, rhs1) = rhs;
-        return (C.sub_ref(&lhs0, rhs0), C.sub_ref(&lhs1, rhs1));
+        return (C.sub_ref_snd(lhs0, rhs0), C.sub_ref_snd(lhs1, rhs1));
     }
     
     ///
@@ -507,7 +509,7 @@ pub trait BFVInstantiation {
 
         let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
-        return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
+        return (C.add(res0, op.gadget_product(s0, C.get_ring())), C.add(res1, op.gadget_product(s1, C.get_ring())));
     }
     
     ///
@@ -539,7 +541,7 @@ pub trait BFVInstantiation {
 
         let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
-        return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
+        return (C.add(res0, op.gadget_product(s0, C.get_ring())), C.add(res1, op.gadget_product(s1, C.get_ring())));
         
     }
     
@@ -570,8 +572,8 @@ pub trait BFVInstantiation {
             let mut payload = C.clone_el(&old_sk);
             C.inclusion().mul_assign_ref_map(&mut payload, &factor);
             C.add_assign_ref(&mut payload, &c0);
-            res0.set_rns_factor(C.get_ring(), i, payload);
-            res1.set_rns_factor(C.get_ring(), i, c1);
+            res0.set_component(C.get_ring(), i, payload);
+            res1.set_component(C.get_ring(), i, c1);
         }
         return (res0, res1);
     }
@@ -737,6 +739,10 @@ pub trait BFVInstantiation {
     /// Returns an implementation of the function `R/qR -> R/qq'R` that maps every `x` in `R/qR`
     /// to a short element of `R/qq'R` congruent to `x` modulo `q`.
     /// 
+    /// It is returned as a function object, which allows it to store data that is used for the
+    /// rescaling. This function is used by the default implementations of multiplication, i.e.
+    /// [`BFVInstantiation::hom_mul()`] and [`BFVInstantiation::hom_square()`].
+    /// 
     /// The function is behind a trait object, so that concrete instantiations can use a different
     /// implementation which is more performant on their concrete choice of rings.
     /// 
@@ -763,6 +769,10 @@ pub trait BFVInstantiation {
     /// Returns an implementation of the function `R/qq'R -> R/qR` that maps every `x` in `R/qq'R`
     /// to an element of `R/qR` close to `smallest_lift(tx/q)`.
     /// 
+    /// It is returned as a function object, which allows it to store data that is used for the
+    /// rescaling. This function is used by the default implementations of multiplication, i.e.
+    /// [`BFVInstantiation::hom_mul()`] and [`BFVInstantiation::hom_square()`].
+    /// 
     /// The function is behind a trait object, so that concrete instantiations can use a different
     /// implementation which is more performant on their concrete choice of rings.
     /// 
@@ -772,7 +782,7 @@ pub trait BFVInstantiation {
 
         let ZZ = P.base_ring().integer_ring();
         // we treat the case that Zt can be represented using zn_64::Zn separately, since it is 
-        // common and can be mplemented more efficiently
+        // common and can be implemented more efficiently
         if let Some(Zt) = t_fits_zn_64(ZZ, P.base_ring().modulus()) {
             let rescale = AlmostExactRescalingConvert::new_with_alloc(
                 C_mul.base_ring().as_iter().cloned().collect(), 
@@ -889,7 +899,7 @@ impl<A: Allocator + Clone , C: ForRingCreatableNegacyclicNTT<Zn>> BFVInstantiati
         let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
         let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
 
-        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.product_expansion_factor().log2().ceil() as usize;
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.small_basis_product_expansion_factor().log2().ceil() as usize;
         let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
@@ -1006,7 +1016,7 @@ impl<A: Allocator + Clone > BFVInstantiation for CompositeBFV<A> {
         let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
         let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
 
-        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.product_expansion_factor().log2().ceil() as usize;
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.small_basis_product_expansion_factor().log2().ceil() as usize;
         let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
@@ -1131,7 +1141,7 @@ impl<A: Allocator + Clone , C: ForRingCreatableConvolution<Zn>> BFVInstantiation
         let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
         let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
 
-        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.product_expansion_factor().log2().ceil() as usize;
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.small_basis_product_expansion_factor().log2().ceil() as usize;
         let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 

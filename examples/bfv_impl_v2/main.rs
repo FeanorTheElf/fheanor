@@ -202,8 +202,8 @@ fn gen_relin_key(
         let (b, a) = rlwe_sample(ciphertext_ring, sk);
         let factor = result0.gadget_vector(ciphertext_ring.get_ring()).at(i);
         let (key0, key1) = (ciphertext_ring.add(b, ciphertext_ring.inclusion().mul_ref_map(&sk_sqr, &factor)), a);
-        result0.set_rns_factor(ciphertext_ring.get_ring(), i, key0);
-        result1.set_rns_factor(ciphertext_ring.get_ring(), i, key1);
+        result0.set_component(ciphertext_ring.get_ring(), i, key0);
+        result1.set_component(ciphertext_ring.get_ring(), i, key1);
     }
     return (result0, result1);
 }

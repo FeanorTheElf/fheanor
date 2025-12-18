@@ -79,14 +79,12 @@ impl<N> AbstractNumberRing for Pow2CyclotomicNumberRing<N>
 {
     type NumberRingQuotientBases = Pow2CyclotomicNumberRingQuotientBases<N, Global>;
 
-    fn can_to_inf_norm_expansion_factor(&self) -> f64 {
-        1. / ((1 << (self.log2_m - 1)) as f64).sqrt()
+    fn small_basis_product_expansion_factor(&self) -> f64 {
+        self.rank() as f64
     }
 
-    fn inf_to_can_norm_expansion_factor(&self) -> f64 {
-        // the l2-norm of the coefficients of `x` is at most `sqrt(m) |x|_inf`, and
-        // in the power-of-two case, the canonical embedding is a scaled isometry by `sqrt(m)`
-        (1 << (self.log2_m - 1)) as f64
+    fn coeff_basis_product_expansion_factor(&self) -> f64 {
+        self.small_basis_product_expansion_factor()
     }
 
     fn galois_group(&self) -> &CyclotomicGaloisGroup {

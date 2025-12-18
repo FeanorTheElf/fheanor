@@ -1,4 +1,4 @@
-# Implementing BFV using Fheanor, version 2
+# Implementing BFV using this crate, version 2
 
 In this example, we will again implement the BFV scheme, but this time aiming for good performance.
 Perhaps unsurprisingly, the result will look quite similar to [`crate::bfv`] - the main difference is that [`crate::bfv`] is defined more generically, and allows more configuration and different parameters.
@@ -30,7 +30,7 @@ In other words, we have
 for each `pi`.
 Now each `pi` fits into a `i64`, so we actually only perform additions, multiplications and modular reductions on `i64`s, and completely avoid expensive multiplications of very large numbers.
 
-When it comes to implementation, `feanor-math` already provides the ring [`feanor_math::rings::zn::zn_rns::Zn`] for `Z/qZ` when `q` can be represented in RNS basis. We will heavily use this from now on.
+When it comes to implementation, `feanor-math` already provides the ring [`zn_rns::Zn`] for `Z/qZ` when `q` can be represented in RNS basis. We will heavily use this from now on.
 
 ### The Number-Theoretic Transform
 
@@ -60,11 +60,11 @@ So how do we combine these two techniques?
 
 Very simply, for an element `x in R_q` we first compute `x mod pi` in `R/(pi)` for each `pi`, and then store `NTT(x mod pi)` for each `pi`.
 These values are called the Double-RNS representation of `x`, because of the mathematical similarities between NTT and RNS, which means we view the NTT as "a second RNS".
-This representation allows for very fast arithmetic, and is implemented by [`crate::ciphertext_ring::double_rns_ring::DoubleRNSRing`].
+This representation allows for very fast arithmetic, and is implemented by [`DoubleRNSRing`].
 
 ## Implementing Encryption and Decryption
 
-Ok, so let's use [`crate::ciphertext_ring::double_rns_ring::DoubleRNSRing`] for the ciphertext ring.
+Ok, so let's use [`DoubleRNSRing`] for the ciphertext ring.
 We cannot use it for the plaintext ring, since to use the double-RNS representation, we need to have `p = 1 mod m` for each prime divisor `p | q` of `q`.
 We also remark that due to technical details, we sometimes additionally require `p = 1 mod 2^k m` for some `k > log2(m) + 1`.
 
@@ -121,7 +121,7 @@ fn create_plaintext_ring(ring_degree: usize, t: u64) -> PlaintextRing {
 #     ); 
 }
 ```
-Note that Fheanor provides the convenience function [`crate::number_ring::sample_primes()`] and [`crate::number_ring::extend_sampled_primes()`] to simplify this:
+Note that this crate provides the convenience function [`sample_primes()`] and [`extend_sampled_primes()`] to simplify this:
 ```rust
 # use feanor_math::algorithms::miller_rabin::*;
 # use feanor_math::ring::*;
@@ -323,8 +323,8 @@ While we could do it in the same way as before, i.e. take the shortest lift of e
 
 Instead we use a technique that was propsed by <https://ia.cr/2016/510>.
 More concretely, they show how to implement the necessary operations as "RNS conversions", which directly operate on the RNS values, and don't involve big integers.
-The details are not overly complicated, but would go beyond the scope of this introduction, so we just describe how to use the RNS conversion implementations that are implemented in Fheanor.
-In particular, we are interested in [`crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion`] (which replaces the now deprecated [`crate::rns_conv::lift::AlmostExactBaseConversion`]) and [`crate::rns_conv::bfv_rescale::AlmostExactRescalingConvert`], since they implement the two operations that we require for BFV multiplication.
+The details are not overly complicated, but would go beyond the scope of this introduction, so we just describe how to use the RNS conversion implementations that are implemented in this crate.
+In particular, we are interested in [`AlmostExactMatrixBaseConversion`] (which replaces the now deprecated [`AlmostExactBaseConversion`]) and [`AlmostExactRescalingConvert`], since they implement the two operations that we require for BFV multiplication.
 The first one takes care of the conversion `Z/(q) -> Z/(qq')`, and the second one does the downscaling at the end, which scales elements of `Z/(qq')` by `t/q` and maps them back to `Z/(q)`.
 All implemented RNS conversions take the input in the form of the following matrix:
 ```text
@@ -342,7 +342,7 @@ Note however that it actually is not required to get the actual coefficients `x[
 The reason for this is that the noise growth during multiplication depends on the size of `c0, c1, c0', c1'` w.r.t. the *canonical norm* of the number ring `R`.
 More details on the mathematical background can be found in the original BFV paper.
 
-We can access the coefficients w.r.t. some "short-element" basis of an element of `R_q` using the functions [`crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::undo_fft()`] and [`crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::as_matrix_wrt_small_basis()`].
+We can access the coefficients w.r.t. some "short-element" basis of an element of `R_q` using the functions [`DoubleRNSRingBase::undo_fft()`] and [`DoubleRNSRingBase::as_matrix_wrt_small_basis()`].
 Fortunately for us, the returned data is exactly in the right format.
 This leaves us to implement BFV multiplication as follows.
 ```rust
@@ -439,7 +439,7 @@ fn hom_mul_three_component(
 }
 ```
 Note that we now take the inputs and return the outputs as `SmallBasisEl<Pow2CyclotomicNumberRing>`, instead of `El<CiphertextRing>`.
-The difference is that `El<CiphertextRing>` will store elements in double-RNS representation, while [`crate::ciphertext_ring::double_rns_ring::SmallBasisEl`] uses the single-RNS small-basis representation.
+The difference is that `El<CiphertextRing>` will store elements in double-RNS representation, while [`SmallBasisEl`] uses the single-RNS small-basis representation.
 Hence, by taking inputs as `SmallBasisEl`, we can avoid the costly NTT - assuming that the caller already has elements available in small-basis representation.
 
 To conclude this example, we have to implement relinearization.
@@ -447,7 +447,7 @@ Note that previously, we did so by using a gadget product, which relies on the b
 We still use a gadget product, but this time, we use an RNS-compatible gadget vector.
 This again allows us to avoid arbitrary-precision integers.
 In fact, this means we can use the available implementation of gadget product in [`crate::gadget_product`], and thus this part will actually be much shorter than relinearization in [`crate::examples::bfv_impl_v1`].
-Without going into the details, we just create two [`crate::gadget_product::RNSGadgetProductRhsOperand`] instead of the `Vec<(El<CiphertextRing>, El<CiphertextRing>)>` as the relinearization key, and a single [`crate::gadget_product::RNSGadgetProductLhsOperand`] for `c2` during relinearization.
+Without going into the details, we just create two [`RNSGadgetProductRhsOperand`] instead of the `Vec<(El<CiphertextRing>, El<CiphertextRing>)>` as the relinearization key, and a single [`RNSGadgetProductLhsOperand`] for `c2` during relinearization.
 We arrive at:
 ```rust
 # use feanor_math::algorithms::miller_rabin::*;
@@ -497,8 +497,8 @@ fn gen_relin_key(
         let (b, a) = rlwe_sample(ciphertext_ring, sk);
         let factor = result0.gadget_vector(ciphertext_ring.get_ring()).at(i);
         let (key0, key1) = (ciphertext_ring.add(b, ciphertext_ring.inclusion().mul_ref_map(&sk_sqr, &factor)), a);
-        result0.set_rns_factor(ciphertext_ring.get_ring(), i, key0);
-        result1.set_rns_factor(ciphertext_ring.get_ring(), i, key1);
+        result0.set_component(ciphertext_ring.get_ring(), i, key0);
+        result1.set_component(ciphertext_ring.get_ring(), i, key1);
     }
     return (result0, result1);
 }
@@ -701,8 +701,8 @@ Finally, let's test this implementation again!
 #         let (b, a) = rlwe_sample(ciphertext_ring, sk);
 #         let factor = result0.gadget_vector(ciphertext_ring.get_ring()).at(i);
 #         let (key0, key1) = (ciphertext_ring.add(b, ciphertext_ring.inclusion().mul_ref_map(&sk_sqr, &factor)), a);
-#         result0.set_rns_factor(ciphertext_ring.get_ring(), i, key0);
-#         result1.set_rns_factor(ciphertext_ring.get_ring(), i, key1);
+#         result0.set_component(ciphertext_ring.get_ring(), i, key0);
+#         result1.set_component(ciphertext_ring.get_ring(), i, key1);
 #     }
 #     return (result0, result1);
 # }
@@ -747,10 +747,26 @@ In fact, a little more benchmarking shows that our implementation almost matches
 For example, for `N = 32768` and `q ~ 800`, I get 0.88 seconds, which is close to the 0.5 seconds that SEAL version 4.1.2 takes on my system.
 
 Nevertheless, there does remain some optimization potential:
- - Currently, the native NTT of Fheanor is the same as in `feanor-math`, and it is not quite as fast as others.
+ - Currently, the native NTT is the same as in `feanor-math`, and it is not quite as fast as others.
    You can use the HEXL library (using the `feanor-math-hexl` library), which will give you an even faster NTT!
  - Apart from multiplication, decryption can also profit from a careful use of RNS conversions.
  - When doing the first RNS conversion `q -> qq'` during multiplication, note that the `mod q` part of the result is the same as the input.
-   Hence, one can replace [`crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion`] with [`crate::rns_conv::shared_lift::AlmostExactSharedBaseConversion`] which avoids recomputing these values and thus is slightly faster.
+   Hence, one can replace [`AlmostExactMatrixBaseConversion`] with [`AlmostExactSharedBaseConversion`] which avoids recomputing these values and thus is slightly faster.
 
 Implementing these points is left as an exercise.
+
+[`AlmostExactMatrixBaseConversion`]: crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion
+[`AlmostExactSharedBaseConversion`]: crate::rns_conv::shared_lift::AlmostExactSharedBaseConversion
+[`zn_rns::Zn`]: feanor_math::rings::zn::zn_rns::Zn
+[`extend_sampled_primes()`]: crate::number_ring::extend_sampled_primes()
+[`sample_primes()`]: crate::number_ring::sample_primes()
+[`AlmostExactMatrixBaseConversion`]: crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion
+[`AlmostExactBaseConversion`]: crate::rns_conv::lift::AlmostExactBaseConversion
+[`AlmostExactRescalingConvert`]: crate::rns_conv::bfv_rescale::AlmostExactRescalingConvert
+[`DoubleRNSRingBase`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase
+[`DoubleRNSRingBase::as_matrix_wrt_small_basis()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::as_matrix_wrt_small_basis()
+[`DoubleRNSRingBase::undo_fft()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::undo_fft()
+[`SmallBasisEl`]: crate::ciphertext_ring::double_rns_ring::SmallBasisEl
+[`RNSGadgetProductRhsOperand`]: crate::gadget_product::RNSGadgetProductRhsOperand
+[`RNSGadgetProductLhsOperand`]: crate::gadget_product::RNSGadgetProductLhsOperand
+[`DoubleRNSRing`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRing

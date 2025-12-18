@@ -18,11 +18,6 @@ use crate::rns_conv::UsedBaseConversion;
 use crate::ZZbig;
 use crate::rns_conv::RNSOperation;
 
-///
-/// We don't use Strassen-based [`super::matrix_lift::AlmostExactMatrixBaseConversion`], since
-/// for BGV, usually we just use lifts from very small RNS bases (i.e. `t` or a single RNS factor
-/// of `q`).
-/// 
 type BGVUsedBaseConversion<A> = UsedBaseConversion<A>;
 
 ///
@@ -136,12 +131,14 @@ impl<A> RNSOperation for CongruencePreservingRescaling<A>
     ///
     /// # Implementation notes
     /// 
-    /// A lot of this code is the same as for [`crate::rns_conv::bfv_rescale::AlmostExactRescaling`], but
-    /// some subtle differences make it simpler to re-implement it.
+    /// A lot of this code is the same as for [`AlmostExactRescaling`], but some subtle differences 
+    /// make it simpler to re-implement it.
     /// 
-    /// In particular, we later refer to `x_mod_b_lift` again, which would not be accessible
-    /// if we used [`crate::rns_conv::bfv_rescale::AlmostExactRescaling`]. Also, we currently lift to `aq`
-    /// instead of `aq/b`, but I am not sure if that is really necessary.
+    /// In particular, we later refer to `x_mod_b_lift` again, which would not be accessible if we used 
+    /// [`AlmostExactRescaling`]. Also, we currently lift to `aq` instead of `aq/b`, but I am not sure
+    /// if that is really necessary.
+    /// 
+    /// [`AlmostExactRescaling`]: crate::rns_conv::bfv_rescale::AlmostExactRescaling
     /// 
     #[instrument(skip_all)]
     fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, mut output: SubmatrixMut<V2, El<Self::Ring>>)

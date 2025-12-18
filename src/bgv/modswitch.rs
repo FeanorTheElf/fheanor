@@ -387,7 +387,6 @@ pub fn drop_rns_factors_balanced(key_digits: &RNSGadgetVectorDigitIndices, drop_
     return result;
 }
 
-
 ///
 /// Default modulus-switch strategy for BGV, which performs a certain number of modulus-switches
 /// before each multiplication.
@@ -1658,10 +1657,10 @@ fn test_default_modswitch_strategy_mul() {
     let C = params.create_ciphertext_ring(500..520);
 
     let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
+    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
 
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
+    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
 
     let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> = DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
     let pow8_circuit = PlaintextCircuit::mul(ZZi64)
@@ -1703,10 +1702,10 @@ fn test_never_modswitch_strategy() {
     let C = params.create_ciphertext_ring(500..520);
 
     let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
+    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
 
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
+    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
 
     {
         let modswitch_strategy = DefaultModswitchStrategy::never_modswitch();
