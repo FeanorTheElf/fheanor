@@ -261,8 +261,9 @@ pub fn sample_primes<F>(min_bits: usize, max_bits: usize, max_bits_each_modulus:
 }
 
 ///
-/// Like [`sample_primes()`], but starts with a non-empty list of primes. Additional primes are added
-/// to the end of this list, and only primes that do not appear in the list are added.
+/// Like [`sample_primes()`], but starts with a non-empty list of integers. Additional primes are added
+/// to the end of this list, and only primes that do not appear in the list are added. Note that in the
+/// case that the list contains non-primes, newly added primes may divide numbers already in the list.
 /// 
 /// Only primes that are returned by the given function are used, which allows the caller to sample
 /// a list of primes that satisfy additional constraints, like being `= 1 mod m` for some integer `m`.
