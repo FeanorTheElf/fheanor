@@ -32,10 +32,10 @@ use serde::Serialize;
 use serde::de::DeserializeSeed;
 use tracing::instrument;
 
+use crate::number_ring::galois::*;
 use crate::ciphertext_ring::{add_rns_factor_list_of_congruences, drop_rns_factor_list_of_congruences};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::RNSFactorCongruence;
-use crate::number_ring::galois::*;
 use crate::number_ring::*;
 use super::serialization::deserialize_rns_data;
 use super::serialization::serialize_rns_data;
@@ -1351,6 +1351,13 @@ impl<NumberRing, A1, A2> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A2>> for Dou
     }
 }
 
+#[cfg(test)]
+use crate::ZZbig;
+#[cfg(test)]
+use feanor_math::assert_el_eq;
+#[cfg(test)]
+use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+
 #[cfg(any(test, feature = "generic_tests"))]
 pub fn test_with_number_ring<NumberRing: Clone + AbstractNumberRing>(number_ring: NumberRing) {
     use feanor_math::algorithms::eea::signed_lcm;
@@ -1445,4 +1452,12 @@ pub fn test_with_number_ring<NumberRing: Clone + AbstractNumberRing>(number_ring
     }
 
     feanor_math::serialization::generic_tests::test_serialization(&ring, elements.iter().map(|x| ring.clone_el(x)));
+}
+
+#[test]
+fn test_nonprime_rns_factors() {
+    let R: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(32);
+    let Zq = zn_rns::Zn::new(vec![Zn::new(257 * 257), Zn::new(65537)], ZZbig);
+    let Rq = DoubleRNSRingBase::new(R, Zq);
+    assert_el_eq!(&Rq, Rq.int_hom().map(257 * 257), Rq.pow(Rq.int_hom().map(257), 2));
 }

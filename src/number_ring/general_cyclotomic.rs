@@ -6,7 +6,7 @@ use std::sync::Arc;
 use feanor_math::algorithms::fft::bluestein::BluesteinFFT;
 use feanor_math::algorithms::int_factor::factor;
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
-use feanor_math::algorithms::unity_root::{get_prim_root_of_unity, get_prim_root_of_unity_pow2};
+use feanor_math::algorithms::unity_root::get_prim_root_of_unity_zn;
 use feanor_math::algorithms::fft::*;
 use feanor_math::integer::*;
 use feanor_math::iters::multi_cartesian_product;
@@ -275,14 +275,11 @@ impl AbstractNumberRing for OddSquarefreeCyclotomicNumberRing {
         let m = n_factorization.iter().copied().product::<i64>();
 
         let allocator = AllocArc(Arc::new(DynLayoutMempool::new(Alignment::of::<u64>())));
-        let Fp_as_field = (&Fp).as_field().ok().unwrap();
         let Fp_fastmul = ZnFastmul::new(Fp).unwrap();
-        let zeta = get_prim_root_of_unity(&Fp_as_field, 2 * m as usize).unwrap();
-        let zeta = Fp_as_field.get_ring().unwrap_element(zeta);
+        let zeta = get_prim_root_of_unity_zn(&Fp, 2 * m as usize).unwrap();
 
         let log2_help_len = StaticRing::<i64>::RING.abs_log2_ceil(&(2 * m).try_into().unwrap()).unwrap();
-        let zeta_help_len = get_prim_root_of_unity_pow2(&Fp_as_field, log2_help_len).unwrap();
-        let zeta_help_len = Fp_as_field.get_ring().unwrap_element(zeta_help_len);
+        let zeta_help_len = get_prim_root_of_unity_zn(&Fp, 1 << log2_help_len).unwrap();
         
         let fft_table = BluesteinFFT::new_with_hom(
             Fp.into_can_hom(Fp_fastmul).ok().unwrap(),

@@ -3,7 +3,7 @@ use std::alloc::Global;
 use feanor_math::algorithms::fft::bluestein::BluesteinFFT;
 use feanor_math::algorithms::fft::*;
 use feanor_math::algorithms::fft::cooley_tuckey::*;
-use feanor_math::algorithms::unity_root::{get_prim_root_of_unity_pow2, is_prim_root_of_unity_pow2};
+use feanor_math::algorithms::unity_root::{get_prim_root_of_unity_zn, is_prim_root_of_unity_pow2};
 use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::computation::no_error;
@@ -32,6 +32,7 @@ impl<R> FheanorConvolution<R> for NTTConvolution<R::Type, R::Type, Identity<R>>
         R::Type: ZnRing
 {
     fn new(ring: R, max_log2_len: usize) -> Self {
+        println!("{:?}", ring.integer_ring().format(ring.modulus()));
         assert!(ring.integer_ring().is_one(&ring.integer_ring().euclidean_rem(ring.integer_ring().clone_el(ring.modulus()), &ring.integer_ring().power_of_two(max_log2_len))));
         NTTConvolution::new(ring)
     }
@@ -182,9 +183,7 @@ impl<R> FheanorNegacyclicNTT<R> for RustNegacyclicNTT<R>
     }
 
     fn new(Fp: R, log2_rank: usize) -> Self {
-        let Fp_as_field = (&Fp).as_field().ok().unwrap();
-        let root_of_unity = get_prim_root_of_unity_pow2(&Fp_as_field, log2_rank + 1).unwrap();
-        let zeta = Fp_as_field.get_ring().unwrap_element(root_of_unity);
+        let zeta = get_prim_root_of_unity_zn(&Fp, 1 << (log2_rank + 1)).unwrap();
         return Self::new_with_root_of_unity(Fp, zeta, log2_rank);
     }
 }
