@@ -14,7 +14,7 @@ use feanor_math::ring::*;
 use feanor_math::rings::extension::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::seq::*;
-use feanor_math::algorithms::linsolve::LinSolveRing;
+use feanor_math::algorithms::linsolve::{LinSolveRing, LinSolveRingStore};
 use feanor_math::homomorphism::*;
 
 use tracing::instrument;
@@ -195,15 +195,10 @@ impl<R> MatmulTransform<R>
         // this is the map `X -> X^p`, which is the frobenius in our case, since we choose the canonical generator of the slot ring as root of unity
         return Arc::new(move |x: &El<SlotRingOf<S>>, count: usize| apply_frobenius::<S>(&generator_frobenius_conjugates, H.slot_ring(), d, x, count));
     }
-    
-    ///
-    /// Applies a linea transform on each slot separately. The transform is given by its
-    /// matrix w.r.t. the basis `1, 𝝵, ..., 𝝵^(d - 1)` where `𝝵` is the canonical
-    /// generator of the slot ring.
-    /// 
-    #[instrument(skip_all)]
-    pub fn blockmatmul0d<G, S>(H: &HypercubeIsomorphism<S>, matrix: G) -> MatmulTransform<R>
-        where G: Fn(usize, usize, &[usize]) -> El<R::BaseRing>,
+
+    fn blockmatmul0d_internal<G, H, S>(H: &HypercubeIsomorphism<S>, matrices: G) -> MatmulTransform<R>
+        where G: Fn(&[usize]) -> H,
+            H: FnMut(usize, usize, &[usize]) -> El<R::BaseRing>,
             S: RingStore<Type = R>
     {
         let d = H.slot_ring().rank();
@@ -217,10 +212,13 @@ impl<R> MatmulTransform<R>
             (0..d).map(|i| frobenius(c, i)).collect::<Vec<_>>()
         ).collect::<Vec<_>>();
         
-        // similar to `blockmatmul1d()`, but simpler
+        // similar to `blockmatmul1d()`, but simpler; the approach is to take a linear combination of the
+        // "elementary" blockmatmul0d operations that correspond to the matrices with exactly a single
+        // nonzero entry.
         let mut result = MatmulTransform {
             data: (0..d).filter_map(|frobenius_index| {
                 let coeffs = H.hypercube().hypercube_iter(|idxs| {
+                    let mut matrix = matrices(idxs);
                     <_ as ComputeInnerProduct>::inner_product_ref_fst(H.slot_ring().get_ring(), (0..d).map(|l| (
                         &extract_coeff_factor_conjugates[l][frobenius_index],
                         H.slot_ring().from_canonical_basis((0..d).map(|k| matrix(k, l, idxs)))
@@ -238,6 +236,40 @@ impl<R> MatmulTransform<R>
         };
         result.canonicalize(H.ring(), H.hypercube());
         return result;
+    }
+
+    ///
+    /// Applies a linea transform on each slot separately. The transform is given by its
+    /// matrix w.r.t. the basis `1, 𝝵, ..., 𝝵^(d - 1)` where `𝝵` is the canonical
+    /// generator of the slot ring.
+    /// 
+    #[instrument(skip_all)]
+    pub fn blockmatmul0d<G, S>(H: &HypercubeIsomorphism<S>, matrix: G) -> MatmulTransform<R>
+        where G: Fn(usize, usize, &[usize]) -> El<R::BaseRing>,
+            S: RingStore<Type = R>
+    {
+        Self::blockmatmul0d_internal(H, |_| |i, j, idxs| matrix(i, j, idxs))
+    }
+
+    ///
+    /// As [`MatmulTransform::blockmatmul0d()`], just that the matrix belonging to each slot
+    /// is inverted, and the inverse is used to construct the transform as in `blockmatmul0d()`.
+    /// 
+    /// Panics if the matrix for any slot is not invertible.
+    /// 
+    #[instrument(skip_all)]
+    pub fn blockmatmul0d_inv<G, S>(H: &HypercubeIsomorphism<S>, matrix: G) -> MatmulTransform<R>
+        where G: Fn(usize, usize, &[usize]) -> El<R::BaseRing>,
+            S: RingStore<Type = R>
+    {
+        let S = H.slot_ring();
+        let d = S.rank();
+        Self::blockmatmul0d_internal(H, |idxs| {
+            let mut matrix = OwnedMatrix::from_fn(d, d, |i, j| matrix(i, j, idxs));
+            let mut inv = OwnedMatrix::zero(d, d, S.base_ring());
+            S.base_ring().solve_right(matrix.data_mut(), OwnedMatrix::identity(d, d, S.base_ring()).data_mut(), inv.data_mut()).assert_solved();
+            return move |i, j, _| S.base_ring().clone_el(inv.at(i, j));
+        })
     }
 
     ///

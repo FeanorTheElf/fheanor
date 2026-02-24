@@ -807,6 +807,28 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
         result.check_invariants();
         return result;
     }
+    
+    ///
+    /// "Puts" `n` copies of this circuit "next to each other", i.e. given
+    /// ```text
+    ///    | | | |
+    ///   |‾‾‾‾‾‾‾|
+    ///   |   C1  |
+    ///   |_______|
+    ///     | | | 
+    /// ```
+    /// this function computes the circuit
+    /// ```text
+    ///    | | | | | | | |       | | | |
+    ///   |‾‾‾‾‾‾‾|‾‾‾‾‾‾‾|‾‾‾‾‾|‾‾‾‾‾‾‾|
+    ///   |   C1  |   C1  | ... |   C1  |
+    ///   |_______|_______|_____|_______|
+    ///     | | |   | | |         | | |
+    /// ```
+    /// 
+    pub fn tensor_pow<S: Copy + RingStore<Type = R>>(self, n: usize, ring: S) -> Self {
+        (0..n).fold(Self::empty(), |current, _| current.tensor(self.clone(ring), ring))
+    }
 
     ///
     /// "Puts" two circuits "next to each other", i.e. given

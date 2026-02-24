@@ -44,10 +44,10 @@ use super::BGFVCiphertextRing;
 /// Implementation of the ring `Z[𝝵_m]/(q)`, where `q = p1 ... pr` is a product of "RNS factors".
 /// Elements are stored in single-RNS-representation, using NTTs for multiplication.
 /// 
-/// As opposed to [`crate::ciphertext_ring::double_rns_ring::DoubleRNSRing`], this means repeated 
-/// multiplications are more expensive, but non-arithmetic operations like [`FreeAlgebra::wrt_canonical_basis()`] 
-/// or [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`] are faster. Note that repeated
-/// multiplications with a fixed element will get significantly faster when using 
+/// As opposed to [`DoubleRNSRing`], this means repeated multiplications are more 
+/// expensive, but non-arithmetic operations like [`FreeAlgebra::wrt_canonical_basis()`] 
+/// or [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`] are faster. Note 
+/// that repeated multiplications with a fixed element will get significantly faster when using 
 /// [`PreparedMultiplicationRing::prepare_multiplicant()`] and [`PreparedMultiplicationRing::mul_prepared()`].
 ///  
 /// # Mathematical details
@@ -69,6 +69,8 @@ use super::BGFVCiphertextRing;
 /// modulo `X^m - 1` (and only compute the full reduction modulo `Phi_m(X)` when necessary), which
 /// is extremely cheap. I don't know if there is something similar that we can do for general number
 /// rings.
+/// 
+/// [`DoubleRNSRing`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRing
 /// 
 pub struct SingleRNSRingBase<NumberRing, A, C> 
     where NumberRing: AbstractNumberRing,
@@ -134,7 +136,7 @@ impl<NumberRing, C> SingleRNSRingBase<NumberRing, Global, C>
 impl<NumberRing, A, C> Clone for SingleRNSRingBase<NumberRing, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         A: Allocator + Clone,
-        C: FheanorConvolution<Zn>
+        C: ConvolutionAlgorithm<ZnBase>
 {
     fn clone(&self) -> Self {
         Self {

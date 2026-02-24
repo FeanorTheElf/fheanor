@@ -17,13 +17,13 @@ use feanor_math::primitive_int::StaticRing;
 use rand::{Rng, RngCore};
 use rand_distr::StandardNormal;
 use fheanor::number_ring::*;
-use fheanor::rns_conv::bfv_rescale::AlmostExactRescalingConvert;
+use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
 use fheanor::gadget_product::*;
 use fheanor::rns_conv::RNSOperation;
 use fheanor::number_ring::quotient_by_int::NumberRingQuotientByInt;
 use fheanor::number_ring::pow2_cyclotomic::*;
 use fheanor::ciphertext_ring::double_rns_ring::*;
-use fheanor::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion;
+use fheanor::rns_conv::matrix_lift::RNSMatrixBaseConversion;
 
 type NumberRing = Pow2CyclotomicNumberRing;
 type PlaintextRing = NumberRingQuotientByInt<NumberRing, zn_64::Zn>;
@@ -146,7 +146,7 @@ fn hom_mul_three_component(
     let (c0, c1) = (&lhs.0, &lhs.1);
     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
 
-    let lift_to_multiplication_ring_rnsconv = AlmostExactMatrixBaseConversion::new(
+    let lift_to_multiplication_ring_rnsconv = RNSMatrixBaseConversion::new(
         ciphertext_ring.base_ring().as_iter().cloned().collect(), 
         multiplication_ring.base_ring().as_iter().cloned().collect()
     );
@@ -167,7 +167,7 @@ fn hom_mul_three_component(
         multiplication_ring.mul(lift_to_multiplication_ring(&c1), lift_to_multiplication_ring(&c1_prime))
     );
 
-    let scale_down_rnsconv = AlmostExactRescalingConvert::new(
+    let scale_down_rnsconv = RNSRescalingConversion::new(
         multiplication_ring.base_ring().as_iter().cloned().collect(), 
         ciphertext_ring.base_ring().as_iter().cloned().collect(),
         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 

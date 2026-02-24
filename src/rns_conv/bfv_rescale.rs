@@ -30,19 +30,19 @@ use crate::ZZbig;
 /// Primarily, this is relevant as it is used during multiplication for BFV.
 /// In this case, we always have `q' = b`.
 /// 
-pub struct AlmostExactRescalingConvert<A = Global>
+pub struct RNSRescalingConversion<A = Global>
     where A: Allocator + Clone
 {
     /// rescale `Z/qZ -> Z/(aq/b)Z`
-    rescaling: AlmostExactRescaling<A>,
+    rescaling: RNSRescaling<A>,
     /// convert `Z/(aq/b)Z -> Z/q'Z`
     convert: UsedBaseConversion<A>
 }
 
-impl AlmostExactRescalingConvert {
+impl RNSRescalingConversion {
 
     ///
-    /// Creates a new [`AlmostExactRescalingConvert`], where
+    /// Creates a new [`RNSRescalingConversion`], where
     ///  - `q` is the product of `in_moduli`
     ///  - `q'` is the product of `out_moduli`
     ///  - `a` is the product of `a_moduli`
@@ -54,11 +54,11 @@ impl AlmostExactRescalingConvert {
 
 }
 
-impl<A> AlmostExactRescalingConvert<A>
+impl<A> RNSRescalingConversion<A>
     where A: Allocator + Clone
 {
     ///
-    /// Creates a new [`AlmostExactRescalingConvert`], where
+    /// Creates a new [`RNSRescalingConversion`], where
     ///  - `q` is the product of `in_moduli`
     ///  - `q'` is the product of `out_moduli`
     ///  - `a` is the product of `a_moduli`
@@ -70,7 +70,7 @@ impl<A> AlmostExactRescalingConvert<A>
             .filter(|(i, _)| !b_moduli_indices.contains(i)).map(|(_, Zn)| Zn)
             .chain(a_moduli.iter())
             .cloned().collect();
-        let rescaling = AlmostExactRescaling::new_with_alloc(in_moduli.clone(), intermediate_moduli.clone(), allocator.clone());
+        let rescaling = RNSRescaling::new_with_alloc(in_moduli.clone(), intermediate_moduli.clone(), allocator.clone());
         let convert = UsedBaseConversion::new_with_alloc(intermediate_moduli, out_moduli, allocator);
         return Self { rescaling, convert };
     }
@@ -84,7 +84,7 @@ impl<A> AlmostExactRescalingConvert<A>
     }
 }
 
-impl<A> RNSOperation for AlmostExactRescalingConvert<A>
+impl<A> RNSOperation for RNSRescalingConversion<A>
     where A: Allocator + Clone
 {
     type Ring = Zn;
@@ -144,11 +144,11 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// # use feanor_math::homomorphism::*;
 /// # use feanor_math::matrix::*;
 /// # use fheanor::rns_conv::*;
-/// # use fheanor::rns_conv::bfv_rescale::AlmostExactRescaling;
+/// # use fheanor::rns_conv::bfv_rescale::RNSRescaling;
 /// let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
 /// let from_modulus = 17 * 19 * 23;
 /// let to = vec![Zn::new(29)];
-/// let rescaling = AlmostExactRescaling::new(from.clone(), to.clone());
+/// let rescaling = RNSRescaling::new(from.clone(), to.clone());
 /// let mut output = [to[0].zero()];
 ///
 /// let x = 1000;
@@ -166,11 +166,11 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// # use feanor_math::homomorphism::*;
 /// # use feanor_math::matrix::*;
 /// # use fheanor::rns_conv::*;
-/// # use fheanor::rns_conv::bfv_rescale::AlmostExactRescaling;
+/// # use fheanor::rns_conv::bfv_rescale::RNSRescaling;
 /// # let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
 /// # let from_modulus = 17 * 19 * 23;
 /// # let to = vec![Zn::new(29)];
-/// # let rescaling = AlmostExactRescaling::new(from.clone(), to.clone());
+/// # let rescaling = RNSRescaling::new(from.clone(), to.clone());
 /// # let mut output = [to[0].zero()];
 /// for x in 1000..2000 {
 ///     rescaling.apply(Submatrix::from_1d(&[from[0].int_hom().map(x), from[1].int_hom().map(x), from[2].int_hom().map(x)], 3, 1), SubmatrixMut::from_1d(&mut output, 1, 1));
@@ -181,7 +181,7 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// }
 /// ```
 /// 
-pub struct AlmostExactRescaling<A = Global>
+pub struct RNSRescaling<A = Global>
     where A: Allocator + Clone
 {
     /// the `i`-th element is the position of `in_moduli[i]` in `out_moduli + b_moduli`
@@ -197,10 +197,10 @@ pub struct AlmostExactRescaling<A = Global>
     b_bigint: El<BigIntRing>
 }
 
-impl AlmostExactRescaling {
+impl RNSRescaling {
     
     ///
-    /// Creates a new [`AlmostExactRescaling`], where
+    /// Creates a new [`RNSRescaling`], where
     ///  - `q` is the product of `in_moduli`
     ///  - `aq/b` is the product of `out_moduli`
     /// 
@@ -211,7 +211,7 @@ impl AlmostExactRescaling {
     }
 }
 
-impl<A> AlmostExactRescaling<A>
+impl<A> RNSRescaling<A>
     where A: Allocator + Clone
 {
     pub fn num(&self) -> &El<BigIntRing> {
@@ -223,7 +223,7 @@ impl<A> AlmostExactRescaling<A>
     }
 
     ///
-    /// Creates a new [`AlmostExactRescaling`], where
+    /// Creates a new [`RNSRescaling`], where
     ///  - `q` is the product of `in_moduli`
     ///  - `aq/b` is the product of `out_moduli`
     /// 
@@ -247,7 +247,7 @@ impl<A> AlmostExactRescaling<A>
             .map(|Zn| int_cast(*Zn.modulus(), ZZbig, Zn.integer_ring())));
         let b = ZZbig.prod(b_moduli.iter().map(|Zn| int_cast(*Zn.modulus(), ZZbig, Zn.integer_ring())));
 
-        AlmostExactRescaling {
+        RNSRescaling {
             a: in_moduli.iter().map(|Zn| Zn.coerce(&ZZbig, ZZbig.clone_el(&a))).collect(),
             b_inv: out_moduli.iter().map(|Zn| Zn.invert(&Zn.coerce(&ZZbig, ZZbig.clone_el(&b))).unwrap()).collect(),
             b_to_out_moduli_lift: UsedBaseConversion::new_with_alloc(b_moduli, out_moduli, allocator.clone()),
@@ -264,7 +264,7 @@ impl<A> AlmostExactRescaling<A>
     }
 }
 
-impl<A> RNSOperation for AlmostExactRescaling<A>
+impl<A> RNSOperation for RNSRescaling<A>
     where A: Allocator + Clone
 {
     type Ring = Zn;
@@ -338,7 +338,7 @@ fn test_rescale_partial() {
     let to = vec![Zn::new(257), Zn::new(113)];
     let q = 17 * 97 * 113;
 
-    let rescaling = AlmostExactRescaling::new_with_alloc(
+    let rescaling = RNSRescaling::new_with_alloc(
         from.clone(), 
         to.clone(),
         Global
@@ -368,7 +368,7 @@ fn test_rescale_larger_unordered() {
     let to = vec![Zn::new(19), Zn::new(17), Zn::new(5), Zn::new(23)];
     let q = 17 * 31 * 23 * 29 * 19;
 
-    let rescaling = AlmostExactRescaling::new_with_alloc(
+    let rescaling = RNSRescaling::new_with_alloc(
         from.clone(), 
         to.clone(),
         Global
@@ -398,7 +398,7 @@ fn test_rescale_larger() {
     let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
     let q = 17 * 31 * 23 * 29 * 19;
 
-    let rescaling = AlmostExactRescaling::new_with_alloc(
+    let rescaling = RNSRescaling::new_with_alloc(
         from.clone(), 
         to.clone(),
         Global
@@ -427,7 +427,7 @@ fn test_rescale_convert() {
     let from = vec![Zn::new(17), Zn::new(31), Zn::new(23), Zn::new(29), Zn::new(19)];
     let to = vec![Zn::new(31), Zn::new(29)];
     let q = 17 * 31 * 23 * 29 * 19;
-    let rescaling = AlmostExactRescalingConvert::new_with_alloc(
+    let rescaling = RNSRescalingConversion::new_with_alloc(
         from.clone(),
         to.clone(), 
         vec![Zn::new(5)], 
@@ -435,7 +435,7 @@ fn test_rescale_convert() {
         Global
     );
 
-    // `AlmostExactRescaling` only works up to `q/4`
+    // `RNSRescaling` only works up to `q/4`
     for i in (-(q/4)..(q/4 - 512)).step_by(512) {
         // `q/4` is quite large, so group stuff into matrices here
         let input = OwnedMatrix::from_fn(from.len(), 512, |k, j| from.at(k).int_hom().map(i + j as i32));
@@ -463,7 +463,7 @@ fn test_rescale_small_num() {
     let to = vec![Zn::new(19), Zn::new(23), Zn::new(113)];
     let q = 17 * 97 * 113;
 
-    let rescaling = AlmostExactRescaling::new_with_alloc(
+    let rescaling = RNSRescaling::new_with_alloc(
         from.clone(), 
         to.clone(),
         Global
@@ -493,7 +493,7 @@ fn test_rescale_small() {
     let to = vec![Zn::new(29)];
     let q = 17 * 19 * 23;
 
-    let rescaling = AlmostExactRescaling::new_with_alloc(
+    let rescaling = RNSRescaling::new_with_alloc(
         from.clone(), 
         to.clone(),
         Global

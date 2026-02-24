@@ -16,7 +16,6 @@ use feanor_math::seq::*;
 use crate::number_ring::galois::*;
 
 pub mod galois;
-
 ///
 /// Code for fast polynomial division by a cyclotomic polynomial.
 /// 

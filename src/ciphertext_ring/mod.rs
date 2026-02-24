@@ -180,6 +180,8 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
     /// cases, it is indeed ok if the representation is not unique, as long as it is w.r.t. a small
     /// generating set.
     /// 
+    /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
+    /// [`AbstractNumberRing`]: crate::number_ring::AbstractNumberRing
     /// [`FreeAlgebra::from_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()
     /// [`FreeAlgebra::wrt_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()
     /// 

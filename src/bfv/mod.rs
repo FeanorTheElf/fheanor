@@ -40,9 +40,9 @@ use crate::number_ring::galois::CyclotomicGaloisGroupOps;
 use crate::number_ring::pow2_cyclotomic::*;
 use crate::number_ring::composite_cyclotomic::*;
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
-use crate::rns_conv::bfv_rescale::{AlmostExactRescaling, AlmostExactRescalingConvert};
+use crate::rns_conv::bfv_rescale::{RNSRescaling, RNSRescalingConversion};
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
-use crate::rns_conv::shared_lift::AlmostExactSharedBaseConversion;
+use crate::rns_conv::shared_lift::RNSSharedBaseConversion;
 use crate::DefaultCiphertextAllocator;
 use crate::*;
 
@@ -625,7 +625,7 @@ pub trait BFVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn mod_switch_ct(_P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        let mod_switch = AlmostExactRescaling::new_with_alloc(
+        let mod_switch = RNSRescaling::new_with_alloc(
             Cold.base_ring().as_iter().map(|Zp| *Zp).collect(),
             Cnew.base_ring().as_iter().map(|Zp| *Zp).collect(),
             Global
@@ -784,7 +784,7 @@ pub trait BFVInstantiation {
         // we treat the case that Zt can be represented using zn_64::Zn separately, since it is 
         // common and can be implemented more efficiently
         if let Some(Zt) = t_fits_zn_64(ZZ, P.base_ring().modulus()) {
-            let rescale = AlmostExactRescalingConvert::new_with_alloc(
+            let rescale = RNSRescalingConversion::new_with_alloc(
                 C_mul.base_ring().as_iter().cloned().collect(), 
                 C.base_ring().as_iter().cloned().collect(),
                 vec![Zt], 
@@ -795,7 +795,7 @@ pub trait BFVInstantiation {
             Box::new(result)
         } else {
             let to_extended = temporarily_extend_rns_base(C_mul.base_ring(), ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap());
-            let rescale = AlmostExactRescalingConvert::new_with_alloc(
+            let rescale = RNSRescalingConversion::new_with_alloc(
                 to_extended.output_rings().to_owned(), 
                 C.base_ring().as_iter().cloned().collect(),
                 Vec::new(), 
@@ -1191,7 +1191,7 @@ fn t_fits_zn_64<I>(ZZ: I, t: &El<I>) -> Option<Zn>
     }
 }
 
-fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, by_bits: usize) -> AlmostExactSharedBaseConversion {
+fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, by_bits: usize) -> RNSSharedBaseConversion {
     let current_log2_modulus = ZZbig.abs_log2_ceil(current.modulus()).unwrap();
     let new_log2_modulus = current_log2_modulus + by_bits;
 
@@ -1203,7 +1203,7 @@ fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, by_b
         |bound| prev_prime(ZZbig, bound)
     ).unwrap().into_iter().map(|modulus| Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64)).collect::<Vec<_>>();
 
-    let to_extended = AlmostExactSharedBaseConversion::new_with_alloc(
+    let to_extended = RNSSharedBaseConversion::new_with_alloc(
         extended_rns_base[..current.len()].iter().cloned().collect::<Vec<_>>(),
         Vec::new(),
         extended_rns_base[current.len()..].iter().cloned().collect::<Vec<_>>(),

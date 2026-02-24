@@ -66,22 +66,45 @@ impl CyclotomicGaloisGroupBase {
         return Subgroup::new(GroupValue::from(self.clone()), order, generators.into_iter().map(|x| self.from_ring_el(self.underlying_ring().coerce(&ZZi64, x))).collect());
     }
 
+    ///
+    /// Returns the ring `Z/mZ` whose units form this group.
+    /// 
     pub fn underlying_ring(&self) -> &Zn {
         self.group.underlying_ring()
     }
 
+    ///
+    /// Interprets a group element as ring element of `Z/mZ`.
+    /// 
     pub fn as_ring_el<'a>(&self, value: &'a GaloisGroupEl) -> &'a ZnEl {
         self.group.as_ring_el(&value.value)
     }
 
+    ///
+    /// Converts a ring element of `Z/mZ` to a group element of this group.
+    /// Panics if the ring element is not a unit, i.e. in `(Z/mZ)*`.
+    /// 
     pub fn from_ring_el(&self, el: ZnEl) -> GaloisGroupEl {
         GaloisGroupEl { value: self.group.from_ring_el(el).unwrap() }
     }
 
+    ///
+    /// Returns `m` such that this group is isomorphic to `(Z/mZ)*`.
+    /// 
+    /// Note that `m` is not necessarily unique, as for odd `m`, we have
+    /// `(Z/mZ)* ~ (Z/2mZ)*`. In this case, an arbitrary suitable `m`
+    /// will be returned. The same `m` is returned during the whole lifetime
+    /// of the object, and all functionality that depends on `m` must use
+    /// this value of `m`.
+    /// 
     pub fn m(&self) -> u64 {
         *self.underlying_ring().modulus() as u64
     }
 
+    ///
+    /// Returns the order of a group element, i.e. the smallest `k` such that
+    /// `value^k = 1`.
+    /// 
     pub fn element_order(&self, value: &GaloisGroupEl) -> usize {
         multiplicative_order(
             *self.as_ring_el(value),
@@ -89,14 +112,26 @@ impl CyclotomicGaloisGroupBase {
         ) as usize
     }
 
+    ///
+    /// Interprets `x` as a representative for an element in `Z/mZ`, and converts
+    /// it into a group element. Panics if `x` is not a unit in `Z/mZ`, i.e. not
+    /// in `(Z/mZ)*`.
+    /// 
     pub fn from_representative(&self, x: i64) -> GaloisGroupEl {
         self.from_ring_el(self.underlying_ring().coerce(&ZZi64, x))
     }
 
+    ///
+    /// Returns the smallest nonnegative integer that represents the coset of `x`
+    /// in `Z/mZ`.
+    /// 
     pub fn representative(&self, x: &GaloisGroupEl) -> u64 {
         self.underlying_ring().smallest_positive_lift(*self.as_ring_el(x)) as u64
     }
 
+    ///
+    /// Returns the number of elements in this finite group.
+    /// 
     pub fn group_order(&self) -> usize {
         self.order
     }
@@ -110,6 +145,13 @@ pub trait CyclotomicGaloisGroupOps: AbelianGroupStore {
 
     fn from_ring_el(&self, el: ZnEl) -> GaloisGroupEl;
 
+    ///
+    /// Returns a positive integer `m` such that this group embeds into `(Z/mZ)*`.
+    /// 
+    /// This is not necessarily the minimal such `m`. The same `m` is returned during
+    /// the whole lifetime of the object, and all functionality that depends on `m`
+    /// must use this value of `m`.
+    /// 
     fn m(&self) -> u64;
 
     fn element_order(&self, value: &GaloisGroupEl) -> usize;
@@ -120,6 +162,11 @@ pub trait CyclotomicGaloisGroupOps: AbelianGroupStore {
 
     fn group_order(&self) -> usize;
 
+    ///
+    /// Returns whether the embedding of this group into `(Z/mZ)*` is
+    /// an isomorphism, where `m` is the positive integer given by
+    /// [`CyclotomicGaloisGroupOps::m()`].
+    /// 
     fn is_full_cyclotomic_galois_group(&self) -> bool;
 }
 

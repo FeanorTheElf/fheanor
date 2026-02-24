@@ -74,7 +74,7 @@ pub trait RNSOperation {
             V2: AsPointerToSlice<El<Self::Ring>>;
 }
 
-pub(crate) type UsedBaseConversion<A> = matrix_lift::AlmostExactMatrixBaseConversion<A>;
+pub(crate) type UsedBaseConversion<A> = matrix_lift::RNSMatrixBaseConversion<A>;
 
 ///
 /// Returns `(data_sorted, perm)` such that `data_sorted` is an (ascending)

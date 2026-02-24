@@ -45,8 +45,10 @@ use crate::ZZbig;
 /// always represents a ring of the form `(Z/qZ)[X]/(Phi_m(X))`. We assume that the
 /// generating polynomial of the given number ring is indeed `Phi_m(X)`. In theory it
 /// might not be - there can be other generators - but I don't think these other cases
-/// are relevant. We then store ring elements as polynomials modulo `X^m - 1`, i.e. not
-/// completely reduced, unless when required (e.g. in [`FreeAlgebra::wrt_canonical_basis()`]).
+/// are relevant, and the constructor will panic when instantiated with other polynomials. 
+/// 
+/// We then store ring elements as polynomials modulo `X^m - 1`, i.e. not completely
+/// reduced, unless when required (e.g. in [`FreeAlgebra::wrt_canonical_basis()`]).
 /// 
 pub struct NumberRingQuotientByIntBase<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
     where NumberRing: AbstractNumberRing,

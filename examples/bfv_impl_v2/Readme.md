@@ -324,7 +324,7 @@ While we could do it in the same way as before, i.e. take the shortest lift of e
 Instead we use a technique that was propsed by <https://ia.cr/2016/510>.
 More concretely, they show how to implement the necessary operations as "RNS conversions", which directly operate on the RNS values, and don't involve big integers.
 The details are not overly complicated, but would go beyond the scope of this introduction, so we just describe how to use the RNS conversion implementations that are implemented in Fheanor.
-In particular, we are interested in [`AlmostExactMatrixBaseConversion`] (which replaces the now deprecated [`AlmostExactBaseConversion`]) and [`AlmostExactRescalingConvert`], since they implement the two operations that we require for BFV multiplication.
+In particular, we are interested in [`RNSMatrixBaseConversion`] (which replaces the now deprecated [`RNSBaseConversion`]) and [`RNSRescalingConversion`], since they implement the two operations that we require for BFV multiplication.
 The first one takes care of the conversion `Z/(q) -> Z/(qq')`, and the second one does the downscaling at the end, which scales elements of `Z/(qq')` by `t/q` and maps them back to `Z/(q)`.
 All implemented RNS conversions take the input in the form of the following matrix:
 ```text
@@ -360,13 +360,13 @@ This leaves us to implement BFV multiplication as follows.
 # use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
-# use fheanor::rns_conv::bfv_rescale::AlmostExactRescalingConvert;
+# use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
 # use fheanor::rns_conv::RNSOperation;
 # use fheanor::number_ring::pow2_cyclotomic::*;
 # use fheanor::ciphertext_ring::BGFVCiphertextRing;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;
-# use fheanor::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion;
+# use fheanor::rns_conv::matrix_lift::RNSMatrixBaseConversion;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotientByInt<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -396,7 +396,7 @@ fn hom_mul_three_component(
     let (c0, c1) = (&lhs.0, &lhs.1);
     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
     
-    let lift_to_multiplication_ring_rnsconv = AlmostExactMatrixBaseConversion::new(
+    let lift_to_multiplication_ring_rnsconv = RNSMatrixBaseConversion::new(
         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>()
     );
@@ -417,7 +417,7 @@ fn hom_mul_three_component(
         multiplication_ring.mul(lift_to_multiplication_ring(&c1), lift_to_multiplication_ring(&c1_prime))
     );
 
-    let scale_down_rnsconv = AlmostExactRescalingConvert::new(
+    let scale_down_rnsconv = RNSRescalingConversion::new(
         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
@@ -533,14 +533,14 @@ Finally, let's test this implementation again!
 # use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
-# use fheanor::rns_conv::bfv_rescale::AlmostExactRescalingConvert;
+# use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
 # use fheanor::gadget_product::*;
 # use fheanor::rns_conv::RNSOperation;
 # use fheanor::ciphertext_ring::BGFVCiphertextRing;
 # use fheanor::number_ring::pow2_cyclotomic::*;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;
-# use fheanor::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion;
+# use fheanor::rns_conv::matrix_lift::RNSMatrixBaseConversion;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotientByInt<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -648,7 +648,7 @@ Finally, let's test this implementation again!
 # ) -> (SmallBasisEl<Pow2CyclotomicNumberRing>, SmallBasisEl<Pow2CyclotomicNumberRing>, SmallBasisEl<Pow2CyclotomicNumberRing>) {
 #     let (c0, c1) = (&lhs.0, &lhs.1);
 #     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
-#     let lift_to_multiplication_ring_rnsconv = AlmostExactMatrixBaseConversion::new(
+#     let lift_to_multiplication_ring_rnsconv = RNSMatrixBaseConversion::new(
 #         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
 #         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>()
 #     );
@@ -667,7 +667,7 @@ Finally, let's test this implementation again!
 #         ),
 #         multiplication_ring.mul(lift_to_multiplication_ring(&c1), lift_to_multiplication_ring(&c1_prime))
 #     );
-#     let scale_down_rnsconv = AlmostExactRescalingConvert::new(
+#     let scale_down_rnsconv = RNSRescalingConversion::new(
 #         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
 #         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
 #         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
@@ -751,18 +751,18 @@ Nevertheless, there does remain some optimization potential:
    You can use the HEXL library (using the `feanor-math-hexl` library), which will give you an even faster NTT!
  - Apart from multiplication, decryption can also profit from a careful use of RNS conversions.
  - When doing the first RNS conversion `q -> qq'` during multiplication, note that the `mod q` part of the result is the same as the input.
-   Hence, one can replace [`AlmostExactMatrixBaseConversion`] with [`AlmostExactSharedBaseConversion`] which avoids recomputing these values and thus is slightly faster.
+   Hence, one can replace [`RNSMatrixBaseConversion`] with [`RNSSharedBaseConversion`] which avoids recomputing these values and thus is slightly faster.
 
 Implementing these points is left as an exercise.
 
-[`AlmostExactMatrixBaseConversion`]: crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion
-[`AlmostExactSharedBaseConversion`]: crate::rns_conv::shared_lift::AlmostExactSharedBaseConversion
+[`RNSMatrixBaseConversion`]: crate::rns_conv::matrix_lift::RNSMatrixBaseConversion
+[`RNSSharedBaseConversion`]: crate::rns_conv::shared_lift::RNSSharedBaseConversion
 [`zn_rns::Zn`]: feanor_math::rings::zn::zn_rns::Zn
 [`extend_sampled_primes()`]: crate::number_ring::extend_sampled_primes()
 [`sample_primes()`]: crate::number_ring::sample_primes()
-[`AlmostExactMatrixBaseConversion`]: crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion
-[`AlmostExactBaseConversion`]: crate::rns_conv::lift::AlmostExactBaseConversion
-[`AlmostExactRescalingConvert`]: crate::rns_conv::bfv_rescale::AlmostExactRescalingConvert
+[`RNSMatrixBaseConversion`]: crate::rns_conv::matrix_lift::RNSMatrixBaseConversion
+[`RNSBaseConversion`]: crate::rns_conv::lift::RNSBaseConversion
+[`RNSRescalingConversion`]: crate::rns_conv::bfv_rescale::RNSRescalingConversion
 [`DoubleRNSRingBase`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase
 [`DoubleRNSRingBase::as_matrix_wrt_small_basis()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::as_matrix_wrt_small_basis()
 [`DoubleRNSRingBase::undo_fft()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::undo_fft()

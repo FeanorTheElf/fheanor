@@ -129,7 +129,7 @@ pub type DecoratedBaseRingBase<R> = AsLocalPIRBase<RingValue<BaseRing<R>>>;
 ///   Fp[X]/(Phi_m(X))  ->  F_(p^d)^domain(h)
 ///          a(X)       ->  ( a(𝝵^(h(i)^-1)) )_(i in domain(h))
 /// ```
-/// where `𝝵` is an `m`-th primitive root of unity over `Fp`.
+/// where `𝝵` is an `m`-th primitive root of unity in `F_(p^d)`.
 /// 
 /// In fact, the more general case of `(Z/p^eZ)[X]/(Phi_m(X))` is supported.
 ///  

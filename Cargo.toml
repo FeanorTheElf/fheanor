@@ -1,6 +1,6 @@
 [package]
 name = "fheanor"
-version = "0.10.5"
+version = "0.10.16"
 edition = "2021"
 
 repository = "https://github.com/FeanorTheElf/fheanor"

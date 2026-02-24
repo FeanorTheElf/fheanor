@@ -40,7 +40,7 @@ use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 use crate::number_ring::*;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-use crate::rns_conv::bgv_rescale::CongruencePreservingAlmostExactBaseConversion;
+use crate::rns_conv::bgv_rescale::RNSCongruencePreservingBaseConversion;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::{DefaultCiphertextAllocator, DefaultConvolution, DefaultNegacyclicNTT};
 use crate::{ZZi64, ZZbig};
@@ -922,7 +922,7 @@ pub trait BGVInstantiation {
 
         let C_dropped = RingValue::from(Cold.get_ring().drop_rns_factor(&kept_rns_factors));
         let Zt = Zn::new(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()) as u64);
-        let compute_delta = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
+        let compute_delta = RNSCongruencePreservingBaseConversion::new_with_alloc(
             C_dropped.base_ring().as_iter().cloned().collect(),
             Cnew.base_ring().as_iter().cloned().collect(),
             Zt,

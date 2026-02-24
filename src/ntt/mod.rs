@@ -3,7 +3,7 @@ use std::alloc::Global;
 use feanor_math::algorithms::fft::bluestein::BluesteinFFT;
 use feanor_math::algorithms::fft::*;
 use feanor_math::algorithms::fft::cooley_tuckey::*;
-use feanor_math::algorithms::unity_root::{get_prim_root_of_unity_zn, is_prim_root_of_unity_pow2};
+use feanor_math::algorithms::unity_root::*;
 use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::computation::no_error;

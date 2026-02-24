@@ -362,31 +362,36 @@ pub fn falling_factorial_poly<P>(poly_ring: P, m: usize) -> El<P>
 }
 
 ///
-/// Returns the lowest-degree polynomial `f` such that `f(x + py) = x mod p^k` for
+/// Returns the lowest-degree polynomial `f` such that `f(x + py) = x mod p^e` for
 /// `x in { 0, ..., p - 1 }` and any `y`.
 /// 
+/// The degree of this polynomial is at most `(p - 1)(e - 1) + 1`, but may be smaller
+/// than that. This function will always compute the polynomial of lowest degree with
+/// above property. For the reason why a polynomial of degree `<= (p - 1)(e - 1) + 1`
+/// with the property exists, see Chen and Han's paper <https://ia.cr/2022/1364>.
+/// 
 #[instrument(skip_all)]
-pub fn digit_retain_poly<P>(poly_ring: P, k: usize) -> El<P>
+pub fn digit_retain_poly<P>(poly_ring: P, e: usize) -> El<P>
     where P: RingStore + Copy,
         P::Type: PolyRing,
         <<P::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn
 {
-    assert!(k > 0);
-    if k == 1 {
+    assert!(e > 0);
+    if e == 1 {
         return poly_ring.indeterminate();
     }
     let base_ring = poly_ring.base_ring();
     let (p, _) = is_prime_power(base_ring.integer_ring(), base_ring.modulus()).unwrap();
     let p = int_cast(p, ZZi64, base_ring.integer_ring());
-    let pk = ZZi64.pow(p, k);
+    let pe = ZZi64.pow(p, e);
 
     let hom = base_ring.can_hom(&ZZi64).unwrap();
     // poly that is zero modulo p^e on the support
-    let null_poly = falling_factorial_poly(&poly_ring, mu(pk) as usize);
+    let null_poly = falling_factorial_poly(&poly_ring, mu(pe) as usize);
     let modulus = (0..poly_ring.degree(&null_poly).unwrap()).map(|i| base_ring.negate(base_ring.clone_el(poly_ring.coefficient_at(&null_poly, i)))).collect::<Vec<_>>();
     let mod_null_poly_ring = FreeAlgebraImpl::new(base_ring, poly_ring.degree(&null_poly).unwrap(), modulus);
     // poly whose value is `= x mod p` and independent of `y` on `x + p y`
-    let base_poly = mod_null_poly_ring.poly_repr(&poly_ring, &mod_null_poly_ring.pow(mod_null_poly_ring.canonical_gen(), pk as usize), base_ring.identity());
+    let base_poly = mod_null_poly_ring.poly_repr(&poly_ring, &mod_null_poly_ring.pow(mod_null_poly_ring.canonical_gen(), pe as usize), base_ring.identity());
 
     let len = p as usize;
     let mut matrix = OwnedMatrix::from_fn(len, len, |i, j| base_ring.pow(hom.map(i as i64), j));
@@ -398,7 +403,7 @@ pub fn digit_retain_poly<P>(poly_ring: P, k: usize) -> El<P>
         poly_ring.from_terms((0..len).map(|i| (base_ring.clone_el(result.at(i, 0)), i)))
     );
     let mut digit_retain_poly = mod_null_poly_ring.canonical_gen();
-    for _ in 1..k {
+    for _ in 1..e {
         digit_retain_poly = poly_ring.evaluate(&digit_extraction_poly, &digit_retain_poly, mod_null_poly_ring.inclusion());
     }
 
@@ -406,7 +411,7 @@ pub fn digit_retain_poly<P>(poly_ring: P, k: usize) -> El<P>
     let mut current_e = 0;
     while base_ring.checked_div(poly_ring.lc(&current).unwrap(), &base_ring.pow(hom.map(p), current_e)).is_some() {
         let null_poly = poly_ring.inclusion().mul_map(
-            falling_factorial_poly(&poly_ring, mu(ZZi64.pow(p, k - current_e)) as usize),
+            falling_factorial_poly(&poly_ring, mu(ZZi64.pow(p, e - current_e)) as usize),
             base_ring.pow(hom.map(p), current_e)
         );
         while let Some(quo) = base_ring.checked_div(poly_ring.lc(&current).unwrap(), &poly_ring.lc(&null_poly).unwrap()) {

@@ -20,22 +20,22 @@ use super::RNSOperation;
 /// lift of the input is bounded by `aq/4`, in which case the result
 /// is always correct.
 /// 
-/// The functionality is exactly as for [`AlmostExactMatrixBaseConversion`],
+/// The functionality is exactly as for [`RNSMatrixBaseConversion`],
 /// except that it might be faster by reusing the shared factor `a`.
 /// 
-/// [`AlmostExactMatrixBaseConversion`]: crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion
+/// [`RNSMatrixBaseConversion`]: crate::rns_conv::matrix_lift::RNSMatrixBaseConversion
 /// 
-pub struct AlmostExactSharedBaseConversion<A = Global>
+pub struct RNSSharedBaseConversion<A = Global>
     where A: Allocator + Clone
 {
     conversion: UsedBaseConversion<A>,
     out_moduli: Vec<Zn>
 }
 
-impl AlmostExactSharedBaseConversion {
+impl RNSSharedBaseConversion {
 
     ///
-    /// Creates a new [`AlmostExactSharedBaseConversion`], where
+    /// Creates a new [`RNSSharedBaseConversion`], where
     ///  - `a` is the product of `shared_moduli`
     ///  - `q` is the product of `additional_in_moduli`
     ///  - `a'` is the product of `additional_out_moduli`
@@ -48,11 +48,11 @@ impl AlmostExactSharedBaseConversion {
         Self::new_with_alloc(shared_moduli, additional_in_moduli, additional_out_moduli, Global)
     }
 }
-impl<A> AlmostExactSharedBaseConversion<A>
+impl<A> RNSSharedBaseConversion<A>
     where A: Allocator + Clone
 {
     ///
-    /// Creates a new [`AlmostExactSharedBaseConversion`], where
+    /// Creates a new [`RNSSharedBaseConversion`], where
     ///  - `a` is the product of `shared_moduli`
     ///  - `q` is the product of `additional_in_moduli`
     ///  - `a'` is the product of `additional_out_moduli`
@@ -77,7 +77,7 @@ impl<A> AlmostExactSharedBaseConversion<A>
     }
 }
 
-impl<A> RNSOperation for AlmostExactSharedBaseConversion<A>
+impl<A> RNSOperation for RNSSharedBaseConversion<A>
     where A: Allocator + Clone
 {
     type Ring = Zn;
@@ -118,7 +118,7 @@ use feanor_math::seq::*;
 fn test_rns_shared_base_conversion() {
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
-    let table = AlmostExactSharedBaseConversion::new_with_alloc(from.clone(), Vec::new(), vec![to[3]], Global);
+    let table = RNSSharedBaseConversion::new_with_alloc(from.clone(), Vec::new(), vec![to[3]], Global);
 
     for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
         let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();

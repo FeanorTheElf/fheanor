@@ -35,7 +35,7 @@ use crate::ciphertext_ring::double_rns_managed::*;
 use crate::ntt::FheanorNegacyclicNTT;
 use crate::number_ring::composite_cyclotomic::*;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
-use crate::rns_conv::bfv_rescale::AlmostExactRescalingConvert;
+use crate::rns_conv::bfv_rescale::RNSRescalingConversion;
 use crate::bfv::{Pow2BFV, CompositeBFV};
 use crate::{DefaultCiphertextAllocator, DefaultNegacyclicNTT};
 use crate::clpx::encoding::*;
@@ -589,7 +589,7 @@ pub trait CLPXInstantiation {
         assert!(C.number_ring() == C_mul.number_ring());
         assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
 
-        let rescale = AlmostExactRescalingConvert::new_with_alloc(
+        let rescale = RNSRescalingConversion::new_with_alloc(
             C_mul.base_ring().as_iter().cloned().collect(), 
             C.base_ring().as_iter().cloned().collect(),
             Vec::new(), 
