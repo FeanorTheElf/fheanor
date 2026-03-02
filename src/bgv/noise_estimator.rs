@@ -250,8 +250,8 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
     fn key_switch(&self, _P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: &Self::CiphertextDescriptor, key_switch_key: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor {
         assert_eq!(C.base_ring().len() + special_modulus_rns_factor_indices.len(), C_special.base_ring().len());
         let log2_q = BigIntRing::RING.abs_log2_ceil(C.base_ring().modulus()).unwrap() as f64;
-        let log2_largest_digit = key_switch_key.digits.iter().map(|digit| digit.iter().map(|i| *C_special.base_ring().at(i).modulus() as f64).map(f64::log2).sum::<f64>()).max_by(f64::total_cmp).unwrap();
-        let special_modulus_log2 = special_modulus_rns_factor_indices.iter().map(|i| *C_special.base_ring().at(*i).modulus() as f64).map(f64::log2).sum::<f64>();
+        let log2_largest_digit = key_switch_key.digits.iter().map(|digit| digit.iter().map(|i| C_special.base_ring().at(i).integer_ring().abs_log2_ceil(C_special.base_ring().at(i).modulus()).unwrap() as f64).sum::<f64>()).max_by(f64::total_cmp).unwrap();
+        let special_modulus_log2 = special_modulus_rns_factor_indices.iter().map(|i| C_special.base_ring().at(*i).integer_ring().abs_log2_ceil(C_special.base_ring().at(*i).modulus()).unwrap() as f64).sum::<f64>();
         let result = f64::max(
             ct.log2_relative_critical_quantity,
             log2_largest_digit - special_modulus_log2 + (C_special.rank() as f64).log2() * 2. - log2_q

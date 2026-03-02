@@ -24,7 +24,7 @@ use tracing::instrument;
 
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::{perform_rns_op, RNSFactorCongruence};
-use crate::ciphertext_ring::BGFVCiphertextRing;
+use crate::ciphertext_ring::RNSRing;
 use crate::circuit::evaluator::DefaultCircuitEvaluator;
 use crate::circuit::PlaintextCircuit;
 use crate::gadget_product::digits::*;
@@ -130,12 +130,12 @@ pub trait BFVInstantiation {
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + FiniteRing;
+    type CiphertextRing: RNSRing<NumberRing = Self::NumberRing> + FiniteRing;
 
     ///
     /// Type of the plaintext base ring `Z/tZ`.
     /// 
-    type PlaintextZnRing: NiceZn;
+    type PlaintextZnRing: NiceZn + FromModulusCreateableZnRing;
     
     ///
     /// Type of the plaintext ring `R/tR`.
@@ -350,7 +350,7 @@ pub trait BFVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn hom_add_plain(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
+        let ZZ_to_Zq = C.base_ring().can_hom(&ZZbig).unwrap().compose(ZZbig.can_hom(P.base_ring().integer_ring()).unwrap());
         let ZZ = P.base_ring().integer_ring();
         let mut m = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))));
         let Delta = C.base_ring().coerce(&ZZbig, ZZbig.rounded_div(
@@ -387,7 +387,7 @@ pub trait BFVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn encode_plain_multiplicant(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
-        let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
+        let ZZ_to_Zq = C.base_ring().can_hom(&ZZbig).unwrap().compose(ZZbig.can_hom(P.base_ring().integer_ring()).unwrap());
         return C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))));
     }
 
@@ -625,9 +625,9 @@ pub trait BFVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn mod_switch_ct(_P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        let mod_switch = RNSRescaling::new_with_alloc(
-            Cold.base_ring().as_iter().map(|Zp| *Zp).collect(),
-            Cnew.base_ring().as_iter().map(|Zp| *Zp).collect(),
+        let mod_switch = RNSRescaling::new_with_zn(
+            Cold.base_ring().as_iter().collect(),
+            Cnew.base_ring().as_iter().collect(),
             Global
         );
         assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
@@ -649,9 +649,9 @@ pub trait BFVInstantiation {
         if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
             return Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
         } else {
-            let mod_switch = UsedBaseConversion::new_with_alloc(
-                Cold.base_ring().as_iter().cloned().collect(),
-                Cnew.base_ring().as_iter().cloned().collect(),
+            let mod_switch = UsedBaseConversion::new_with_zn(
+                Cold.base_ring().as_iter().collect(),
+                Cnew.base_ring().as_iter().collect(),
                 Global
             );
             assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
@@ -748,9 +748,10 @@ pub trait BFVInstantiation {
     /// 
     fn lift_to_Cmul<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         let C_delta = RingValue::from(C_mul.get_ring().drop_rns_factor(&RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len())));
-        let lift = UsedBaseConversion::new(
-            C.base_ring().as_iter().cloned().collect::<Vec<_>>(),
-            C_delta.base_ring().as_iter().cloned().collect::<Vec<_>>()
+        let lift = UsedBaseConversion::new_with_zn(
+            C.base_ring().as_iter().collect::<Vec<_>>(),
+            C_mul.base_ring().as_iter().skip(C.base_ring().len()).collect::<Vec<_>>(),
+            Global
         );
         let mut tmp_in = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
         let mut tmp_out = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
@@ -784,9 +785,9 @@ pub trait BFVInstantiation {
         // we treat the case that Zt can be represented using zn_64::Zn separately, since it is 
         // common and can be implemented more efficiently
         if let Some(Zt) = t_fits_zn_64(ZZ, P.base_ring().modulus()) {
-            let rescale = RNSRescalingConversion::new_with_alloc(
-                C_mul.base_ring().as_iter().cloned().collect(), 
-                C.base_ring().as_iter().cloned().collect(),
+            let rescale = RNSRescalingConversion::new_with_zn(
+                C_mul.base_ring().as_iter().collect(), 
+                C.base_ring().as_iter().collect(),
                 vec![Zt], 
                 (0..C.base_ring().len()).collect(),
                 Global
@@ -795,16 +796,16 @@ pub trait BFVInstantiation {
             Box::new(result)
         } else {
             let to_extended = temporarily_extend_rns_base(C_mul.base_ring(), ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap());
-            let rescale = RNSRescalingConversion::new_with_alloc(
+            let rescale = RNSRescalingConversion::new_with_zn(
                 to_extended.output_rings().to_owned(), 
-                C.base_ring().as_iter().cloned().collect(),
+                C.base_ring().as_iter().collect(),
                 Vec::new(), 
                 (0..C.base_ring().len()).collect(),
                 Global
             );
             let t_mod_extended = to_extended.output_rings().iter().map(|ring| ring.coerce(ZZ, ZZ.clone_el(P.base_ring().modulus()))).collect::<Vec<_>>();
-            let mut tmp_in_out = OwnedMatrix::zero(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
-            let mut tmp_extended = OwnedMatrix::zero(to_extended.output_rings().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+            let mut tmp_in_out = OwnedMatrix::from_fn(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), |i, _| C_mul.base_ring().at(i).zero());
+            let mut tmp_extended = OwnedMatrix::from_fn(to_extended.output_rings().len(), C_mul.get_ring().small_generating_set_len(), |i, _| to_extended.output_rings().at(i).zero());
             let result = move |c: &El<CiphertextRing<Self>>| {
                 C_mul.get_ring().as_representation_wrt_small_generating_set(c, tmp_in_out.data_mut());
                 to_extended.apply(tmp_in_out.data(), tmp_extended.data_mut());
@@ -1191,19 +1192,22 @@ fn t_fits_zn_64<I>(ZZ: I, t: &El<I>) -> Option<Zn>
     }
 }
 
-fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, by_bits: usize) -> RNSSharedBaseConversion {
+fn temporarily_extend_rns_base<'a, ZnTy>(current: &'a zn_rns::Zn<ZnTy, BigIntRing>, by_bits: usize) -> RNSSharedBaseConversion<Global, ZnTy>
+    where ZnTy: RingStore,
+        ZnTy::Type: NiceZn
+{
     let current_log2_modulus = ZZbig.abs_log2_ceil(current.modulus()).unwrap();
     let new_log2_modulus = current_log2_modulus + by_bits;
 
     let extended_rns_base = extend_sampled_primes(
-        &current.as_iter().map(|ring| int_cast(*ring.modulus() as i64, ZZbig, ZZi64)).collect::<Vec<_>>(),
+        &current.as_iter().map(|ring| int_cast(ring.integer_ring().clone_el(ring.modulus()), ZZbig, ring.integer_ring())).collect::<Vec<_>>(),
         new_log2_modulus + 10,
         new_log2_modulus + 67,
         57,
         |bound| prev_prime(ZZbig, bound)
     ).unwrap().into_iter().map(|modulus| Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64)).collect::<Vec<_>>();
 
-    let to_extended = RNSSharedBaseConversion::new_with_alloc(
+    let to_extended = RNSSharedBaseConversion::new_with_zn(
         extended_rns_base[..current.len()].iter().cloned().collect::<Vec<_>>(),
         Vec::new(),
         extended_rns_base[current.len()..].iter().cloned().collect::<Vec<_>>(),

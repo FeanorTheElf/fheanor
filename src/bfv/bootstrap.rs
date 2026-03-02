@@ -244,7 +244,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
 
         // we estimate the noise growth of the slots-to-coeffs transform as `log2(|Gal|)` multiplications by
         // ring elements of size at most `t`
-        let min_rns_factor_log2 = C.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
+        let min_rns_factor_log2 = C.base_ring().as_iter().map(|rns_factor| rns_factor.integer_ring().abs_log2_ceil(rns_factor.modulus()).unwrap() as f64).min_by(f64::total_cmp).unwrap();
         let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * (P.acting_galois_group().group_order() as f64).log2() / min_rns_factor_log2).ceil() as usize; 
         let slots_to_coeffs_ciphertext_ring = {
             let (drop_additional, special_modulus) = compute_optimal_special_modulus(C.get_ring(), RNSFactorIndexList::empty_ref(), C.base_ring().len().saturating_sub(slots_to_coeffs_rns_factors), gk_digits);
@@ -335,7 +335,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
 
         // we estimate the noise growth of the slots-to-coeffs transform as `log2(m)` multiplications by
         // ring elements of size at most `t`
-        let min_rns_factor_log2 = C.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
+        let min_rns_factor_log2 = C.base_ring().as_iter().map(|rns_factor| rns_factor.integer_ring().abs_log2_ceil(rns_factor.modulus()).unwrap() as f64).min_by(f64::total_cmp).unwrap();
         let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * (hypercube.dim_count() as f64 + 1.0) / min_rns_factor_log2).ceil() as usize; 
         let slots_to_coeffs_ciphertext_ring = {
             let (drop_additional, special_modulus) = compute_optimal_special_modulus(C.get_ring(), RNSFactorIndexList::empty_ref(), C.base_ring().len().saturating_sub(slots_to_coeffs_rns_factors), gk_digits);

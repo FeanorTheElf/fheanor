@@ -21,7 +21,7 @@ use feanor_math::rings::finite::FiniteRingStore;
 use tracing::instrument;
 
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::{perform_rns_op, BGFVCiphertextRing};
+use crate::ciphertext_ring::{perform_rns_op, RNSRing};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::gadget_product::*;
 use crate::number_ring::galois::*;
@@ -100,7 +100,7 @@ pub trait CLPXInstantiation {
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing + FiniteRing;
+    type CiphertextRing: RNSRing + FiniteRing;
     
     ///
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
@@ -561,12 +561,13 @@ pub trait CLPXInstantiation {
     /// 
     fn lift_to_Cmul<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         let C_delta = RingValue::from(C_mul.get_ring().drop_rns_factor(&RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len())));
-        let lift = UsedBaseConversion::new(
-            C.base_ring().as_iter().cloned().collect::<Vec<_>>(),
-            C_delta.base_ring().as_iter().cloned().collect::<Vec<_>>()
+        let lift = UsedBaseConversion::new_with_zn(
+            C.base_ring().as_iter().collect::<Vec<_>>(),
+            C_mul.base_ring().as_iter().skip(C.base_ring().len()).collect::<Vec<_>>(),
+            Global
         );
-        let mut tmp_in = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
-        let mut tmp_out = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+        let mut tmp_in = OwnedMatrix::from_fn(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), |i, _| C_mul.base_ring().at(i).zero());
+        let mut tmp_out = OwnedMatrix::from_fn(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), |i, _| C_mul.base_ring().at(i).zero());
         Box::new(move |c| {
             C.get_ring().as_representation_wrt_small_generating_set(c, tmp_in.data_mut());
             lift.apply(tmp_in.data(), tmp_out.data_mut());
@@ -589,9 +590,9 @@ pub trait CLPXInstantiation {
         assert!(C.number_ring() == C_mul.number_ring());
         assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
 
-        let rescale = RNSRescalingConversion::new_with_alloc(
-            C_mul.base_ring().as_iter().cloned().collect(), 
-            C.base_ring().as_iter().cloned().collect(),
+        let rescale = RNSRescalingConversion::new_with_zn(
+            C_mul.base_ring().as_iter().collect(), 
+            C.base_ring().as_iter().collect(),
             Vec::new(), 
             (0..C.base_ring().len()).collect(),
             Global

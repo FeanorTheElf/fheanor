@@ -93,7 +93,7 @@ pub struct NumberRingQuotientPreparedMultiplicant<NumberRing, ZnTy, A = Global, 
 impl<NumberRing, ZnTy> NumberRingQuotientByIdealBase<NumberRing, ZnTy>
     where NumberRing: AbstractNumberRing,
         ZnTy: RingStore,
-        ZnTy::Type: NiceZn
+        ZnTy::Type: NiceZn + FromModulusCreateableZnRing
 {
     ///
     /// Creates the ring `R/I`, where `R` is the given number ring and `I = (p^e, t(ϑ))`,
@@ -108,7 +108,7 @@ impl<NumberRing, ZnTy> NumberRingQuotientByIdealBase<NumberRing, ZnTy>
 impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing,
         ZnTy: RingStore,
-        ZnTy::Type: NiceZn,
+        ZnTy::Type: NiceZn + FromModulusCreateableZnRing,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {

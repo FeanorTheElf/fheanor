@@ -107,7 +107,7 @@ impl<'de> Deserialize<'de> for HypercubeStructure {
 pub struct SerializableHypercubeIsomorphismWithoutRing<'a, R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + FromModulusCreateableZnRing
 {
     hypercube_isomorphism: &'a HypercubeIsomorphism<R>
 }
@@ -115,7 +115,7 @@ pub struct SerializableHypercubeIsomorphismWithoutRing<'a, R>
 impl<'a, R> SerializableHypercubeIsomorphismWithoutRing<'a, R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + FromModulusCreateableZnRing
 {
     pub fn new(hypercube_isomorphism: &'a HypercubeIsomorphism<R>) -> Self {
         Self { hypercube_isomorphism }
@@ -125,7 +125,7 @@ impl<'a, R> SerializableHypercubeIsomorphismWithoutRing<'a, R>
 impl<'a, R> Serialize for SerializableHypercubeIsomorphismWithoutRing<'a, R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + FromModulusCreateableZnRing
 {
     #[instrument(skip_all)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -182,7 +182,7 @@ impl<R> DeserializeSeedHypercubeIsomorphismWithoutRing<R>
 impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithoutRing<R>
     where R: RingStore,
         R::Type: NumberRingQuotient,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn  + FromModulusCreateableZnRing
 {
     type Value = HypercubeIsomorphism<R>;
 
@@ -237,7 +237,7 @@ impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithout
 impl<R> Serialize for HypercubeIsomorphism<R>
     where R: RingStore + Serialize,
         R::Type: NumberRingQuotient,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + FromModulusCreateableZnRing
 {
     #[instrument(skip_all)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -250,7 +250,7 @@ impl<R> Serialize for HypercubeIsomorphism<R>
 impl<'de, R> Deserialize<'de> for HypercubeIsomorphism<R>
     where R: RingStore + Deserialize<'de>,
         R::Type: NumberRingQuotient,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + SerializableElementRing
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + FromModulusCreateableZnRing
 {
     #[instrument(skip_all)]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

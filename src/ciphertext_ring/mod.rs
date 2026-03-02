@@ -4,11 +4,11 @@ use std::convert::identity;
 use feanor_math::integer::BigIntRing;
 use feanor_math::matrix::*;
 use feanor_math::ring::*;
-use feanor_math::rings::zn::zn_64::{ZnEl, Zn, ZnBase};
-use feanor_math::rings::zn::zn_rns;
+use feanor_math::rings::zn::{zn_64, zn_rns};
 use feanor_math::seq::VectorView;
 use tracing::instrument;
 
+use crate::NiceZn;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::number_ring::NumberRingQuotient;
 use crate::prepared_mul::PreparedMultiplicationRing;
@@ -42,8 +42,10 @@ pub enum RNSFactorCongruence<'a, R: ?Sized, E> {
     CongruentTo(&'a R, usize, &'a E)
 }
 
-pub fn drop_rns_factor_list_of_congruences<'a, R, E>(from: &'a R, dropped_rns_factors: &'a RNSFactorIndexList, element: &'a E) -> impl use<'a, R, E> + Iterator<Item = RNSFactorCongruence<'a, R, E>>
-    where R: ?Sized + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>>
+pub fn drop_rns_factor_list_of_congruences<'a, R, Zn, E>(from: &'a R, dropped_rns_factors: &'a RNSFactorIndexList, element: &'a E) -> impl use<'a, R, Zn, E> + Iterator<Item = RNSFactorCongruence<'a, R, E>>
+    where R: ?Sized + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>>,
+        Zn: RingStore,
+        Zn::Type: NiceZn
 {
     (0..from.base_ring().len()).scan(0, |drop_idx, factor_idx| {
         debug_assert!(*drop_idx == dropped_rns_factors.len() || factor_idx <= dropped_rns_factors[*drop_idx]);
@@ -56,8 +58,10 @@ pub fn drop_rns_factor_list_of_congruences<'a, R, E>(from: &'a R, dropped_rns_fa
     }).filter_map(identity)
 }
 
-pub fn add_rns_factor_list_of_congruences<'a, R, E>(to: &'a R, from: &'a R, added_rns_factors: &'a RNSFactorIndexList, element: &'a E) -> impl use<'a, R, E> + Iterator<Item = RNSFactorCongruence<'a, R, E>>
-    where R: ?Sized + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>>
+pub fn add_rns_factor_list_of_congruences<'a, R, Zn, E>(to: &'a R, from: &'a R, added_rns_factors: &'a RNSFactorIndexList, element: &'a E) -> impl use<'a, R, Zn, E> + Iterator<Item = RNSFactorCongruence<'a, R, E>>
+    where R: ?Sized + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>>,
+        Zn: RingStore,
+        Zn::Type: NiceZn
 {
     (0..to.base_ring().len()).scan((0, 0), |(added_idx, from_factor_idx), factor_idx| {
         debug_assert!(*added_idx == added_rns_factors.len() || factor_idx <= added_rns_factors[*added_idx]);
@@ -76,7 +80,17 @@ pub fn add_rns_factor_list_of_congruences<'a, R, E>(to: &'a R, from: &'a R, adde
 /// RNS basis, which provide all necessary operations for use as ciphertext ring in BFV/BGV-style
 /// HE schemes.
 /// 
-pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>> {
+pub trait RNSRing: PreparedMultiplicationRing + NumberRingQuotient + RingExtension<BaseRing = zn_rns::Zn<Self::ZnTy, BigIntRing>> {
+
+    ///
+    /// The implementation of `Z/nZ` that is used for each RNS factor.
+    /// 
+    type ZnTyBase: NiceZn = zn_64::ZnBase;
+
+    ///
+    /// The [`RingStore`] for the implementation of `Z/nZ` that is used for each RNS factor.
+    /// 
+    type ZnTy: RingStore<Type = Self::ZnTyBase> = RingValue<Self::ZnTyBase>;
 
     ///
     /// Computes the element of this ring that satisfies the given congruences.
@@ -185,8 +199,8 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
     /// [`FreeAlgebra::from_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()
     /// [`FreeAlgebra::wrt_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()
     /// 
-    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, ZnEl>)
-        where V: AsPointerToSlice<ZnEl>;
+    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, El<Self::ZnTy>>)
+        where V: AsPointerToSlice<El<Self::ZnTy>>;
 
     ///
     /// Creates a ring element from its underlying representation.
@@ -204,8 +218,8 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
     /// [`FreeAlgebra::from_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()
     /// [`FreeAlgebra::wrt_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()
     /// 
-    fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, ZnEl>) -> Self::Element
-        where V: AsPointerToSlice<ZnEl>;
+    fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, El<Self::ZnTy>>) -> Self::Element
+        where V: AsPointerToSlice<El<Self::ZnTy>>;
 
     ///
     /// Computes `[lhs[0] * rhs[0], lhs[0] * rhs[1] + lhs[1] * rhs[0], lhs[1] * rhs[1]]`, but might be
@@ -233,8 +247,8 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
 /// 
 #[instrument(skip_all)]
 pub fn perform_rns_op<R, Op>(to: &R, from: &R, el: &R::Element, op: &Op) -> R::Element
-    where R: BGFVCiphertextRing,
-        Op: RNSOperation<RingType = ZnBase>
+    where R: RNSRing,
+        Op: RNSOperation<ZnInBase = R::ZnTyBase, ZnOutBase = R::ZnTyBase>
 {
     assert!(from.number_ring() == to.number_ring());
     assert_eq!(op.input_rings().len(), from.base_ring().len());
@@ -242,13 +256,11 @@ pub fn perform_rns_op<R, Op>(to: &R, from: &R, el: &R::Element, op: &Op) -> R::E
     assert!(op.input_rings().iter().zip(from.base_ring().as_iter()).all(|(l, r)| l.get_ring() == r.get_ring()));
     assert!(op.output_rings().iter().zip(to.base_ring().as_iter()).all(|(l, r)| l.get_ring() == r.get_ring()));
 
-    let mut el_repr = OwnedMatrix::zero(from.base_ring().len(), from.small_generating_set_len(), from.base_ring().at(0));
+    let mut el_repr = OwnedMatrix::from_fn(from.base_ring().len(), from.small_generating_set_len(), |i, _| from.base_ring().at(i).zero());
     from.as_representation_wrt_small_generating_set(el, el_repr.data_mut());
-    let mut res_repr = Vec::with_capacity(el_repr.col_count() * to.base_ring().len());
-    res_repr.resize(el_repr.col_count() * to.base_ring().len(), to.base_ring().at(0).zero());
-    let mut res_repr = SubmatrixMut::from_1d(&mut res_repr, to.base_ring().len(), el_repr.col_count());
-    op.apply(el_repr.data(), res_repr.reborrow());
-    return to.from_representation_wrt_small_generating_set(res_repr.as_const());
+    let mut res_repr = OwnedMatrix::from_fn(to.base_ring().len(), el_repr.col_count(), |i, _| to.base_ring().at(i).zero());
+    op.apply(el_repr.data(), res_repr.data_mut());
+    return to.from_representation_wrt_small_generating_set(res_repr.data());
 }
 
 #[cfg(test)]
@@ -256,7 +268,7 @@ use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 
 #[test]
 fn test_drop_rns_factor_list_of_congruences() {
-    let from = FreeAlgebraImpl::new(zn_rns::Zn::new(vec![Zn::new(17), Zn::new(19), Zn::new(23)], BigIntRing::RING), 1, []);
+    let from = FreeAlgebraImpl::new(zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(19), zn_64::Zn::new(23)], BigIntRing::RING), 1, []);
     let dummy = ();
     let dropped_rns_factors = RNSFactorIndexList::from([1], 3);
 

@@ -1,5 +1,7 @@
+use std::alloc::Global;
+
 use feanor_math::ring::*;
-use feanor_math::rings::zn::{ZnRing, ZnRingStore};
+use feanor_math::rings::zn::{ZnRing, ZnRingStore, zn_64};
 use feanor_math::matrix::*;
 
 ///
@@ -56,25 +58,29 @@ pub mod matrix_lift;
 /// 
 pub trait RNSOperation {
 
-    type Ring: ZnRingStore<Type = Self::RingType>;
+    type ZnIn: ZnRingStore<Type = Self::ZnInBase>;
     
-    type RingType: ?Sized + ZnRing;
+    type ZnInBase: ?Sized + ZnRing;
 
-    fn input_rings<'a>(&'a self) -> &'a [Self::Ring];
+    type ZnOut: ZnRingStore<Type = Self::ZnOutBase>;
+    
+    type ZnOutBase: ?Sized + ZnRing;
 
-    fn output_rings<'a>(&'a self) -> &'a [Self::Ring];
+    fn input_rings<'a>(&'a self) -> &'a [Self::ZnIn];
+
+    fn output_rings<'a>(&'a self) -> &'a [Self::ZnOut];
 
     ///
     /// Applies the RNS operation to each column of the given matrix, and writes the results to the columns
     /// of `output`. The entries of the `i`-th row are considered to be elements of `self.input_rings().at(i)`
     /// resp. `self.output_rings().at(i)`.
     ///
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<V2, El<Self::Ring>>)
-        where V1: AsPointerToSlice<El<Self::Ring>>,
-            V2: AsPointerToSlice<El<Self::Ring>>;
+    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::ZnIn>>, output: SubmatrixMut<V2, El<Self::ZnOut>>)
+        where V1: AsPointerToSlice<El<Self::ZnIn>>,
+            V2: AsPointerToSlice<El<Self::ZnOut>>;
 }
 
-pub(crate) type UsedBaseConversion<A> = matrix_lift::RNSMatrixBaseConversion<A>;
+pub(crate) type UsedBaseConversion<A = Global, ZnIn = zn_64::Zn, ZnOut = zn_64::Zn> = matrix_lift::RNSMatrixBaseConversion<A, ZnIn, ZnOut>;
 
 ///
 /// Returns `(data_sorted, perm)` such that `data_sorted` is an (ascending)

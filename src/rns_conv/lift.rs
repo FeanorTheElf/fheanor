@@ -5,10 +5,10 @@ use feanor_math::algorithms::matmul::ComputeInnerProduct;
 use feanor_math::integer::*;
 use feanor_math::matrix::*;
 use feanor_math::homomorphism::*;
+use feanor_math::rings::zn::zn_64::*;
 use feanor_math::seq::permute::permute_inv;
 use feanor_math::seq::*;
 use feanor_math::rings::zn::{ZnRingStore, ZnRing};
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::ring::*;
 use feanor_math::ordered::OrderedRingStore;
@@ -45,7 +45,7 @@ use super::RNSOperation;
 /// 
 /// [`RNSMatrixBaseConversion`]: crate::rns_conv::matrix_lift::RNSMatrixBaseConversion
 /// 
-#[deprecated]
+#[deprecated = "use RNSMatrixBaseConversion instead, since it offers better performance"]
 pub struct RNSBaseConversion<A = Global>
     where A: Allocator + Clone
 {
@@ -151,9 +151,10 @@ impl<A> RNSBaseConversion<A>
 impl<A> RNSOperation for RNSBaseConversion<A> 
     where A: Allocator + Clone
 {
-    type Ring = Zn;
-
-    type RingType = ZnBase;
+    type ZnIn = Zn;
+    type ZnInBase = ZnBase;
+    type ZnOut = Zn;
+    type ZnOutBase = ZnBase;
 
     fn input_rings<'a>(&'a self) -> &'a [Zn] {
         &self.from_summands_unordered
@@ -174,9 +175,9 @@ impl<A> RNSOperation for RNSBaseConversion<A>
     /// then the result is guaranteed to be exact.
     /// 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, mut output: SubmatrixMut<V2, El<Self::Ring>>)
-        where V1: AsPointerToSlice<El<Self::Ring>>,
-            V2: AsPointerToSlice<El<Self::Ring>>
+    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Zn>>, mut output: SubmatrixMut<V2, El<Zn>>)
+        where V1: AsPointerToSlice<El<Zn>>,
+            V2: AsPointerToSlice<El<Zn>>
     {
         assert_eq!(input.row_count(), self.input_rings().len());
         assert_eq!(output.row_count(), self.output_rings().len());

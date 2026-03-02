@@ -962,7 +962,7 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
 /// key to `(X \ B_final) u B_special` and then do a key-switch on these values. 
 /// 
 #[instrument(skip_all)]
-pub fn compute_optimal_special_modulus<C: BGFVCiphertextRing>(
+pub fn compute_optimal_special_modulus<C: RNSRing>(
     C_master: &C,
     dropped_factors_input: &RNSFactorIndexList,
     drop_additional_count: usize,

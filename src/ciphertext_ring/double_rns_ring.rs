@@ -40,7 +40,7 @@ use crate::number_ring::*;
 use super::serialization::deserialize_rns_data;
 use super::serialization::serialize_rns_data;
 use super::single_rns_ring::*;
-use super::BGFVCiphertextRing;
+use super::RNSRing;
 use super::PreparedMultiplicationRing;
 
 ///
@@ -556,7 +556,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     }
 }
 
-impl<NumberRing, A> BGFVCiphertextRing for DoubleRNSRingBase<NumberRing, A> 
+impl<NumberRing, A> RNSRing for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: AbstractNumberRing,
         A: Allocator + Clone
 {

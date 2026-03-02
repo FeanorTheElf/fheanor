@@ -17,7 +17,7 @@ use feanor_math::ring::*;
 use feanor_math::rings::extension::*;
 use feanor_math::rings::finite::*;
 use feanor_math::rings::zn::zn_64::{Zn, ZnBase};
-use feanor_math::rings::zn::{zn_rns, ZnRing};
+use feanor_math::rings::zn::{FromModulusCreateableZnRing, ZnRing, zn_rns};
 use feanor_math::rings::zn::ZnRingStore;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::seq::*;
@@ -27,7 +27,7 @@ use crate::ciphertext_ring::double_rns_managed::ManagedDoubleRNSRingBase;
 use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::{perform_rns_op, single_rns_ring::*, RNSFactorCongruence};
-use crate::ciphertext_ring::BGFVCiphertextRing;
+use crate::ciphertext_ring::RNSRing;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
 use crate::number_ring::galois::GaloisGroupEl;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
@@ -213,12 +213,12 @@ pub trait BGVInstantiation {
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing>;
+    type CiphertextRing: RNSRing<NumberRing = Self::NumberRing>;
 
     ///
     /// Type of the plaintext base ring `Z/tZ`.
     /// 
-    type PlaintextZnRing: NiceZn;
+    type PlaintextZnRing: NiceZn + FromModulusCreateableZnRing;
     
     ///
     /// Type of the plaintext ring `R/tR`.
@@ -451,7 +451,7 @@ pub trait BGVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn encode_plain(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
-        let ZZi64_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
+        let ZZi64_to_Zq = C.base_ring().can_hom(&ZZbig).unwrap().compose(ZZbig.can_hom(P.base_ring().integer_ring()).unwrap());
         return C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZi64_to_Zq.map(P.base_ring().smallest_lift(c))));
     }
 
@@ -682,7 +682,7 @@ pub trait BGVInstantiation {
         let (a, b) = equalize_implicit_scale(Zt, Zt.checked_div(&lhs.implicit_scale, &rhs.implicit_scale).unwrap());
 
         debug_assert!(!Zt.eq_el(&lhs.implicit_scale, &rhs.implicit_scale) || Zt.integer_ring().is_one(&a) && Zt.integer_ring().is_one(&b));
-        let ZZ_to_C = C.inclusion().compose(C.base_ring().can_hom(Zt.integer_ring()).unwrap());
+        let ZZ_to_C = C.inclusion().compose(C.base_ring().can_hom(&ZZbig).unwrap()).compose(ZZbig.can_hom(Zt.integer_ring()).unwrap());
         let ZZ_to_Zt = P.base_ring().can_hom(Zt.integer_ring()).unwrap();
         if !Zt.integer_ring().is_one(&a) {
             ZZ_to_C.mul_assign_ref_map(&mut rhs.c0, &a);
@@ -763,7 +763,11 @@ pub trait BGVInstantiation {
                 &digits
             )
         } else {
-            let special_modulus = ZZbig.prod(special_modulus_rns_factor_indices.iter().map(|i| int_cast(*C_special.base_ring().at(*i).modulus(), ZZbig, ZZi64)));
+            let special_modulus = ZZbig.prod(special_modulus_rns_factor_indices.iter().map(|i| int_cast(
+                C_special.base_ring().at(*i).integer_ring().clone_el(C_special.base_ring().at(*i).modulus()), 
+                ZZbig, 
+                C_special.base_ring().at(*i).integer_ring()
+            )));
             let special_modulus = C_special.base_ring().coerce(&ZZbig, special_modulus);
             let mut ct1_modswitched = C_special.get_ring().add_rns_factor_element(C.get_ring(), &special_modulus_rns_factor_indices, &ct.c1);
             C_special.inclusion().mul_assign_map(&mut ct1_modswitched, special_modulus);
@@ -825,9 +829,9 @@ pub trait BGVInstantiation {
         if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
             return Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
         } else {
-            let mod_switch = UsedBaseConversion::new_with_alloc(
-                Cold.base_ring().as_iter().cloned().collect(),
-                Cnew.base_ring().as_iter().cloned().collect(),
+            let mod_switch = UsedBaseConversion::new_with_zn(
+                Cold.base_ring().as_iter().collect(),
+                Cnew.base_ring().as_iter().collect(),
                 Global
             );
             assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
@@ -900,7 +904,13 @@ pub trait BGVInstantiation {
         let added_rns_factors = RNSFactorIndexList::missing_from(Cold.base_ring(), Cnew.base_ring());
         let dropped_rns_factors = RNSFactorIndexList::missing_from(Cnew.base_ring(), Cold.base_ring());
         let kept_rns_factors = dropped_rns_factors.complement(Cold.base_ring().len());
-        let a = Cold.base_ring().coerce(&ZZbig, ZZbig.prod(added_rns_factors.iter().map(|i| int_cast(*Cnew.base_ring().at(*i).modulus(), ZZbig, ZZi64))));
+        let a = Cold.base_ring().coerce(&ZZbig, 
+            ZZbig.prod(added_rns_factors.iter().map(|i| int_cast(
+                Cnew.base_ring().at(*i).integer_ring().clone_el(Cnew.base_ring().at(*i).modulus()), 
+                ZZbig, 
+                Cnew.base_ring().at(*i).integer_ring()
+            )))
+        );
 
         let map_kept_factors = move |x| Cnew.get_ring().collect_rns_factors((0..Cnew.base_ring().len()).map(|idx| if added_rns_factors.contains(idx) {
             RNSFactorCongruence::Zero
@@ -922,13 +932,16 @@ pub trait BGVInstantiation {
 
         let C_dropped = RingValue::from(Cold.get_ring().drop_rns_factor(&kept_rns_factors));
         let Zt = Zn::new(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()) as u64);
-        let compute_delta = RNSCongruencePreservingBaseConversion::new_with_alloc(
-            C_dropped.base_ring().as_iter().cloned().collect(),
-            Cnew.base_ring().as_iter().cloned().collect(),
+        let compute_delta = RNSCongruencePreservingBaseConversion::new_with_zn(
+            C_dropped.base_ring().as_iter().collect(),
+            Cnew.base_ring().as_iter().collect(),
             Zt,
             Global
         );
-        let b_inv = Cnew.base_ring().invert(&Cnew.base_ring().coerce(&ZZbig, ZZbig.prod(dropped_rns_factors.iter().map(|i| int_cast(*Cold.base_ring().at(*i).modulus(), ZZbig, ZZi64))))).unwrap();
+        let b_inv = Cnew.base_ring().invert(&Cnew.base_ring().coerce(&ZZbig, ZZbig.prod(dropped_rns_factors.iter().map(|i| int_cast(
+            Cold.base_ring().at(*i).integer_ring().clone_el(Cold.base_ring().at(*i).modulus()), 
+            ZZbig, Cold.base_ring().at(*i).integer_ring()
+        ))))).unwrap();
         Box::new(move |mut x: El<CiphertextRing<Self>>| {
             Cold.inclusion().mul_assign_ref_map(&mut x, &a);
 
@@ -988,7 +1001,7 @@ pub trait BGVInstantiation {
         assert!(Pold.base_ring().is_unit(&ct.implicit_scale));
         assert!(Pold.base_ring().integer_ring().get_ring() == Pnew.base_ring().integer_ring().get_ring());
 
-        let ZZ_to_Cbase = C.base_ring().can_hom(Pold.base_ring().integer_ring()).unwrap();
+        let ZZ_to_Cbase = C.base_ring().can_hom(&ZZbig).unwrap().compose(ZZbig.can_hom(Pold.base_ring().integer_ring()).unwrap());
         let x = C.base_ring().checked_div(
             &ZZ_to_Cbase.map_ref(Pnew.base_ring().modulus()),
             &ZZ_to_Cbase.map_ref(Pold.base_ring().modulus()),
@@ -1051,7 +1064,7 @@ pub trait BGVInstantiation {
             ct.implicit_scale,
             Self::mod_switch_compute_implicit_scale_factor(P, &int_cast(ZZ.clone_el(target.base_ring().modulus()), ZZbig, ZZ), C.base_ring().modulus())
         )).unwrap());
-        let ZZ_to_C = C.inclusion().compose(C.base_ring().can_hom(ZZ).unwrap());
+        let ZZ_to_C = C.inclusion().compose(C.base_ring().can_hom(&ZZbig).unwrap().compose(ZZbig.can_hom(&ZZ).unwrap()));
         let c0 = ZZ_to_C.mul_ref_snd_map(ct.c0, &factor);
         let c1 = ZZ_to_C.mul_map(ct.c1, factor);
         return (rescale(&c0), rescale(&c1));

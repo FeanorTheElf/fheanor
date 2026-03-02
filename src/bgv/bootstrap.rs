@@ -195,7 +195,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         
         // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
         // ring elements of size at most `t`
-        let min_rns_factor_log2 = C_master.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
+        let min_rns_factor_log2 = C_master.base_ring().as_iter().map(|rns_factor| rns_factor.integer_ring().abs_log2_ceil(rns_factor.modulus()).unwrap() as f64).min_by(f64::total_cmp).unwrap();
         let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * (P.acting_galois_group().group_order() as f64).log2() / min_rns_factor_log2).ceil() as usize; 
 
         return Self::create(instantiation, original_plaintext_ring, plaintext_ring, C_master.clone(), slots_to_coeffs, coeffs_to_slots, digit_extract, strategy, slots_to_coeffs_rns_factors);
@@ -273,7 +273,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         
         // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
         // ring elements of size at most `t`
-        let min_rns_factor_log2 = C_master.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
+        let min_rns_factor_log2 = C_master.base_ring().as_iter().map(|rns_factor| rns_factor.integer_ring().abs_log2_ceil(rns_factor.modulus()).unwrap() as f64).min_by(f64::total_cmp).unwrap();
         let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * (hypercube.dim_count() as f64 + 1.0) / min_rns_factor_log2).ceil() as usize;
         
         return Self::create(instantiation, original_plaintext_ring, plaintext_ring, C_master.clone(), slots_to_coeffs, coeffs_to_slots, digit_extract, strategy, slots_to_coeffs_rns_factors);

@@ -38,7 +38,7 @@ use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ntt::FheanorConvolution;
 
 use super::serialization::{deserialize_rns_data, serialize_rns_data};
-use super::BGFVCiphertextRing;
+use super::RNSRing;
 
 ///
 /// Implementation of the ring `Z[𝝵_m]/(q)`, where `q = p1 ... pr` is a product of "RNS factors".
@@ -346,7 +346,7 @@ impl<NumberRing, A, C> PreparedMultiplicationRing for SingleRNSRingBase<NumberRi
     }
 }
 
-impl<NumberRing, A, C> BGFVCiphertextRing for SingleRNSRingBase<NumberRing, A, C> 
+impl<NumberRing, A, C> RNSRing for SingleRNSRingBase<NumberRing, A, C> 
     where NumberRing: AbstractNumberRing,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>

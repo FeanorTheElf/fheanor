@@ -53,7 +53,7 @@ pub type CLPXPlaintextRing<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm>
 impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing,
         ZnTy: RingStore,
-        ZnTy::Type: NiceZn,
+        ZnTy::Type: NiceZn + FromModulusCreateableZnRing,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {

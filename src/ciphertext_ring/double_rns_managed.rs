@@ -27,7 +27,7 @@ use crate::number_ring::{AbstractNumberRing, NumberRingQuotient};
 
 use super::double_rns_ring::*;
 use super::single_rns_ring::*;
-use super::BGFVCiphertextRing;
+use super::RNSRing;
 use super::PreparedMultiplicationRing;
 
 ///
@@ -606,7 +606,7 @@ impl<NumberRing, A> PreparedMultiplicationRing for ManagedDoubleRNSRingBase<Numb
     }
 }
 
-impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, A> 
+impl<NumberRing, A> RNSRing for ManagedDoubleRNSRingBase<NumberRing, A> 
     where NumberRing: AbstractNumberRing,
         A: Allocator + Clone
 {

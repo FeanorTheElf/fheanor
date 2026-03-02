@@ -1,6 +1,5 @@
 use feanor_math::matrix::*;
 use feanor_math::rings::zn::*;
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::integer::*;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::ring::*;
@@ -12,6 +11,7 @@ use feanor_math::homomorphism::*;
 
 use std::alloc::{Allocator, Global};
 
+use crate::NiceZn;
 use crate::rns_conv::{UsedBaseConversion, RNSOperation};
 use crate::ZZbig;
 
@@ -30,13 +30,15 @@ use crate::ZZbig;
 /// Primarily, this is relevant as it is used during multiplication for BFV.
 /// In this case, we always have `q' = b`.
 /// 
-pub struct RNSRescalingConversion<A = Global>
-    where A: Allocator + Clone
+pub struct RNSRescalingConversion<A = Global, ZnTy = zn_64::Zn>
+    where A: Allocator + Clone,
+        ZnTy: RingStore,
+        ZnTy::Type: NiceZn
 {
     /// rescale `Z/qZ -> Z/(aq/b)Z`
-    rescaling: RNSRescaling<A>,
+    rescaling: RNSRescaling<A, ZnTy>,
     /// convert `Z/(aq/b)Z -> Z/q'Z`
-    convert: UsedBaseConversion<A>
+    convert: UsedBaseConversion<A, ZnTy, ZnTy>
 }
 
 impl RNSRescalingConversion {
@@ -48,14 +50,15 @@ impl RNSRescalingConversion {
     ///  - `a` is the product of `a_moduli`
     ///  - `b` is the product of the moduli in `in_moduli` indexed by `b_moduli_indices`
     /// 
-    pub fn new(in_moduli: Vec<Zn>, out_moduli: Vec<Zn>, a_moduli: Vec<Zn>, b_moduli_indices: Vec<usize>) -> Self {
-        Self::new_with_alloc(in_moduli, out_moduli, a_moduli, b_moduli_indices, Global)
+    pub fn new(in_moduli: Vec<zn_64::Zn>, out_moduli: Vec<zn_64::Zn>, a_moduli: Vec<zn_64::Zn>, b_moduli_indices: Vec<usize>) -> Self {
+        Self::new_with_zn(in_moduli, out_moduli, a_moduli, b_moduli_indices, Global)
     }
-
 }
 
-impl<A> RNSRescalingConversion<A>
-    where A: Allocator + Clone
+impl<A, ZnTy> RNSRescalingConversion<A, ZnTy>
+    where A: Allocator + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: NiceZn
 {
     ///
     /// Creates a new [`RNSRescalingConversion`], where
@@ -65,13 +68,13 @@ impl<A> RNSRescalingConversion<A>
     ///  - `b` is the product of the moduli in `in_moduli` indexed by `b_moduli_indices`
     /// 
     #[instrument(skip_all)]
-    pub fn new_with_alloc(in_moduli: Vec<Zn>, out_moduli: Vec<Zn>, a_moduli: Vec<Zn>, b_moduli_indices: Vec<usize>, allocator: A) -> Self {
+    pub fn new_with_zn(in_moduli: Vec<ZnTy>, out_moduli: Vec<ZnTy>, a_moduli: Vec<ZnTy>, b_moduli_indices: Vec<usize>, allocator: A) -> Self {
         let intermediate_moduli: Vec<_> = in_moduli.iter().enumerate()
             .filter(|(i, _)| !b_moduli_indices.contains(i)).map(|(_, Zn)| Zn)
             .chain(a_moduli.iter())
             .cloned().collect();
-        let rescaling = RNSRescaling::new_with_alloc(in_moduli.clone(), intermediate_moduli.clone(), allocator.clone());
-        let convert = UsedBaseConversion::new_with_alloc(intermediate_moduli, out_moduli, allocator);
+        let rescaling = RNSRescaling::new_with_zn(in_moduli.clone(), intermediate_moduli.clone(), allocator.clone());
+        let convert = UsedBaseConversion::new_with_zn(intermediate_moduli, out_moduli, allocator);
         return Self { rescaling, convert };
     }
 
@@ -84,32 +87,35 @@ impl<A> RNSRescalingConversion<A>
     }
 }
 
-impl<A> RNSOperation for RNSRescalingConversion<A>
-    where A: Allocator + Clone
+impl<A, ZnTy> RNSOperation for RNSRescalingConversion<A, ZnTy>
+    where A: Allocator + Clone,
+        ZnTy: RingStore,
+        ZnTy::Type: NiceZn
 {
-    type Ring = Zn;
+    type ZnIn = ZnTy;
+    type ZnInBase = ZnTy::Type;
+    type ZnOut = ZnTy;
+    type ZnOutBase = ZnTy::Type;
 
-    type RingType = ZnBase;
-
-    fn input_rings<'a>(&'a self) -> &'a [Zn] {
+    fn input_rings<'a>(&'a self) -> &'a [ZnTy] {
         self.rescaling.input_rings()
     }
 
-    fn output_rings<'a>(&'a self) -> &'a [Zn] {
+    fn output_rings<'a>(&'a self) -> &'a [ZnTy] {
         self.convert.output_rings()
     }
 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<V2, El<Self::Ring>>)
-            where V1: AsPointerToSlice<El<Self::Ring>>,
-                V2: AsPointerToSlice<El<Self::Ring>>
+    fn apply<V1, V2>(&self, input: Submatrix<V1, El<ZnTy>>, output: SubmatrixMut<V2, El<ZnTy>>)
+            where V1: AsPointerToSlice<El<ZnTy>>,
+                V2: AsPointerToSlice<El<ZnTy>>
     {
         assert_eq!(input.col_count(), output.col_count());
         #[cfg(debug_assertions)] {
             use std::cmp::min;
             use feanor_math::ordered::OrderedRingStore;
 
-            let rns_ring = zn_rns::Zn::new(self.input_rings().iter().cloned().collect(), ZZbig);
+            let rns_ring = zn_rns::Zn::new(self.input_rings().iter().collect(), ZZbig);
             // unfortunately, checking all the inputs takes a lot of time, and even though we only do it on debug builds,
             // it is not good to extremely blow up the test times. Hence, check only some input elements 
             for j in (0..min(500, input.col_count())).step_by(7) {
@@ -145,9 +151,9 @@ impl<A> RNSOperation for RNSRescalingConversion<A>
 /// # use feanor_math::matrix::*;
 /// # use fheanor::rns_conv::*;
 /// # use fheanor::rns_conv::bfv_rescale::RNSRescaling;
-/// let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
+/// let from = vec![zn_64::Zn::new(17), zn_64::Zn::new(19), zn_64::Zn::new(23)];
 /// let from_modulus = 17 * 19 * 23;
-/// let to = vec![Zn::new(29)];
+/// let to = vec![zn_64::Zn::new(29)];
 /// let rescaling = RNSRescaling::new(from.clone(), to.clone());
 /// let mut output = [to[0].zero()];
 ///
@@ -167,9 +173,9 @@ impl<A> RNSOperation for RNSRescalingConversion<A>
 /// # use feanor_math::matrix::*;
 /// # use fheanor::rns_conv::*;
 /// # use fheanor::rns_conv::bfv_rescale::RNSRescaling;
-/// # let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
+/// # let from = vec![zn_64::Zn::new(17), zn_64::Zn::new(19), zn_64::Zn::new(23)];
 /// # let from_modulus = 17 * 19 * 23;
-/// # let to = vec![Zn::new(29)];
+/// # let to = vec![zn_64::Zn::new(29)];
 /// # let rescaling = RNSRescaling::new(from.clone(), to.clone());
 /// # let mut output = [to[0].zero()];
 /// for x in 1000..2000 {
@@ -181,17 +187,19 @@ impl<A> RNSOperation for RNSRescalingConversion<A>
 /// }
 /// ```
 /// 
-pub struct RNSRescaling<A = Global>
-    where A: Allocator + Clone
+pub struct RNSRescaling<A = Global, ZnTy = zn_64::Zn>
+    where A: Allocator + Clone,
+        ZnTy: RingStore,
+        ZnTy::Type: NiceZn
 {
     /// the `i`-th element is the position of `in_moduli[i]` in `out_moduli + b_moduli`
     in_moduli_in_out_b_moduli: Vec<usize>,
-    in_moduli: Vec<Zn>,
-    b_to_out_moduli_lift: UsedBaseConversion<A>,
+    in_moduli: Vec<ZnTy>,
+    b_to_out_moduli_lift: UsedBaseConversion<A, ZnTy, ZnTy>,
     /// `a` as an element of each modulus of `in_moduli`
-    a: Vec<El<Zn>>,
+    a: Vec<El<ZnTy>>,
     /// `b^-1` as an element of each modulus of `out_moduli`
-    b_inv: Vec<El<Zn>>,
+    b_inv: Vec<El<ZnTy>>,
     allocator: A,
     a_bigint: El<BigIntRing>,
     b_bigint: El<BigIntRing>
@@ -206,13 +214,15 @@ impl RNSRescaling {
     /// 
     /// The factors `a` and `b` are computed from these two lists.
     /// 
-    pub fn new(in_moduli: Vec<Zn>, out_moduli: Vec<Zn>) -> Self {
-        Self::new_with_alloc(in_moduli, out_moduli, Global)
+    pub fn new(in_moduli: Vec<zn_64::Zn>, out_moduli: Vec<zn_64::Zn>) -> Self {
+        Self::new_with_zn(in_moduli, out_moduli, Global)
     }
 }
 
-impl<A> RNSRescaling<A>
-    where A: Allocator + Clone
+impl<A, ZnTy> RNSRescaling<A, ZnTy>
+    where A: Allocator + Clone,
+        ZnTy: RingStore,
+        ZnTy::Type: NiceZn
 {
     pub fn num(&self) -> &El<BigIntRing> {
         &self.a_bigint
@@ -230,8 +240,9 @@ impl<A> RNSRescaling<A>
     /// The factors `a` and `b` are computed from these two lists.
     /// 
     #[instrument(skip_all)]
-    pub fn new_with_alloc(in_moduli: Vec<Zn>, out_moduli: Vec<Zn>, allocator: A) -> Self {
-
+    pub fn new_with_zn(in_moduli: Vec<ZnTy>, out_moduli: Vec<ZnTy>, allocator: A) -> Self
+        where ZnTy: Clone
+    {
         let mut b_moduli = Vec::new();
         let mut in_moduli_in_out_b_moduli = Vec::new();
         for Zn in &in_moduli {
@@ -244,13 +255,13 @@ impl<A> RNSRescaling<A>
         }
         let a = ZZbig.prod(out_moduli.iter()
             .filter(|Zn| in_moduli.iter().all(|in_Zn| Zn.get_ring() != in_Zn.get_ring()))
-            .map(|Zn| int_cast(*Zn.modulus(), ZZbig, Zn.integer_ring())));
-        let b = ZZbig.prod(b_moduli.iter().map(|Zn| int_cast(*Zn.modulus(), ZZbig, Zn.integer_ring())));
+            .map(|Zn| int_cast(Zn.integer_ring().clone_el(Zn.modulus()), ZZbig, Zn.integer_ring())));
+        let b = ZZbig.prod(b_moduli.iter().map(|Zn| int_cast(Zn.integer_ring().clone_el(Zn.modulus()), ZZbig, Zn.integer_ring())));
 
         RNSRescaling {
             a: in_moduli.iter().map(|Zn| Zn.coerce(&ZZbig, ZZbig.clone_el(&a))).collect(),
             b_inv: out_moduli.iter().map(|Zn| Zn.invert(&Zn.coerce(&ZZbig, ZZbig.clone_el(&b))).unwrap()).collect(),
-            b_to_out_moduli_lift: UsedBaseConversion::new_with_alloc(b_moduli, out_moduli, allocator.clone()),
+            b_to_out_moduli_lift: UsedBaseConversion::new_with_zn(b_moduli, out_moduli, allocator.clone()),
             in_moduli_in_out_b_moduli: in_moduli_in_out_b_moduli,
             in_moduli: in_moduli,
             allocator: allocator,
@@ -259,29 +270,33 @@ impl<A> RNSRescaling<A>
         }
     }
 
-    fn b_moduli(&self) -> &[Zn] {
+    fn b_moduli(&self) -> &[ZnTy] {
         self.b_to_out_moduli_lift.input_rings()
     }
 }
 
-impl<A> RNSOperation for RNSRescaling<A>
-    where A: Allocator + Clone
+impl<A, ZnTy> RNSOperation for RNSRescaling<A, ZnTy>
+    where A: Allocator + Clone,
+        ZnTy: RingStore,
+        ZnTy::Type: NiceZn
 {
-    type Ring = Zn;
-    type RingType = ZnBase;
+    type ZnIn = ZnTy;
+    type ZnInBase = ZnTy::Type;
+    type ZnOut = ZnTy;
+    type ZnOutBase = ZnTy::Type;
 
-    fn input_rings<'a>(&'a self) -> &'a [Zn] {
+    fn input_rings<'a>(&'a self) -> &'a [ZnTy] {
         &self.in_moduli
     }
 
-    fn output_rings<'a>(&'a self) -> &'a [Zn] {
+    fn output_rings<'a>(&'a self) -> &'a [ZnTy] {
         self.b_to_out_moduli_lift.output_rings()
     }
 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<V2, El<Self::Ring>>)
-        where V1: AsPointerToSlice<El<Self::Ring>>,
-            V2: AsPointerToSlice<El<Self::Ring>>
+    fn apply<V1, V2>(&self, input: Submatrix<V1, El<ZnTy>>, output: SubmatrixMut<V2, El<ZnTy>>)
+        where V1: AsPointerToSlice<El<ZnTy>>,
+            V2: AsPointerToSlice<El<ZnTy>>
     {
         assert_eq!(input.row_count(), self.input_rings().len());
         assert_eq!(output.row_count(), self.output_rings().len());
@@ -334,11 +349,11 @@ impl<A> RNSOperation for RNSRescaling<A>
 
 #[test]
 fn test_rescale_partial() {
-    let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
-    let to = vec![Zn::new(257), Zn::new(113)];
+    let from = vec![zn_64::Zn::new(17), zn_64::Zn::new(97), zn_64::Zn::new(113)];
+    let to = vec![zn_64::Zn::new(257), zn_64::Zn::new(113)];
     let q = 17 * 97 * 113;
 
-    let rescaling = RNSRescaling::new_with_alloc(
+    let rescaling = RNSRescaling::new_with_zn(
         from.clone(), 
         to.clone(),
         Global
@@ -364,11 +379,11 @@ fn test_rescale_partial() {
 
 #[test]
 fn test_rescale_larger_unordered() {
-    let from = vec![Zn::new(17),  Zn::new(23), Zn::new(29), Zn::new(31), Zn::new(19)];
-    let to = vec![Zn::new(19), Zn::new(17), Zn::new(5), Zn::new(23)];
+    let from = vec![zn_64::Zn::new(17),  zn_64::Zn::new(23), zn_64::Zn::new(29), zn_64::Zn::new(31), zn_64::Zn::new(19)];
+    let to = vec![zn_64::Zn::new(19), zn_64::Zn::new(17), zn_64::Zn::new(5), zn_64::Zn::new(23)];
     let q = 17 * 31 * 23 * 29 * 19;
 
-    let rescaling = RNSRescaling::new_with_alloc(
+    let rescaling = RNSRescaling::new_with_zn(
         from.clone(), 
         to.clone(),
         Global
@@ -394,11 +409,11 @@ fn test_rescale_larger_unordered() {
 
 #[test]
 fn test_rescale_larger() {
-    let from = vec![Zn::new(17), Zn::new(31), Zn::new(23), Zn::new(29), Zn::new(19)];
-    let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
+    let from = vec![zn_64::Zn::new(17), zn_64::Zn::new(31), zn_64::Zn::new(23), zn_64::Zn::new(29), zn_64::Zn::new(19)];
+    let to = vec![zn_64::Zn::new(5), zn_64::Zn::new(17), zn_64::Zn::new(23), zn_64::Zn::new(19)];
     let q = 17 * 31 * 23 * 29 * 19;
 
-    let rescaling = RNSRescaling::new_with_alloc(
+    let rescaling = RNSRescaling::new_with_zn(
         from.clone(), 
         to.clone(),
         Global
@@ -424,13 +439,13 @@ fn test_rescale_larger() {
 
 #[test]
 fn test_rescale_convert() {
-    let from = vec![Zn::new(17), Zn::new(31), Zn::new(23), Zn::new(29), Zn::new(19)];
-    let to = vec![Zn::new(31), Zn::new(29)];
+    let from = vec![zn_64::Zn::new(17), zn_64::Zn::new(31), zn_64::Zn::new(23), zn_64::Zn::new(29), zn_64::Zn::new(19)];
+    let to = vec![zn_64::Zn::new(31), zn_64::Zn::new(29)];
     let q = 17 * 31 * 23 * 29 * 19;
-    let rescaling = RNSRescalingConversion::new_with_alloc(
+    let rescaling = RNSRescalingConversion::new_with_zn(
         from.clone(),
         to.clone(), 
-        vec![Zn::new(5)], 
+        vec![zn_64::Zn::new(5)], 
         vec![1, 3], 
         Global
     );
@@ -459,11 +474,11 @@ fn test_rescale_convert() {
 
 #[test]
 fn test_rescale_small_num() {
-    let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
-    let to = vec![Zn::new(19), Zn::new(23), Zn::new(113)];
+    let from = vec![zn_64::Zn::new(17), zn_64::Zn::new(97), zn_64::Zn::new(113)];
+    let to = vec![zn_64::Zn::new(19), zn_64::Zn::new(23), zn_64::Zn::new(113)];
     let q = 17 * 97 * 113;
 
-    let rescaling = RNSRescaling::new_with_alloc(
+    let rescaling = RNSRescaling::new_with_zn(
         from.clone(), 
         to.clone(),
         Global
@@ -489,11 +504,11 @@ fn test_rescale_small_num() {
 
 #[test]
 fn test_rescale_small() {
-    let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
-    let to = vec![Zn::new(29)];
+    let from = vec![zn_64::Zn::new(17), zn_64::Zn::new(19), zn_64::Zn::new(23)];
+    let to = vec![zn_64::Zn::new(29)];
     let q = 17 * 19 * 23;
 
-    let rescaling = RNSRescaling::new_with_alloc(
+    let rescaling = RNSRescaling::new_with_zn(
         from.clone(), 
         to.clone(),
         Global

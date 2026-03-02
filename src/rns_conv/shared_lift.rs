@@ -2,10 +2,11 @@ use std::alloc::Allocator;
 use std::alloc::Global;
 
 use feanor_math::matrix::*;
-use feanor_math::rings::zn::zn_64::*;
+use feanor_math::rings::zn::*;
 use feanor_math::ring::*;
 use tracing::instrument;
 
+use crate::NiceZn;
 use crate::rns_conv::UsedBaseConversion;
 
 use super::RNSOperation;
@@ -25,11 +26,13 @@ use super::RNSOperation;
 /// 
 /// [`RNSMatrixBaseConversion`]: crate::rns_conv::matrix_lift::RNSMatrixBaseConversion
 /// 
-pub struct RNSSharedBaseConversion<A = Global>
-    where A: Allocator + Clone
+pub struct RNSSharedBaseConversion<A = Global, ZnTy = zn_64::Zn>
+    where A: Allocator + Clone,
+        ZnTy: RingStore,
+        ZnTy::Type: NiceZn
 {
-    conversion: UsedBaseConversion<A>,
-    out_moduli: Vec<Zn>
+    conversion: UsedBaseConversion<A, ZnTy, ZnTy>,
+    out_moduli: Vec<ZnTy>
 }
 
 impl RNSSharedBaseConversion {
@@ -44,12 +47,15 @@ impl RNSSharedBaseConversion {
     /// by `additional_in_moduli` resp. `additional_out_moduli`. In other words, the
     /// additional moduli are appended at the end to the shared moduli.
     /// 
-    pub fn new(shared_moduli: Vec<Zn>, additional_in_moduli: Vec<Zn>, additional_out_moduli: Vec<Zn>) -> Self {
-        Self::new_with_alloc(shared_moduli, additional_in_moduli, additional_out_moduli, Global)
+    pub fn new(shared_moduli: Vec<zn_64::Zn>, additional_in_moduli: Vec<zn_64::Zn>, additional_out_moduli: Vec<zn_64::Zn>) -> Self {
+        Self::new_with_zn(shared_moduli, additional_in_moduli, additional_out_moduli, Global)
     }
 }
-impl<A> RNSSharedBaseConversion<A>
-    where A: Allocator + Clone
+
+impl<A, ZnTy> RNSSharedBaseConversion<A, ZnTy>
+    where A: Allocator + Clone,
+        ZnTy: RingStore,
+        ZnTy::Type: NiceZn
 {
     ///
     /// Creates a new [`RNSSharedBaseConversion`], where
@@ -62,10 +68,12 @@ impl<A> RNSSharedBaseConversion<A>
     /// additional moduli are appended at the end to the shared moduli.
     /// 
     #[instrument(skip_all)]
-    pub fn new_with_alloc(shared_moduli: Vec<Zn>, additional_in_moduli: Vec<Zn>, additional_out_moduli: Vec<Zn>, allocator: A) -> Self {
+    pub fn new_with_zn(shared_moduli: Vec<ZnTy>, additional_in_moduli: Vec<ZnTy>, additional_out_moduli: Vec<ZnTy>, allocator: A) -> Self
+        where ZnTy: Clone
+    {
         let in_moduli = shared_moduli.iter().cloned().chain(additional_in_moduli.into_iter()).collect::<Vec<_>>();
         let out_moduli = shared_moduli.into_iter().chain(additional_out_moduli.iter().cloned()).collect::<Vec<_>>();
-        let conversion = UsedBaseConversion::new_with_alloc(in_moduli, additional_out_moduli, allocator);
+        let conversion = UsedBaseConversion::new_with_zn(in_moduli, additional_out_moduli, allocator);
         Self {
             out_moduli: out_moduli,
             conversion: conversion
@@ -77,24 +85,28 @@ impl<A> RNSSharedBaseConversion<A>
     }
 }
 
-impl<A> RNSOperation for RNSSharedBaseConversion<A>
-    where A: Allocator + Clone
+impl<A, ZnTy> RNSOperation for RNSSharedBaseConversion<A, ZnTy>
+    where A: Allocator + Clone,
+        ZnTy: RingStore,
+        ZnTy::Type: NiceZn
 {
-    type Ring = Zn;
-    type RingType = ZnBase;
+    type ZnIn = ZnTy;
+    type ZnInBase = ZnTy::Type;
+    type ZnOut = ZnTy;
+    type ZnOutBase = ZnTy::Type;
 
-    fn input_rings<'a>(&'a self) -> &'a [Self::Ring] {
+    fn input_rings<'a>(&'a self) -> &'a [ZnTy] {
         self.conversion.input_rings()
     }
 
-    fn output_rings<'a>(&'a self) -> &'a [Self::Ring] {
+    fn output_rings<'a>(&'a self) -> &'a [ZnTy] {
         &self.out_moduli
     }
 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, mut output: SubmatrixMut<V2, El<Self::Ring>>)
-        where V1: AsPointerToSlice<El<Self::Ring>>,
-            V2: AsPointerToSlice<El<Self::Ring>>
+    fn apply<V1, V2>(&self, input: Submatrix<V1, El<ZnTy>>, mut output: SubmatrixMut<V2, El<ZnTy>>)
+        where V1: AsPointerToSlice<El<ZnTy>>,
+            V2: AsPointerToSlice<El<ZnTy>>
     {
         assert_eq!(input.col_count(), output.col_count());
         assert_eq!(input.row_count(), self.input_rings().len());
@@ -116,9 +128,9 @@ use feanor_math::seq::*;
 
 #[test]
 fn test_rns_shared_base_conversion() {
-    let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
-    let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
-    let table = RNSSharedBaseConversion::new_with_alloc(from.clone(), Vec::new(), vec![to[3]], Global);
+    let from = vec![zn_64::Zn::new(17), zn_64::Zn::new(97), zn_64::Zn::new(113)];
+    let to = vec![zn_64::Zn::new(17), zn_64::Zn::new(97), zn_64::Zn::new(113), zn_64::Zn::new(257)];
+    let table = RNSSharedBaseConversion::new_with_zn(from.clone(), Vec::new(), vec![to[3]], Global);
 
     for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
         let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
