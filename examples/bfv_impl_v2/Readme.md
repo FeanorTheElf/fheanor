@@ -295,7 +295,7 @@ Since creating a double-RNS ring is somewhat expensive, we do this once and reus
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::number_ring::pow2_cyclotomic::*;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::ciphertext_ring::RNSRing;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
@@ -363,7 +363,7 @@ This leaves us to implement BFV multiplication as follows.
 # use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
 # use fheanor::rns_conv::RNSOperation;
 # use fheanor::number_ring::pow2_cyclotomic::*;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::ciphertext_ring::RNSRing;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;
 # use fheanor::rns_conv::matrix_lift::RNSMatrixBaseConversion;
@@ -404,7 +404,7 @@ fn hom_mul_three_component(
     debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     let lift_to_multiplication_ring = |x: &SmallBasisEl<_, _>| {
         let mut result = multiplication_ring.get_ring().zero_non_fft();
-        lift_to_multiplication_ring_rnsconv.apply(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), multiplication_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
+        lift_to_multiplication_ring_rnsconv.apply_base(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), multiplication_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
         return multiplication_ring.get_ring().do_fft(result);
     };
 
@@ -427,7 +427,7 @@ fn hom_mul_three_component(
     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     let scale_down = |x: El<CiphertextRing>| {
         let mut result = ciphertext_ring.get_ring().zero_non_fft();
-        scale_down_rnsconv.apply(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), ciphertext_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
+        scale_down_rnsconv.apply_base(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), ciphertext_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
         return result;
     };
 
@@ -536,7 +536,7 @@ Finally, let's test this implementation again!
 # use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
 # use fheanor::gadget_product::*;
 # use fheanor::rns_conv::RNSOperation;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::ciphertext_ring::RNSRing;
 # use fheanor::number_ring::pow2_cyclotomic::*;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;
@@ -656,7 +656,7 @@ Finally, let's test this implementation again!
 #     debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     let lift_to_multiplication_ring = |x: &SmallBasisEl<_, _>| {
 #         let mut result = multiplication_ring.get_ring().zero_non_fft();
-#         lift_to_multiplication_ring_rnsconv.apply(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), multiplication_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
+#         lift_to_multiplication_ring_rnsconv.apply_base(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), multiplication_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
 #         return multiplication_ring.get_ring().do_fft(result);
 #     };
 #     let unscaled_result = (
@@ -677,7 +677,7 @@ Finally, let's test this implementation again!
 #     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     let scale_down = |x: El<CiphertextRing>| {
 #         let mut result = ciphertext_ring.get_ring().zero_non_fft();
-#         scale_down_rnsconv.apply(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), ciphertext_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
+#         scale_down_rnsconv.apply_base(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), ciphertext_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
 #         return result;
 #     };
 #     return (
