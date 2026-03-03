@@ -18,7 +18,7 @@ use crate::number_ring::{AbstractNumberRing, NumberRingQuotient};
 use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
-use crate::{NiceZn, ZZbig, ZZi64};
+use crate::{NiceZn, ZZbig, ZZi64, to_zn_64};
 
 ///
 /// Contains the type [`RNSGadgetVectorDigitIndices`] which is used to
@@ -26,7 +26,7 @@ use crate::{NiceZn, ZZbig, ZZi64};
 /// 
 pub mod digits;
 
-type GadgetProductBaseConversion<A = Global, ZnIn = zn_64::Zn, ZnOut = zn_64::Zn> = UsedBaseConversion<A, ZnIn, ZnOut>;
+type GadgetProductBaseConversion<A = Global> = UsedBaseConversion<A>;
 
 ///
 /// Represents the left-hand side operand of a gadget product.
@@ -300,20 +300,22 @@ fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S)
     let mut el_as_matrix = OwnedMatrix::zero(ring.base_ring().len(), ring.small_generating_set_len(), ring.base_ring().at(0));
     ring.as_representation_wrt_small_generating_set(el, el_as_matrix.data_mut());
     
-    let homs = out_ring.base_ring().as_iter().map(|Zp| Zp.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
+    let homs = out_ring.base_ring().as_iter().map(|rns_factor| rns_factor.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
     let mut current_row = Vec::new();
     current_row.resize_with(homs.len() * el_as_matrix.col_count(), || out_ring.base_ring().at(0).zero());
     let mut current_row = SubmatrixMut::from_1d(&mut current_row[..], homs.len(), el_as_matrix.col_count());
     
     for digit in digits {
 
-        let conversion = GadgetProductBaseConversion::new_with_zn(
-            digit.iter().map(|idx| ring.base_ring().at(idx)).collect::<Vec<_>>(),
-            homs.iter().map(|h| *h.codomain()).collect::<Vec<_>>(),
+        let conversion = GadgetProductBaseConversion::new_with_alloc(
+            digit.iter().map(|idx| ring.base_ring().at(idx)).map(to_zn_64).collect::<Vec<_>>(),
+            homs.iter().map(|h| h.codomain()).map(to_zn_64).collect::<Vec<_>>(),
             Global
         );
         
         conversion.apply(
+            digit.iter().map(|idx| ring.base_ring().at(idx)),
+            homs.iter().map(|h| h.codomain()),
             el_as_matrix.data().restrict_rows(digit.clone()),
             current_row.reborrow()
         );
@@ -335,18 +337,18 @@ fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberR
 {
     let mut result = Vec::new();
     let el_as_matrix = ring.as_matrix_wrt_small_basis(el);
-    let homs = ring.base_ring().as_iter().map(|Zp| Zp.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
+    let homs = ring.base_ring().as_iter().map(|rns_factor| rns_factor.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
     
     for digit in digits {
 
-        let conversion = GadgetProductBaseConversion::new_with_zn(
-            digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
-            homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
+        let conversion = GadgetProductBaseConversion::new_with_alloc(
+            digit.iter().map(|idx| *ring.base_ring().at(idx)).map(to_zn_64).collect::<Vec<_>>(),
+            homs.iter().map(|h| **h.codomain()).map(to_zn_64).collect::<Vec<_>>(),
             Global
         );
         
         let mut decomposition_part = ring.zero_non_fft();
-        conversion.apply(
+        conversion.apply_base(
             el_as_matrix.restrict_rows(digit.clone()),
             ring.as_matrix_wrt_small_basis_mut(&mut decomposition_part)
         );

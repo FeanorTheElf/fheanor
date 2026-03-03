@@ -421,7 +421,7 @@ fn hom_mul_three_component(
         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
-        ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>()
+        ciphertext_ring.base_ring().as_iter().map(|rns_factor| multiplication_ring.base_ring().as_iter().position(|rns_factor2| rns_factor2.modulus() == rns_factor.modulus()).unwrap()).collect::<Vec<_>>()
     );
     debug_assert!(scale_down_rnsconv.input_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
@@ -671,7 +671,7 @@ Finally, let's test this implementation again!
 #         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
 #         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
 #         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
-#         ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>()
+#         ciphertext_ring.base_ring().as_iter().map(|rns_factor| multiplication_ring.base_ring().as_iter().position(|rns_factor2| rns_factor2.modulus() == rns_factor.modulus()).unwrap()).collect::<Vec<_>>()
 #     );
 #     debug_assert!(scale_down_rnsconv.input_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));

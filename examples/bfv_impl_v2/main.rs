@@ -154,7 +154,7 @@ fn hom_mul_three_component(
     debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     let lift_to_multiplication_ring = |x: &SmallBasisEl<_, _>| {
         let mut result = multiplication_ring.get_ring().zero_non_fft();
-        lift_to_multiplication_ring_rnsconv.apply(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), multiplication_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
+        lift_to_multiplication_ring_rnsconv.apply_base(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), multiplication_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
         return multiplication_ring.get_ring().do_fft(result);
     };
 
@@ -171,13 +171,13 @@ fn hom_mul_three_component(
         multiplication_ring.base_ring().as_iter().cloned().collect(), 
         ciphertext_ring.base_ring().as_iter().cloned().collect(),
         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
-        ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>()
+        ciphertext_ring.base_ring().as_iter().map(|rns_factor| multiplication_ring.base_ring().as_iter().position(|rns_factor2| rns_factor2.modulus() == rns_factor.modulus()).unwrap()).collect::<Vec<_>>()
     );
     debug_assert!(scale_down_rnsconv.input_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     let scale_down = |x: El<CiphertextRing>| {
         let mut result = ciphertext_ring.get_ring().zero_non_fft();
-        scale_down_rnsconv.apply(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), ciphertext_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
+        scale_down_rnsconv.apply_base(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), ciphertext_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
         return result;
     };
 

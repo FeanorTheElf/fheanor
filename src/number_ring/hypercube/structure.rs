@@ -7,7 +7,6 @@ use feanor_math::iters::clone_slice;
 use feanor_math::algorithms::int_factor::factor;
 use feanor_math::iters::multi_cartesian_product;
 use feanor_math::ring::*;
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::homomorphism::*;
 use feanor_math::pid::*;
 use feanor_math::rings::zn::*;
@@ -218,7 +217,7 @@ impl HypercubeStructure {
         /// two factors otherwise.
         /// 
         struct HypercubeDimension {
-            g_main: ZnEl,
+            g_main: zn_64::ZnEl,
             order_of_projected_p: i64,
             group_order: i64,
             factor_m: (i64, usize)
@@ -233,10 +232,10 @@ impl HypercubeStructure {
         let mut factorization = factor(ZZi64, m);
         // this makes debugging easier, since we have a canonical order
         factorization.sort_unstable_by_key(|(p, _)| *p);
-        let zm_rns = zn_rns::Zn::new(factorization.iter().map(|(q, k)| Zn::new(ZZi64.pow(*q, *k) as u64)).collect(), ZZi64);
-        let zm = Zn::new(m as u64);
+        let zm_rns = zn_rns::Zn::new(factorization.iter().map(|(q, k)| zn_64::Zn::new(ZZi64.pow(*q, *k) as u64)).collect(), ZZi64);
+        let zm = zn_64::Zn::new(m as u64);
         let iso = zm.into_can_hom(zn_big::Zn::new(ZZi64, m)).ok().unwrap().compose((&zm_rns).into_can_iso(zn_big::Zn::new(ZZi64, m)).ok().unwrap());
-        let from_crt = |index: usize, value: ZnEl| iso.map(zm_rns.from_congruence((0..factorization.len()).map(|j| if j == index { value } else { zm_rns.at(j).one() })));
+        let from_crt = |index: usize, value: zn_64::ZnEl| iso.map(zm_rns.from_congruence((0..factorization.len()).map(|j| if j == index { value } else { zm_rns.at(j).one() })));
 
         let mut dimensions = Vec::new();
         for (i, (q, k)) in factorization.iter().enumerate() {
@@ -488,7 +487,7 @@ impl HypercubeStructure {
     }
 }
 
-pub fn unit_group_dlog(ring: &Zn, base: ZnEl, value: ZnEl) -> Option<i64> {
+pub fn unit_group_dlog(ring: &zn_64::Zn, base: zn_64::ZnEl, value: zn_64::ZnEl) -> Option<i64> {
     finite_field_discrete_log(
         value,
         base,

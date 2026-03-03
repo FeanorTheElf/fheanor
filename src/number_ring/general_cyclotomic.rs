@@ -16,7 +16,6 @@ use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
 use feanor_math::homomorphism::*;
 use feanor_math::rings::poly::sparse_poly::SparsePolyRing;
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_mempool::dynsize::DynLayoutMempool;
 use feanor_mempool::AllocArc;
@@ -171,7 +170,7 @@ impl OddSquarefreeCyclotomicNumberRing {
 #[instrument(skip_all)]
 pub fn compute_powinf_to_coeffinf_expansion(m: i64) -> f64 {
     let factorization = factor(ZZi64, m);
-    let factorization_rings = factorization.iter().map(|(p, e)| Zn::new(ZZi64.pow(*p, *e) as u64)).collect::<Vec<_>>();
+    let factorization_rings = factorization.iter().map(|(p, e)| zn_64::Zn::new(ZZi64.pow(*p, *e) as u64)).collect::<Vec<_>>();
     let ZZX = SparsePolyRing::new(ZZi64, "X");
     let Phi_m = cyclotomic_polynomial(&ZZX, m as usize);
     let phi_m = ZZX.degree(&Phi_m).unwrap();
@@ -214,7 +213,7 @@ pub fn compute_powinf_to_coeffinf_expansion(m: i64) -> f64 {
 #[instrument(skip_all)]
 pub fn compute_coeffinf_to_powinf_expansion(m: i64) -> f64 {
     let factorization = factor(ZZi64, m);
-    let factorization_rings = factorization.iter().map(|(p, e)| Zn::new(ZZi64.pow(*p, *e) as u64)).collect::<Vec<_>>();
+    let factorization_rings = factorization.iter().map(|(p, e)| zn_64::Zn::new(ZZi64.pow(*p, *e) as u64)).collect::<Vec<_>>();
     let phi_m = euler_phi(&factorization);
     let ZZX = SparsePolyRing::new(ZZi64, "X");
     let cyclotomic_polys = factorization.iter().map(|(p, e)| cyclotomic_polynomial(&ZZX, ZZi64.pow(*p, *e) as usize)).collect::<Vec<_>>();
@@ -260,7 +259,7 @@ impl PartialEq for OddSquarefreeCyclotomicNumberRing {
 
 impl AbstractNumberRing for OddSquarefreeCyclotomicNumberRing {
 
-    type NumberRingQuotientBases = OddSquarefreeCyclotomicDecomposedNumberRing<BluesteinFFT<ZnBase, ZnFastmulBase, CanHom<ZnFastmul, Zn>, AllocArc<DynLayoutMempool<Global>>>, AllocArc<DynLayoutMempool<Global>>>;
+    type NumberRingQuotientBases = OddSquarefreeCyclotomicDecomposedNumberRing<BluesteinFFT<zn_64::ZnBase, zn_64::ZnFastmulBase, CanHom<zn_64::ZnFastmul, zn_64::Zn>, AllocArc<DynLayoutMempool<Global>>>, AllocArc<DynLayoutMempool<Global>>>;
 
     fn small_basis_product_expansion_factor(&self) -> f64 {
         self.coeffinf_to_powinf_expansion() * self.coeffinf_to_powinf_expansion() * self.powinf_basis_product_expansion_factor() * self.powinf_to_coeffinf_expansion()
@@ -270,12 +269,12 @@ impl AbstractNumberRing for OddSquarefreeCyclotomicNumberRing {
         self.small_basis_product_expansion_factor()
     }
 
-    fn bases_mod_p(&self, Fp: Zn) -> Self::NumberRingQuotientBases {
+    fn bases_mod_p(&self, Fp: zn_64::Zn) -> Self::NumberRingQuotientBases {
         let n_factorization = &self.m_factorization_squarefree;
         let m = n_factorization.iter().copied().product::<i64>();
 
         let allocator = AllocArc(Arc::new(DynLayoutMempool::new(Alignment::of::<u64>())));
-        let Fp_fastmul = ZnFastmul::new(Fp).unwrap();
+        let Fp_fastmul = zn_64::ZnFastmul::new(Fp).unwrap();
         let zeta = get_prim_root_of_unity_zn(&Fp, 2 * m as usize).unwrap();
 
         let log2_help_len = StaticRing::<i64>::RING.abs_log2_ceil(&(2 * m).try_into().unwrap()).unwrap();
@@ -321,21 +320,21 @@ impl AbstractNumberRing for OddSquarefreeCyclotomicNumberRing {
 }
 
 pub struct OddSquarefreeCyclotomicDecomposedNumberRing<F, A = Global> 
-    where F: FFTAlgorithm<ZnBase> + PartialEq,
+    where F: FFTAlgorithm<zn_64::ZnBase> + PartialEq,
         A: Allocator + Clone
 {
     galois_group: CyclotomicGaloisGroup,
-    ring: Zn,
+    ring: zn_64::Zn,
     fft_table: F,
     /// contains `usize::MAX` whenenver the fft output index corresponds to a non-primitive root of unity, and an index otherwise
     fft_output_indices_to_indices: Vec<usize>,
-    zeta_pow_rank: Vec<(usize, ZnEl)>,
+    zeta_pow_rank: Vec<(usize, zn_64::ZnEl)>,
     rank: usize,
     allocator: A
 }
 
 impl<F, A> PartialEq for OddSquarefreeCyclotomicDecomposedNumberRing<F, A> 
-    where F: FFTAlgorithm<ZnBase> + PartialEq,
+    where F: FFTAlgorithm<zn_64::ZnBase> + PartialEq,
         A: Allocator + Clone
 {
     fn eq(&self, other: &Self) -> bool {
@@ -344,10 +343,10 @@ impl<F, A> PartialEq for OddSquarefreeCyclotomicDecomposedNumberRing<F, A>
 }
 
 impl<F, A> OddSquarefreeCyclotomicDecomposedNumberRing<F, A> 
-    where F: FFTAlgorithm<ZnBase> + PartialEq,
+    where F: FFTAlgorithm<zn_64::ZnBase> + PartialEq,
         A: Allocator + Clone
 {
-    fn create_squarefree(fft_table: F, Fp: Zn, n_factorization: &[i64], galois_group: CyclotomicGaloisGroup, allocator: A) -> Self {
+    fn create_squarefree(fft_table: F, Fp: zn_64::Zn, n_factorization: &[i64], galois_group: CyclotomicGaloisGroup, allocator: A) -> Self {
         let m = galois_group.m();
         assert_eq!(m as i64, n_factorization.iter().copied().product::<i64>());
         let rank = euler_phi_squarefree(&n_factorization) as usize;
@@ -394,7 +393,7 @@ impl<F, A> OddSquarefreeCyclotomicDecomposedNumberRing<F, A>
 }
 
 impl<F, A> NumberRingQuotientBases for OddSquarefreeCyclotomicDecomposedNumberRing<F, A> 
-    where F: FFTAlgorithm<ZnBase> + PartialEq,
+    where F: FFTAlgorithm<zn_64::ZnBase> + PartialEq,
         A: Allocator + Clone
 {
     fn galois_group(&self) -> &CyclotomicGaloisGroup {
@@ -402,7 +401,7 @@ impl<F, A> NumberRingQuotientBases for OddSquarefreeCyclotomicDecomposedNumberRi
     }
 
     fn mult_basis_to_small_basis<V>(&self, mut data: V)
-        where V: VectorViewMut<ZnEl>
+        where V: VectorViewMut<zn_64::ZnEl>
     {
         let ring = self.base_ring();
         let mut tmp = Vec::with_capacity_in(self.fft_table.len(), &self.allocator);
@@ -428,7 +427,7 @@ impl<F, A> NumberRingQuotientBases for OddSquarefreeCyclotomicDecomposedNumberRi
     }
 
     fn small_basis_to_mult_basis<V>(&self, mut data: V)
-        where V: VectorViewMut<ZnEl>
+        where V: VectorViewMut<zn_64::ZnEl>
     {
         let ring = self.base_ring();
         let mut tmp = Vec::with_capacity_in(self.fft_table.len(), self.allocator.clone());
@@ -445,24 +444,24 @@ impl<F, A> NumberRingQuotientBases for OddSquarefreeCyclotomicDecomposedNumberRi
     }
 
     fn coeff_basis_to_small_basis<V>(&self, _data: V)
-        where V: VectorViewMut<ZnEl>
+        where V: VectorViewMut<zn_64::ZnEl>
     {}
 
     fn small_basis_to_coeff_basis<V>(&self, _data: V)
-        where V: VectorViewMut<ZnEl>
+        where V: VectorViewMut<zn_64::ZnEl>
     {}
 
     fn rank(&self) -> usize {
         self.rank
     }
 
-    fn base_ring(&self) -> &Zn {
+    fn base_ring(&self) -> &zn_64::Zn {
         &self.ring
     }
 
     fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &GaloisGroupEl)
-        where V1: VectorView<ZnEl>,
-            V2: SwappableVectorViewMut<ZnEl>
+        where V1: VectorView<zn_64::ZnEl>,
+            V2: SwappableVectorViewMut<zn_64::ZnEl>
     {
         assert_eq!(self.rank(), src.len());
         assert_eq!(self.rank(), dst.len());

@@ -6,7 +6,6 @@ use feanor_math::integer::*;
 use feanor_math::ring::*;
 use feanor_math::group::*;
 use feanor_math::rings::extension::*;
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::VectorFn;
 use feanor_math::seq::VectorView;
@@ -86,7 +85,7 @@ fn pow2_bitreversed_dwt_butterfly<G, R>(H: &HypercubeIsomorphism<R>, dim_index: 
     assert!(H.slot_ring().eq_el(&root_of_unity, &H.slot_ring().negate(H.slot_ring().pow(H.slot_ring().clone_el(&root_of_unity), Zm.smallest_positive_lift(Zm.pow(*Gal.as_ring_el(&g), l / 2)) as usize))));
 
     enum TwiddleFactor {
-        Zero, PosPowerZeta(ZnEl), NegPowerZeta(ZnEl)
+        Zero, PosPowerZeta(zn_64::ZnEl), NegPowerZeta(zn_64::ZnEl)
     }
 
     let pow_of_zeta = |factor: TwiddleFactor| match factor {
@@ -165,7 +164,7 @@ fn pow2_bitreversed_inv_dwt_butterfly<G, R>(H: &HypercubeIsomorphism<R>, dim_ind
     assert_el_eq!(H.slot_ring(), &root_of_unity, &H.slot_ring().negate(H.slot_ring().pow(H.slot_ring().clone_el(&root_of_unity), Zm.smallest_positive_lift(Zm.pow(*Gal.as_ring_el(&g), l / 2)) as usize)));
 
     enum TwiddleFactor {
-        Zero, PosPowerZeta(ZnEl), NegPowerZeta(ZnEl)
+        Zero, PosPowerZeta(zn_64::ZnEl), NegPowerZeta(zn_64::ZnEl)
     }
 
     let pow_of_zeta = |factor: TwiddleFactor| match factor {
@@ -835,6 +834,8 @@ use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::poly::PolyRingStore;
 #[cfg(test)]
 use feanor_math::algorithms::fft::cooley_tuckey::bitreverse;
+#[cfg(test)]
+use feanor_math::rings::zn::zn_64::Zn;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 #[cfg(test)]

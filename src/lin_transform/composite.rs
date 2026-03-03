@@ -349,6 +349,8 @@ use feanor_math::assert_el_eq;
 #[cfg(test)]
 use feanor_math::integer::*;
 #[cfg(test)]
+use feanor_math::rings::zn::zn_64::*;
+#[cfg(test)]
 use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 #[cfg(test)]
 use crate::{ZZi64, ZZbig};

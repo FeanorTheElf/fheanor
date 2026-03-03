@@ -1,8 +1,13 @@
 use std::alloc::Global;
 
+use feanor_math::assert_el_eq;
+use feanor_math::homomorphism::*;
 use feanor_math::ring::*;
-use feanor_math::rings::zn::{ZnRing, ZnRingStore, zn_64};
+use feanor_math::rings::zn::*;
 use feanor_math::matrix::*;
+use tracing::instrument;
+
+use crate::NiceZn;
 
 ///
 /// Contains the basic "lift-and-reduce" RNS base conversion, which
@@ -58,29 +63,62 @@ pub mod matrix_lift;
 /// 
 pub trait RNSOperation {
 
-    type ZnIn: ZnRingStore<Type = Self::ZnInBase>;
-    
-    type ZnInBase: ?Sized + ZnRing;
+    fn input_rings<'a>(&'a self) -> &'a [zn_64::Zn];
 
-    type ZnOut: ZnRingStore<Type = Self::ZnOutBase>;
-    
-    type ZnOutBase: ?Sized + ZnRing;
-
-    fn input_rings<'a>(&'a self) -> &'a [Self::ZnIn];
-
-    fn output_rings<'a>(&'a self) -> &'a [Self::ZnOut];
+    fn output_rings<'a>(&'a self) -> &'a [zn_64::Zn];
 
     ///
     /// Applies the RNS operation to each column of the given matrix, and writes the results to the columns
     /// of `output`. The entries of the `i`-th row are considered to be elements of `self.input_rings().at(i)`
     /// resp. `self.output_rings().at(i)`.
     ///
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::ZnIn>>, output: SubmatrixMut<V2, El<Self::ZnOut>>)
-        where V1: AsPointerToSlice<El<Self::ZnIn>>,
-            V2: AsPointerToSlice<El<Self::ZnOut>>;
+    fn apply_base<V1, V2>(&self, input: Submatrix<V1, El<zn_64::Zn>>, output: SubmatrixMut<V2, El<zn_64::Zn>>)
+        where V1: AsPointerToSlice<El<zn_64::Zn>>,
+            V2: AsPointerToSlice<El<zn_64::Zn>>;
+
+    ///
+    /// Like [`RNSOperation::apply_base()`], but additionally converts inputs and outputs to and from the given
+    /// ring implementations.
+    /// 
+    /// This requires that `in_rings[i]` is the same ring (in the mathematical sense, not implementation-wise)
+    /// as `self.input_rings()[i]`, and similarly for the output rings.
+    /// 
+    /// Implementors may wish to override this function, if they can merge the conversions into the actual operations.
+    /// 
+    #[instrument(skip_all)]
+    fn apply<IIn, IOut, ZnIn, ZnOut, V1, V2>(&self, in_rings: IIn, out_rings: IOut, input: Submatrix<V1, El<ZnIn>>, mut output: SubmatrixMut<V2, El<ZnOut>>)
+        where V1: AsPointerToSlice<El<ZnIn>>,
+            V2: AsPointerToSlice<El<ZnOut>>,
+            ZnIn: RingStore,
+            ZnIn::Type: NiceZn,
+            ZnOut: RingStore,
+            ZnOut::Type: NiceZn,
+            IIn: ExactSizeIterator<Item = ZnIn>,
+            IOut: ExactSizeIterator<Item = ZnOut>
+    {
+        assert_eq!(in_rings.len(), self.input_rings().len());
+        assert_eq!(out_rings.len(), self.output_rings().len());
+        let mut input_converted = OwnedMatrix::zero(input.row_count(), input.col_count(), &self.input_rings()[0]);
+        for (i, in_ring) in in_rings.enumerate() {
+            let int_iso = self.input_rings()[i].integer_ring().can_hom(in_ring.integer_ring()).unwrap();
+            assert_eq!(self.input_rings()[i].modulus(), &int_iso.map_ref(in_ring.modulus()));
+            for j in 0..input.col_count() {
+                *input_converted.at_mut(i, j) = self.input_rings()[i].get_ring().from_int_promise_reduced(int_iso.map(in_ring.smallest_positive_lift(in_ring.clone_el(input.at(i, j)))));
+            }
+        }
+        let mut output_converted = OwnedMatrix::zero(output.row_count(), output.col_count(), &self.output_rings()[0]);
+        self.apply_base(input_converted.data(), output_converted.data_mut());
+        for (i, out_ring) in out_rings.enumerate() {
+            let int_iso = out_ring.integer_ring().can_hom(self.output_rings()[i].integer_ring()).unwrap();
+            assert_el_eq!(out_ring.integer_ring(), out_ring.modulus(), int_iso.map(*self.output_rings()[i].modulus()));
+            for j in 0..output.col_count() {
+                *output.at_mut(i, j) = out_ring.get_ring().from_int_promise_reduced(int_iso.map(self.output_rings()[i].smallest_positive_lift(*output_converted.at(i, j))));
+            }
+        }
+    }
 }
 
-pub(crate) type UsedBaseConversion<A = Global, ZnIn = zn_64::Zn, ZnOut = zn_64::Zn> = matrix_lift::RNSMatrixBaseConversion<A, ZnIn, ZnOut>;
+pub(crate) type UsedBaseConversion<A = Global> = matrix_lift::RNSMatrixBaseConversion<A>;
 
 ///
 /// Returns `(data_sorted, perm)` such that `data_sorted` is an (ascending)

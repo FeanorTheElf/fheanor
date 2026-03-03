@@ -12,7 +12,6 @@ use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
 use feanor_math::homomorphism::*;
 use feanor_math::rings::poly::sparse_poly::SparsePolyRing;
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::subvector::SubvectorView;
 use feanor_math::seq::*;
@@ -144,7 +143,7 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
         self.coeffinf_to_powinf_expansion * self.coeffinf_to_powinf_expansion * self.powinf_basis_product_expansion_factor() * self.powinf_to_coeffinf_expansion
     }
 
-    fn bases_mod_p(&self, Fp: Zn) -> Self::NumberRingQuotientBases {
+    fn bases_mod_p(&self, Fp: zn_64::Zn) -> Self::NumberRingQuotientBases {
         let r1 = self.left_factor.rank() as i64;
         let r2 = self.right_factor.rank() as i64;
         let m1 = self.left_factor.galois_group().m() as i64;
@@ -245,8 +244,8 @@ pub struct CompositeCyclotomicNumberRingQuotientBases<L, R, A = Global>
     right_factor: R,
     // the `i`-th entry is none if the `i`-th small basis vector equals the `i`-th coeff basis vector,
     // and otherwise, it contains the coeff basis representation of the `i`-th small basis vector
-    coeff_to_tensorcoeff_conversion_matrix: Vec<Vec<(usize, ZnEl)>>,
-    cyclotomic_poly_reducer: CyclotomicPolyReducer<Zn>,
+    coeff_to_tensorcoeff_conversion_matrix: Vec<Vec<(usize, zn_64::ZnEl)>>,
+    cyclotomic_poly_reducer: CyclotomicPolyReducer<zn_64::Zn>,
     joint_galois_group: CyclotomicGaloisGroup
 }
 
@@ -271,7 +270,7 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
 
     #[instrument(skip_all)]
     fn small_basis_to_mult_basis<V>(&self, mut data: V)
-        where V: SwappableVectorViewMut<ZnEl>
+        where V: SwappableVectorViewMut<zn_64::ZnEl>
     {
         for i in 0..self.right_factor.rank() {
             self.left_factor.small_basis_to_mult_basis(SubvectorView::new(&mut data).restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())));
@@ -283,7 +282,7 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
 
     #[instrument(skip_all)]
     fn mult_basis_to_small_basis<V>(&self, mut data: V)
-        where V: SwappableVectorViewMut<ZnEl>
+        where V: SwappableVectorViewMut<zn_64::ZnEl>
     {
         for j in 0..self.left_factor.rank() {
             self.right_factor.mult_basis_to_small_basis(SubvectorView::new(&mut data).restrict(j..).step_by_view(self.left_factor.rank()));
@@ -295,7 +294,7 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
 
     #[instrument(skip_all)]
     fn coeff_basis_to_small_basis<V>(&self, mut data: V)
-        where V: SwappableVectorViewMut<ZnEl>
+        where V: SwappableVectorViewMut<zn_64::ZnEl>
     {
         let mut result = Vec::with_capacity_in(self.rank(), &self.allocator);
         result.resize_with(self.rank(), || self.base_ring().zero());
@@ -318,7 +317,7 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
 
     #[instrument(skip_all)]
     fn small_basis_to_coeff_basis<V>(&self, mut data: V)
-        where V: SwappableVectorViewMut<ZnEl>
+        where V: SwappableVectorViewMut<zn_64::ZnEl>
     {
         for j in 0..self.left_factor.rank() {
             self.right_factor.small_basis_to_coeff_basis(SubvectorView::new(&mut data).restrict(j..).step_by_view(self.left_factor.rank()));
@@ -355,13 +354,13 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
         self.left_factor.rank() * self.right_factor.rank()
     }
 
-    fn base_ring(&self) -> &Zn {
+    fn base_ring(&self) -> &zn_64::Zn {
         self.left_factor.base_ring()
     }
 
     fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &GaloisGroupEl)
-        where V1: VectorView<ZnEl>,
-            V2: SwappableVectorViewMut<ZnEl>
+        where V1: VectorView<zn_64::ZnEl>,
+            V2: SwappableVectorViewMut<zn_64::ZnEl>
     {
         let ring_factor1 = self.left_factor.galois_group();
         let ring_factor2 = self.right_factor.galois_group();

@@ -248,18 +248,16 @@ pub trait RNSRing: PreparedMultiplicationRing + NumberRingQuotient + RingExtensi
 #[instrument(skip_all)]
 pub fn perform_rns_op<R, Op>(to: &R, from: &R, el: &R::Element, op: &Op) -> R::Element
     where R: RNSRing,
-        Op: RNSOperation<ZnInBase = R::ZnTyBase, ZnOutBase = R::ZnTyBase>
+        Op: RNSOperation
 {
     assert!(from.number_ring() == to.number_ring());
     assert_eq!(op.input_rings().len(), from.base_ring().len());
     assert_eq!(op.output_rings().len(), to.base_ring().len());
-    assert!(op.input_rings().iter().zip(from.base_ring().as_iter()).all(|(l, r)| l.get_ring() == r.get_ring()));
-    assert!(op.output_rings().iter().zip(to.base_ring().as_iter()).all(|(l, r)| l.get_ring() == r.get_ring()));
 
     let mut el_repr = OwnedMatrix::from_fn(from.base_ring().len(), from.small_generating_set_len(), |i, _| from.base_ring().at(i).zero());
     from.as_representation_wrt_small_generating_set(el, el_repr.data_mut());
     let mut res_repr = OwnedMatrix::from_fn(to.base_ring().len(), el_repr.col_count(), |i, _| to.base_ring().at(i).zero());
-    op.apply(el_repr.data(), res_repr.data_mut());
+    op.apply(from.base_ring().as_iter(), to.base_ring().as_iter(), el_repr.data(), res_repr.data_mut());
     return to.from_representation_wrt_small_generating_set(res_repr.data());
 }
 

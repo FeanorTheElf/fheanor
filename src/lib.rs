@@ -25,6 +25,8 @@ use std::time::Instant;
 use feanor_math::integer::*;
 use feanor_math::primitive_int::*;
 use feanor_math::homomorphism::*;
+use feanor_math::rings::zn::ZnRingStore;
+use feanor_math::rings::zn::zn_64;
 use feanor_math::serialization::SerializableElementRing;
 use feanor_math::algorithms::linsolve::LinSolveRing;
 use feanor_math::rings::zn::ZnRing;
@@ -145,6 +147,24 @@ pub fn log_time<F, T, const LOG: bool, const COUNTER_VAR_COUNT: usize>(descripti
         println!("done in {} ms, {:?}", (end - start).as_millis(), counters);
     }
     return result;
+}
+
+fn to_zn_64<R>(ring: R) -> zn_64::Zn
+    where R: RingStore,
+        R::Type: NiceZn
+{
+    zn_64::Zn::new(int_cast(ring.integer_ring().clone_el(ring.modulus()), ZZi64, ring.integer_ring()) as u64)
+}
+
+fn t_fits_zn_64<I>(ZZ: I, t: &El<I>) -> Option<zn_64::Zn>
+    where I: RingStore,
+        I::Type: IntegerRing
+{
+    if ZZ.abs_log2_ceil(t).unwrap() <= 50 {
+        Some(zn_64::Zn::new(int_cast(ZZ.clone_el(t), ZZi64, ZZ) as u64))
+    } else {
+        None
+    }
 }
 
 ///

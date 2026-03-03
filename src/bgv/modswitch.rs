@@ -641,8 +641,8 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for BigIntRingBase {
     }
 }
 
-impl<Params> AsBGVPlaintext<Params> for NumberRingQuotientByIntBase<NumberRing<Params>, Zn>
-    where Params: BGVInstantiation<PlaintextRing = NumberRingQuotientByIntBase<NumberRing<Params>, Zn>>
+impl<Params> AsBGVPlaintext<Params> for NumberRingQuotientByIntBase<NumberRing<Params>, zn_64::Zn>
+    where Params: BGVInstantiation<PlaintextRing = NumberRingQuotientByIntBase<NumberRing<Params>, zn_64::Zn>>
 {
     fn hom_add_to(
         &self, 

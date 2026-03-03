@@ -1,9 +1,8 @@
 use std::sync::{MappedRwLockReadGuard, RwLock, RwLockReadGuard};
 
 use feanor_math::primitive_int::StaticRing;
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::ring::*;
-use feanor_math::rings::zn::ZnRingStore;
+use feanor_math::rings::zn::{ZnRingStore, zn_64};
 
 ///
 /// Contains algorithms for computing linear transforms and representing them
@@ -39,7 +38,7 @@ pub struct PowerTable<R>
     where R: RingStore
 {
     ring: R,
-    exponent_ring: Zn,
+    exponent_ring: zn_64::Zn,
     powers: RwLock<Vec<El<R>>>
 }
 
@@ -51,7 +50,7 @@ impl<R> PowerTable<R>
         Self {
             powers: RwLock::new(vec![ring.one(), base]),
             ring: ring,
-            exponent_ring: Zn::new(order_of_base as u64),
+            exponent_ring: zn_64::Zn::new(order_of_base as u64),
         }
     }
 

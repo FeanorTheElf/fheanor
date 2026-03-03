@@ -16,9 +16,7 @@ use feanor_math::ordered::OrderedRingStore;
 use feanor_math::ring::*;
 use feanor_math::rings::extension::*;
 use feanor_math::rings::finite::*;
-use feanor_math::rings::zn::zn_64::{Zn, ZnBase};
-use feanor_math::rings::zn::{FromModulusCreateableZnRing, ZnRing, zn_rns};
-use feanor_math::rings::zn::ZnRingStore;
+use feanor_math::rings::zn::*;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::seq::*;
 use tracing::instrument;
@@ -31,7 +29,7 @@ use crate::ciphertext_ring::RNSRing;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
 use crate::number_ring::galois::GaloisGroupEl;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
-use crate::NiceZn;
+use crate::{NiceZn, t_fits_zn_64, to_zn_64};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::ntt::{FheanorConvolution, FheanorNegacyclicNTT};
 use crate::number_ring::hypercube::isomorphism::*;
@@ -231,7 +229,7 @@ pub trait BGVInstantiation {
     /// 
     /// For more details on the modulus chain, see [`crate::examples::bgv_basics`].
     /// 
-    fn create_rns_base(&self, log2_q: Range<usize>) -> zn_rns::Zn<Zn, BigIntRing>;
+    fn create_rns_base(&self, log2_q: Range<usize>) -> zn_rns::Zn<zn_64::Zn, BigIntRing>;
 
     ///
     /// Creates the ciphertext ring corresponding to the given RNS base.
@@ -240,7 +238,7 @@ pub trait BGVInstantiation {
     /// with larger RNS base, in these cases it is more efficient to use
     /// [`BGVInstantiation::mod_switch_down_C()`].
     /// 
-    fn create_ciphertext_ring_with_rns_base(&self, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> CiphertextRing<Self>;
+    fn create_ciphertext_ring_with_rns_base(&self, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>) -> CiphertextRing<Self>;
 
     ///
     /// Creates a ciphertext ring by sampling a fresh, suitable `q` with the
@@ -829,13 +827,11 @@ pub trait BGVInstantiation {
         if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
             return Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
         } else {
-            let mod_switch = UsedBaseConversion::new_with_zn(
-                Cold.base_ring().as_iter().collect(),
-                Cnew.base_ring().as_iter().collect(),
+            let mod_switch = UsedBaseConversion::new_with_alloc(
+                Cold.base_ring().as_iter().map(to_zn_64).collect::<Vec<_>>(),
+                Cnew.base_ring().as_iter().map(to_zn_64).collect::<Vec<_>>(),
                 Global
             );
-            assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
-            assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
             return perform_rns_op(Cnew.get_ring(), Cold.get_ring(), sk, &mod_switch);
         }
     }
@@ -900,7 +896,7 @@ pub trait BGVInstantiation {
     /// The function is behind a trait object, so that concrete instantiations can use a different
     /// implementation which is more performant on their concrete choice of rings.
     /// 
-    fn rescale_ring_element_fn<'a>(P: &'a PlaintextRing<Self>, Cnew: &'a CiphertextRing<Self>, Cold: &'a CiphertextRing<Self>) -> Box<dyn 'a + FnMut(El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    fn rescale_ring_element<'a>(P: &'a PlaintextRing<Self>, Cnew: &'a CiphertextRing<Self>, Cold: &'a CiphertextRing<Self>) -> Box<dyn 'a + FnMut(El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         let added_rns_factors = RNSFactorIndexList::missing_from(Cold.base_ring(), Cnew.base_ring());
         let dropped_rns_factors = RNSFactorIndexList::missing_from(Cnew.base_ring(), Cold.base_ring());
         let kept_rns_factors = dropped_rns_factors.complement(Cold.base_ring().len());
@@ -912,12 +908,14 @@ pub trait BGVInstantiation {
             )))
         );
 
-        let map_kept_factors = move |x| Cnew.get_ring().collect_rns_factors((0..Cnew.base_ring().len()).map(|idx| if added_rns_factors.contains(idx) {
-            RNSFactorCongruence::Zero
-        } else {
-            let old_idx = Cold.base_ring().as_iter().enumerate().filter(|(_, old_ring)| old_ring.get_ring() == Cnew.base_ring().at(idx).get_ring()).next().unwrap().0;
-            RNSFactorCongruence::CongruentTo(Cold.get_ring(), old_idx, &x)
-        }));
+        fn map_kept_factors<Inst: ?Sized + BGVInstantiation>(Cnew: &CiphertextRing<Inst>, Cold: &CiphertextRing<Inst>, added_rns_factors: &RNSFactorIndexList, x: &El<CiphertextRing<Inst>>) -> El<CiphertextRing<Inst>> {
+            Cnew.get_ring().collect_rns_factors((0..Cnew.base_ring().len()).map(|idx| if added_rns_factors.contains(idx) {
+                RNSFactorCongruence::Zero
+            } else {
+                let old_idx = Cold.base_ring().as_iter().enumerate().filter(|(_, old_ring)| old_ring.get_ring() == Cnew.base_ring().at(idx).get_ring()).next().unwrap().0;
+                RNSFactorCongruence::CongruentTo(Cold.get_ring(), old_idx, x)
+            }))
+        }
 
         if kept_rns_factors.len() == Cold.base_ring().len() {
             if kept_rns_factors.len() == Cnew.base_ring().len() {
@@ -925,16 +923,20 @@ pub trait BGVInstantiation {
             } else {
                 return Box::new(move |mut x: El<CiphertextRing<Self>>| {
                     Cold.inclusion().mul_assign_ref_map(&mut x, &a);
-                    return map_kept_factors(x);
+                    return map_kept_factors::<Self>(Cnew, Cold, &added_rns_factors, &x);
                 });
             }
         }
 
         let C_dropped = RingValue::from(Cold.get_ring().drop_rns_factor(&kept_rns_factors));
-        let Zt = Zn::new(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()) as u64);
-        let compute_delta = RNSCongruencePreservingBaseConversion::new_with_zn(
-            C_dropped.base_ring().as_iter().collect(),
-            Cnew.base_ring().as_iter().collect(),
+        let Zt = if let Some(Zt) = t_fits_zn_64(P.base_ring().integer_ring(), P.base_ring().modulus()) {
+            Zt
+        } else {
+            panic!("BGV mod-switching currently only supports plaintext moduli that fit in a zn_64::Zn; consider using BFV instead")
+        };
+        let compute_delta = RNSCongruencePreservingBaseConversion::new_with_alloc(
+            C_dropped.base_ring().as_iter().map(to_zn_64).collect::<Vec<_>>(),
+            Cnew.base_ring().as_iter().map(to_zn_64).collect::<Vec<_>>(),
             Zt,
             Global
         );
@@ -942,21 +944,35 @@ pub trait BGVInstantiation {
             Cold.base_ring().at(*i).integer_ring().clone_el(Cold.base_ring().at(*i).modulus()), 
             ZZbig, Cold.base_ring().at(*i).integer_ring()
         ))))).unwrap();
-        Box::new(move |mut x: El<CiphertextRing<Self>>| {
+
+        #[instrument(skip_all)]
+        fn rescale_ring_element_impl<Inst: ?Sized + BGVInstantiation>(
+            Cnew: &CiphertextRing<Inst>, 
+            Cold: &CiphertextRing<Inst>,
+            C_dropped: &CiphertextRing<Inst>,
+            a: &El<<Inst::CiphertextRing as RingExtension>::BaseRing>,
+            b_inv: &El<<Inst::CiphertextRing as RingExtension>::BaseRing>,
+            compute_delta: &RNSCongruencePreservingBaseConversion,
+            kept_rns_factors: &RNSFactorIndexList,
+            added_rns_factors: &RNSFactorIndexList,
+            mut x: El<CiphertextRing<Inst>>
+        ) -> El<CiphertextRing<Inst>> {
             Cold.inclusion().mul_assign_ref_map(&mut x, &a);
 
-            let x_dropped = C_dropped.get_ring().drop_rns_factor_element(Cold.get_ring(), &kept_rns_factors, &x);
+            let x_dropped = C_dropped.get_ring().drop_rns_factor_element(Cold.get_ring(), kept_rns_factors, &x);
             let mut x_dropped_matrix = OwnedMatrix::zero(C_dropped.base_ring().len(), Cold.get_ring().small_generating_set_len(), Cold.base_ring().at(0));
             C_dropped.get_ring().as_representation_wrt_small_generating_set(&x_dropped, x_dropped_matrix.data_mut());
             let mut delta = OwnedMatrix::zero(Cnew.base_ring().len(), Cnew.get_ring().small_generating_set_len(), Cnew.base_ring().at(0));
-            compute_delta.apply(x_dropped_matrix.data(), delta.data_mut());
+            compute_delta.apply(C_dropped.base_ring().as_iter(), Cnew.base_ring().as_iter(), x_dropped_matrix.data(), delta.data_mut());
             let delta = Cnew.get_ring().from_representation_wrt_small_generating_set(delta.data());
 
             return Cnew.inclusion().mul_ref_snd_map(
-                Cnew.sub(map_kept_factors(x), delta),
+                Cnew.sub(map_kept_factors::<Inst>(Cnew, Cold, added_rns_factors, &x), delta),
                 &b_inv
             );
-        })
+        }
+
+        Box::new(move |x: El<CiphertextRing<Self>>| rescale_ring_element_impl::<Self>(Cnew, Cold, &C_dropped, &a, &b_inv, &compute_delta, &kept_rns_factors, &added_rns_factors, x))
     }
 
     ///
@@ -970,7 +986,7 @@ pub trait BGVInstantiation {
     #[instrument(skip_all)]
     fn mod_switch_ct(P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
-        let mut rescale = Self::rescale_ring_element_fn(P, Cnew, Cold);
+        let mut rescale = Self::rescale_ring_element(P, Cnew, Cold);
         let result = Ciphertext {
             c0: rescale(ct.c0),
             c1: rescale(ct.c1),
@@ -1072,7 +1088,7 @@ pub trait BGVInstantiation {
 }
 
 #[derive(Debug)]
-pub struct Pow2BGV<A: Allocator + Clone = DefaultCiphertextAllocator, C: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
+pub struct Pow2BGV<A: Allocator + Clone = DefaultCiphertextAllocator, C: FheanorNegacyclicNTT<zn_64::Zn> = DefaultNegacyclicNTT> {
     number_ring: Pow2CyclotomicNumberRing<C>,
     ciphertext_allocator: A,
     negacyclic_ntt: PhantomData<C>
@@ -1085,7 +1101,7 @@ impl Pow2BGV {
     }
 }
 
-impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> Pow2BGV<A, C> {
+impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<zn_64::Zn>> Pow2BGV<A, C> {
 
     #[instrument(skip_all)]
     pub fn new_with_ntt(m: usize, alloc: A) -> Self {
@@ -1097,7 +1113,7 @@ impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> Pow2BGV<A, C> {
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Clone for Pow2BGV<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<zn_64::Zn>> Clone for Pow2BGV<A, C> {
 
     fn clone(&self) -> Self {
         Self {
@@ -1108,19 +1124,19 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Clone for Pow2BGV<A, C>
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Display for Pow2BGV<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<zn_64::Zn>> Display for Pow2BGV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BGV({:?})", self.number_ring)
     }
 }
 
-impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow2BGV<A, C> {
+impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<zn_64::Zn>> BGVInstantiation for Pow2BGV<A, C> {
 
     type NumberRing = Pow2CyclotomicNumberRing<C>;
     type CiphertextRing = DoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
-    type PlaintextZnRing = ZnBase;
-    type PlaintextRing = NumberRingQuotientByIntBase<Pow2CyclotomicNumberRing<C>, Zn, A>;
+    type PlaintextZnRing = zn_64::ZnBase;
+    type PlaintextRing = NumberRingQuotientByIntBase<Pow2CyclotomicNumberRing<C>, zn_64::Zn, A>;
 
     fn number_ring(&self) -> &Pow2CyclotomicNumberRing<C> {
         &self.number_ring
@@ -1131,7 +1147,7 @@ impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow
         if ZZbig.is_gt(&modulus, &ZZbig.power_of_two(SAMPLE_PRIMES_SIZE - 2)) {
             unimplemented!("Plaintext modulus greater than 2^{} are not yet supported for BGV", SAMPLE_PRIMES_SIZE - 2)
         }
-        NumberRingQuotientByIntBase::create(self.number_ring().clone(), Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64), self.ciphertext_allocator.clone(), STANDARD_CONVOLUTION)
+        NumberRingQuotientByIntBase::create(self.number_ring().clone(), zn_64::Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64), self.ciphertext_allocator.clone(), STANDARD_CONVOLUTION)
     }
 
     #[instrument(skip_all)]
@@ -1148,7 +1164,7 @@ impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow
     }
 
     #[instrument(skip_all)]
-    fn create_rns_base(&self, log2_q: Range<usize>) -> zn_rns::Zn<Zn, BigIntRing> {
+    fn create_rns_base(&self, log2_q: Range<usize>) -> zn_rns::Zn<zn_64::Zn, BigIntRing> {
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
         let mut rns_base = sample_primes(
@@ -1158,11 +1174,11 @@ impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow
             |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))
         ).unwrap();
         rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
+        return zn_rns::Zn::new(rns_base.into_iter().map(|p| zn_64::Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
     }
 
     #[instrument(skip_all)]
-    fn create_ciphertext_ring_with_rns_base(&self, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> CiphertextRing<Self> {
+    fn create_ciphertext_ring_with_rns_base(&self, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>) -> CiphertextRing<Self> {
         return DoubleRNSRingBase::new_with_alloc(
             self.number_ring().clone(),
             rns_base,
@@ -1213,15 +1229,15 @@ impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
 
     type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
-    type PlaintextRing = NumberRingQuotientByIntBase<CompositeCyclotomicNumberRing, Zn, A>;
-    type PlaintextZnRing = ZnBase;
+    type PlaintextRing = NumberRingQuotientByIntBase<CompositeCyclotomicNumberRing, zn_64::Zn, A>;
+    type PlaintextZnRing = zn_64::ZnBase;
 
     #[instrument(skip_all)]
     fn create_plaintext_ring(&self, modulus: El<BigIntRing>) -> PlaintextRing<Self> {
         if ZZbig.is_gt(&modulus, &ZZbig.power_of_two(SAMPLE_PRIMES_SIZE - 2)) {
             unimplemented!("Plaintext modulus greater than 2^{} are not yet supported for BGV", SAMPLE_PRIMES_SIZE - 2)
         }
-        NumberRingQuotientByIntBase::create(self.number_ring().clone(), Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64), self.ciphertext_allocator.clone(), STANDARD_CONVOLUTION)
+        NumberRingQuotientByIntBase::create(self.number_ring().clone(), zn_64::Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64), self.ciphertext_allocator.clone(), STANDARD_CONVOLUTION)
     }
 
     #[instrument(skip_all)]
@@ -1241,7 +1257,7 @@ impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
     }
 
     #[instrument(skip_all)]
-    fn create_rns_base(&self, log2_q: Range<usize>) -> zn_rns::Zn<Zn, BigIntRing> {
+    fn create_rns_base(&self, log2_q: Range<usize>) -> zn_rns::Zn<zn_64::Zn, BigIntRing> {
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
         let mut rns_base = sample_primes(
@@ -1251,11 +1267,11 @@ impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
             |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))
         ).unwrap();
         rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
+        return zn_rns::Zn::new(rns_base.into_iter().map(|p| zn_64::Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
     }
 
     #[instrument(skip_all)]
-    fn create_ciphertext_ring_with_rns_base(&self, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> CiphertextRing<Self> {
+    fn create_ciphertext_ring_with_rns_base(&self, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>) -> CiphertextRing<Self> {
         return ManagedDoubleRNSRingBase::new_with_alloc(
             self.number_ring().clone(),
             rns_base,
@@ -1272,7 +1288,7 @@ impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
 }
 
 #[derive(Clone, Debug)]
-pub struct CompositeSingleRNSBGV<A: Allocator + Clone = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
+pub struct CompositeSingleRNSBGV<A: Allocator + Clone = DefaultCiphertextAllocator, C: FheanorConvolution<zn_64::Zn> = DefaultConvolution> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A,
     convolution: PhantomData<C>
@@ -1285,7 +1301,7 @@ impl CompositeSingleRNSBGV {
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> CompositeSingleRNSBGV<A, C> {
+impl<A: Allocator + Clone , C: FheanorConvolution<zn_64::Zn>> CompositeSingleRNSBGV<A, C> {
 
     pub fn new_with_alloc(m1: usize, m2: usize, allocator: A) -> Self {
         Self {
@@ -1296,12 +1312,12 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> CompositeSingleRNSBGV<A, 
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BGVInstantiation for CompositeSingleRNSBGV<A, C> {
+impl<A: Allocator + Clone , C: FheanorConvolution<zn_64::Zn>> BGVInstantiation for CompositeSingleRNSBGV<A, C> {
 
     type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = SingleRNSRingBase<CompositeCyclotomicNumberRing, A, C>;
-    type PlaintextZnRing = ZnBase;
-    type PlaintextRing = NumberRingQuotientByIntBase<CompositeCyclotomicNumberRing, Zn, A>;
+    type PlaintextZnRing = zn_64::ZnBase;
+    type PlaintextRing = NumberRingQuotientByIntBase<CompositeCyclotomicNumberRing, zn_64::Zn, A>;
 
     fn number_ring(&self) -> &CompositeCyclotomicNumberRing {
         &self.number_ring
@@ -1312,11 +1328,11 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BGVInstantiation for Comp
         if ZZbig.is_gt(&modulus, &ZZbig.power_of_two(SAMPLE_PRIMES_SIZE - 2)) {
             unimplemented!("Plaintext modulus greater than 2^{} are not yet supported for BGV", SAMPLE_PRIMES_SIZE - 2)
         }
-        NumberRingQuotientByIntBase::create(self.number_ring().clone(), Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64), self.ciphertext_allocator.clone(), STANDARD_CONVOLUTION)
+        NumberRingQuotientByIntBase::create(self.number_ring().clone(), zn_64::Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64), self.ciphertext_allocator.clone(), STANDARD_CONVOLUTION)
     }
 
     #[instrument(skip_all)]
-    fn create_rns_base(&self, log2_q: Range<usize>) -> zn_rns::Zn<Zn, BigIntRing> {
+    fn create_rns_base(&self, log2_q: Range<usize>) -> zn_rns::Zn<zn_64::Zn, BigIntRing> {
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
         let mut rns_base = sample_primes(
@@ -1326,13 +1342,13 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BGVInstantiation for Comp
             |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))
         ).unwrap();
         rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
+        return zn_rns::Zn::new(rns_base.into_iter().map(|p| zn_64::Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
     }
 
     #[instrument(skip_all)]
-    fn create_ciphertext_ring_with_rns_base(&self, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> CiphertextRing<Self> {
+    fn create_ciphertext_ring_with_rns_base(&self, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>) -> CiphertextRing<Self> {
         let max_log2_n = 1 + ZZi64.abs_log2_ceil(&(self.number_ring().m() as i64)).unwrap();
-        let convolutions = rns_base.as_iter().map(|Zp| C::new(*Zp, max_log2_n)).map(Arc::new).collect::<Vec<_>>();
+        let convolutions = rns_base.as_iter().map(|rns_factor| C::new(*rns_factor, max_log2_n)).map(Arc::new).collect::<Vec<_>>();
         return SingleRNSRingBase::new_with_alloc(
             self.number_ring().clone(),
             rns_base,

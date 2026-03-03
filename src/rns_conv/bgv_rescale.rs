@@ -14,12 +14,11 @@ use feanor_math::ordered::OrderedRingStore;
 use feanor_math::seq::*;
 use tracing::instrument;
 
-use crate::NiceZn;
 use crate::rns_conv::UsedBaseConversion;
 use crate::ZZbig;
 use crate::rns_conv::RNSOperation;
 
-type BGVUsedBaseConversion<A, ZnIn, ZnOut> = UsedBaseConversion<A, ZnIn, ZnOut>;
+type BGVUsedBaseConversion<A> = UsedBaseConversion<A>;
 
 ///
 /// Computes the almost exact rescaling that "preserves" congruence modulo `t`,
@@ -34,7 +33,9 @@ type BGVUsedBaseConversion<A, ZnIn, ZnOut> = UsedBaseConversion<A, ZnIn, ZnOut>;
 /// This means that the "closest integer" above might only be the second-closest when there is
 /// almost a tie.
 /// 
-#[deprecated = "prefer RNSCongruencePreservingBaseConversion, since it can be used to preserve NTT data across base conversions, thus giving better performance"]
+/// In some cases, BGV modulus-switching can be implemented more efficiently by using
+/// [`RNSCongruencePreservingBaseConversion`].
+/// 
 pub struct RNSCongruencePreservingRescaling<A = Global>
     where A: Allocator + Clone
 {
@@ -49,7 +50,6 @@ pub struct RNSCongruencePreservingRescaling<A = Global>
     b_inv_mod_aq_over_b: Vec<El<Zn>>
 }
 
-#[allow(deprecated)]
 impl RNSCongruencePreservingRescaling {
 
     ///
@@ -63,7 +63,6 @@ impl RNSCongruencePreservingRescaling {
     }
 }
 
-#[allow(deprecated)]
 impl<A> RNSCongruencePreservingRescaling<A>
     where A: Allocator + Clone
 {
@@ -94,7 +93,7 @@ impl<A> RNSCongruencePreservingRescaling<A>
         let output_rings = (0..in_moduli.len()).filter(|i| !den_moduli_indices.contains(i)).map(|i| in_moduli[i]).chain(num_moduli.into_iter()).collect::<Vec<_>>();
         let output_input_permutation = (0..in_moduli.len()).filter(|i| !den_moduli_indices.contains(i)).map(|i| Some(i)).chain((0..a_moduli_len).map(|_| None)).collect::<Vec<_>>();
 
-        let compute_delta = RNSCongruencePreservingBaseConversion::new_with_zn(
+        let compute_delta = RNSCongruencePreservingBaseConversion::new_with_alloc(
             den_moduli_indices.iter().map(|i| in_moduli[*i]).collect(), 
             output_rings, 
             plaintext_modulus, 
@@ -114,15 +113,9 @@ impl<A> RNSCongruencePreservingRescaling<A>
     }
 }
 
-#[allow(deprecated)]
 impl<A> RNSOperation for RNSCongruencePreservingRescaling<A>
     where A: Allocator + Clone
 {
-    type ZnIn = Zn;
-    type ZnInBase = ZnBase;
-    type ZnOut = Zn;
-    type ZnOutBase = ZnBase;
-
     fn input_rings<'a>(&'a self) -> &'a [Zn] {
         &self.q_moduli
     }
@@ -144,7 +137,7 @@ impl<A> RNSOperation for RNSCongruencePreservingRescaling<A>
     /// [`RNSRescaling`]: crate::rns_conv::bfv_rescale::RNSRescaling
     /// 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Zn>>, mut output: SubmatrixMut<V2, El<Zn>>)
+    fn apply_base<V1, V2>(&self, input: Submatrix<V1, El<Zn>>, mut output: SubmatrixMut<V2, El<Zn>>)
         where V1: AsPointerToSlice<El<Zn>>,
             V2: AsPointerToSlice<El<Zn>>
     {
@@ -162,7 +155,7 @@ impl<A> RNSOperation for RNSCongruencePreservingRescaling<A>
         }
         let ax_mod_b = Submatrix::from_1d(&ax_mod_b, self.b_moduli_indices.len(), col_count);
 
-        self.compute_delta.apply(ax_mod_b, output.reborrow());
+        self.compute_delta.apply_base(ax_mod_b, output.reborrow());
 
         for i in 0..self.output_rings().len() {
             for j in 0..col_count {
@@ -208,26 +201,24 @@ impl<A> RNSOperation for RNSCongruencePreservingRescaling<A>
 /// be performed in double-RNS representation, which means that we only need to convert the part `x mod b`
 /// to coefficient/small-basis representation.
 /// 
-pub struct RNSCongruencePreservingBaseConversion<A = Global, ZnTy = Zn>
-    where A: Allocator + Clone,
-        ZnTy: RingStore,
-        ZnTy::Type: NiceZn
+pub struct RNSCongruencePreservingBaseConversion<A = Global>
+    where A: Allocator + Clone
 {
     /// ordered as supplied when instantiating the object
-    b_moduli: Vec<ZnTy>,
+    b_moduli: Vec<Zn>,
     /// moduli corresponding to `q`, possibly with a additional helper moduli
-    intermediate_moduli: Vec<ZnTy>,
+    intermediate_moduli: Vec<Zn>,
     /// the first this many moduli of `intermediate_moduli` are the output moduli
     q_moduli_count: usize,
     /// moduli of `q` are sorted as in `intermediate_moduli`
-    b_to_intermediate_lift: BGVUsedBaseConversion<A, ZnTy, ZnTy>,
+    b_to_intermediate_lift: BGVUsedBaseConversion<A>,
     /// moduli of `q` are sorted as in `q_over_b_moduli`
-    intermediate_to_t_conv: BGVUsedBaseConversion<A, ZnTy, ZnTy>,
+    intermediate_to_t_conv: BGVUsedBaseConversion<A>,
     allocator: A,
     /// `b^-1` as an element of `Z/tZ`
-    b_inv_mod_t: El<ZnTy>,
+    b_inv_mod_t: El<Zn>,
     /// `b` as an element of `Z/qZ`
-    b_mod_q: Vec<El<ZnTy>>
+    b_mod_q: Vec<El<Zn>>
 }
 
 impl RNSCongruencePreservingBaseConversion {
@@ -239,14 +230,12 @@ impl RNSCongruencePreservingBaseConversion {
     ///  - `t` is the modulus of `plaintext_modulus`
     /// 
     pub fn new(in_moduli: Vec<Zn>, out_moduli: Vec<Zn>, plaintext_modulus: Zn) -> Self {
-        Self::new_with_zn(in_moduli, out_moduli, plaintext_modulus, Global)
+        Self::new_with_alloc(in_moduli, out_moduli, plaintext_modulus, Global)
     }
 }
 
-impl<A, ZnTy> RNSCongruencePreservingBaseConversion<A, ZnTy>
-    where A: Allocator + Clone,
-        ZnTy: RingStore,
-        ZnTy::Type: NiceZn
+impl<A> RNSCongruencePreservingBaseConversion<A>
+    where A: Allocator + Clone
 {
     ///
     /// Creates a new [`RNSCongruencePreservingBaseConversion`], where
@@ -255,9 +244,7 @@ impl<A, ZnTy> RNSCongruencePreservingBaseConversion<A, ZnTy>
     ///  - `t` is the modulus of `plaintext_modulus`
     /// 
     #[instrument(skip_all)]
-    pub fn new_with_zn(in_moduli: Vec<ZnTy>, out_moduli: Vec<ZnTy>, plaintext_modulus: ZnTy, allocator: A) -> Self
-        where ZnTy: Clone
-    {
+    pub fn new_with_alloc(in_moduli: Vec<Zn>, out_moduli: Vec<Zn>, plaintext_modulus: Zn, allocator: A) -> Self {
         let ZZ = plaintext_modulus.integer_ring();
         for ring in &in_moduli {
             assert!(ring.integer_ring().get_ring() == ZZ.get_ring());
@@ -291,40 +278,33 @@ impl<A, ZnTy> RNSCongruencePreservingBaseConversion<A, ZnTy>
             q_moduli_count: q_moduli_count,
             b_mod_q: intermediate_moduli[..q_moduli_count].iter().map(|rns_factor| rns_factor.coerce(&ZZbig, ZZbig.clone_el(&b))).collect(),
             b_inv_mod_t: plaintext_modulus.invert(&plaintext_modulus.coerce(&ZZbig, b)).unwrap(),
-            b_to_intermediate_lift: BGVUsedBaseConversion::new_with_zn(b_moduli.clone(), intermediate_moduli.clone(), allocator.clone()),
-            intermediate_to_t_conv: BGVUsedBaseConversion::new_with_zn(intermediate_moduli, vec![plaintext_modulus], allocator.clone()),
+            b_to_intermediate_lift: BGVUsedBaseConversion::new_with_alloc(b_moduli.clone(), intermediate_moduli.clone(), allocator.clone()),
+            intermediate_to_t_conv: BGVUsedBaseConversion::new_with_alloc(intermediate_moduli, vec![plaintext_modulus], allocator.clone()),
             b_moduli: b_moduli,
             allocator: allocator
         }
     }
 
-    fn t_modulus(&self) -> &ZnTy {
+    fn t_modulus(&self) -> &Zn {
         &self.intermediate_to_t_conv.output_rings()[0]
     }
 }
 
-impl<A, ZnTy> RNSOperation for RNSCongruencePreservingBaseConversion<A, ZnTy>
-    where A: Allocator + Clone,
-        ZnTy: RingStore,
-        ZnTy::Type: NiceZn
+impl<A> RNSOperation for RNSCongruencePreservingBaseConversion<A>
+    where A: Allocator + Clone
 {
-    type ZnIn = ZnTy;
-    type ZnInBase = ZnTy::Type;
-    type ZnOut = ZnTy;
-    type ZnOutBase = ZnTy::Type;
-
-    fn input_rings<'a>(&'a self) -> &'a [Self::ZnIn] {
+    fn input_rings<'a>(&'a self) -> &'a [Zn] {
         &self.b_moduli
     }
 
-    fn output_rings<'a>(&'a self) -> &'a [Self::ZnOut] {
+    fn output_rings<'a>(&'a self) -> &'a [Zn] {
         &self.intermediate_moduli[..self.q_moduli_count]
     }
 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::ZnIn>>, mut output: SubmatrixMut<V2, El<Self::ZnOut>>)
-        where V1: AsPointerToSlice<El<Self::ZnIn>>,
-            V2: AsPointerToSlice<El<Self::ZnOut>>
+    fn apply_base<V1, V2>(&self, input: Submatrix<V1, El<Zn>>, mut output: SubmatrixMut<V2, El<Zn>>)
+        where V1: AsPointerToSlice<El<Zn>>,
+            V2: AsPointerToSlice<El<Zn>>
     {
         // `input` is ordered as in `b_moduli`
         assert_eq!(input.row_count(), self.input_rings().len());
@@ -332,17 +312,17 @@ impl<A, ZnTy> RNSOperation for RNSCongruencePreservingBaseConversion<A, ZnTy>
         assert_eq!(input.col_count(), output.col_count());
 
         // Compute `lift(x) mod intermediate`
-        let mut x_lift: Vec<_, A> = Vec::with_capacity_in(self.intermediate_moduli.len() * input.col_count(), self.allocator.clone());
+        let mut x_lift: Vec<ZnEl, A> = Vec::with_capacity_in(self.intermediate_moduli.len() * input.col_count(), self.allocator.clone());
         x_lift.extend((0..(self.intermediate_moduli.len() * input.col_count())).map(|idx| self.intermediate_moduli.at(idx / input.col_count()).zero()));
         let mut x_lift = SubmatrixMut::from_1d(&mut x_lift, self.intermediate_moduli.len(), input.col_count());
-        self.b_to_intermediate_lift.apply(input, x_lift.reborrow());
+        self.b_to_intermediate_lift.apply_base(input, x_lift.reborrow());
 
         // now compute `lift(x_lift b^-1 mod t)`, which we use to take care of the congruence modulo `t` later;
         // because of the helper moduli, this is small enough not to cause any error
         let mut diff_mod_t = Vec::with_capacity_in(input.col_count(), self.allocator.clone());
         diff_mod_t.extend((0..input.col_count()).map(|_j| self.t_modulus().zero()));
         let mut diff_mod_t = SubmatrixMut::from_1d(&mut diff_mod_t, 1, input.col_count());
-        self.intermediate_to_t_conv.apply(x_lift.as_const(), diff_mod_t.reborrow());
+        self.intermediate_to_t_conv.apply_base(x_lift.as_const(), diff_mod_t.reborrow());
         for j in 0..input.col_count() {
             self.t_modulus().mul_assign_ref(diff_mod_t.at_mut(0, j), &self.b_inv_mod_t);
         }
@@ -355,7 +335,7 @@ impl<A, ZnTy> RNSOperation for RNSCongruencePreservingBaseConversion<A, ZnTy>
             debug_assert!(Zp.integer_ring().get_ring() == self.t_modulus().integer_ring().get_ring());
             let b = self.b_mod_q.at(i);
             for j in 0..input.col_count() {
-                *output.at_mut(i, j) = Zp.sub_ref_fst(x_lift.at(i, j), Zp.mul_ref_fst(b, modulo.map(self.t_modulus().smallest_lift(self.t_modulus().clone_el(diff_mod_t.at(0, j))))));
+                *output.at_mut(i, j) = Zp.sub_ref_fst(x_lift.at(i, j), Zp.mul_ref_fst(b, modulo.map(self.t_modulus().smallest_lift(*diff_mod_t.at(0, j)))));
             }
         }
     }
@@ -365,7 +345,6 @@ impl<A, ZnTy> RNSOperation for RNSCongruencePreservingBaseConversion<A, ZnTy>
 use feanor_math::assert_el_eq;
 
 #[test]
-#[allow(deprecated)]
 fn test_rescale_complete() {
     let from = vec![Zn::new(17), Zn::new(23), Zn::new(29)];
     let to = vec![Zn::new(19), Zn::new(31), Zn::new(37), Zn::new(39)];
@@ -397,7 +376,7 @@ fn test_rescale_complete() {
         let expected = to.iter().map(|Zn| Zn.int_hom().map(expected as i32)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
 
-        rescaling.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
+        rescaling.apply_base(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
 
         for j in 0..expected.len() {
             assert!(
@@ -416,7 +395,6 @@ fn test_rescale_complete() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_rescale_partial() {
     let from = vec![Zn::new(17), Zn::new(23), Zn::new(29)];
     let to = vec![Zn::new(17), Zn::new(29), Zn::new(13)];
@@ -448,7 +426,7 @@ fn test_rescale_partial() {
         let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
 
-        rescaling.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
+        rescaling.apply_base(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
 
         for j in 0..expected.len() {
             assert!(
@@ -467,7 +445,6 @@ fn test_rescale_partial() {
 }
 
 #[test]
-#[allow(deprecated)]
 fn test_rescale_down() {
     let from = vec![Zn::new(17), Zn::new(23), Zn::new(29)];
     let to = vec![Zn::new(23), Zn::new(29)];
@@ -498,7 +475,7 @@ fn test_rescale_down() {
         let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
 
-        rescaling.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
+        rescaling.apply_base(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
 
         for j in 0..expected.len() {
             // we currently assume no error happens
@@ -516,7 +493,7 @@ fn test_congruence_preserving_baseconv_small() {
     let b = *Zb.modulus() as i32;
     let t = *Zt.modulus() as i32;
     
-    let baseconv = RNSCongruencePreservingBaseConversion::new_with_zn(
+    let baseconv = RNSCongruencePreservingBaseConversion::new_with_alloc(
         from.clone(),
         to.clone(),
         Zt.clone(), 
@@ -538,7 +515,7 @@ fn test_congruence_preserving_baseconv_small() {
         let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
 
-        baseconv.apply(Submatrix::from_1d(&input, 1, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
+        baseconv.apply_base(Submatrix::from_1d(&input, 1, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
         
         for j in 0..expected.len() {
             // we currently assume no error happens
@@ -556,7 +533,7 @@ fn test_congruence_preserving_baseconv_two_denominators() {
     let b = *Zb.modulus() as i32;
     let t = *Zt.modulus() as i32;
     
-    let baseconv = RNSCongruencePreservingBaseConversion::new_with_zn(
+    let baseconv = RNSCongruencePreservingBaseConversion::new_with_alloc(
         from.clone(),
         to.clone(),
         Zt.clone(), 
@@ -578,7 +555,7 @@ fn test_congruence_preserving_baseconv_two_denominators() {
         let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
 
-        baseconv.apply(Submatrix::from_1d(&input, 2, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
+        baseconv.apply_base(Submatrix::from_1d(&input, 2, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
         
         for j in 0..expected.len() {
             // we currently assume no error happens
@@ -596,7 +573,7 @@ fn test_congruence_preserving_baseconv_unordered() {
     let b = *Zb.modulus() as i32;
     let t = *Zt.modulus() as i32;
     
-    let baseconv = RNSCongruencePreservingBaseConversion::new_with_zn(
+    let baseconv = RNSCongruencePreservingBaseConversion::new_with_alloc(
         from.clone(),
         to.clone(),
         Zt.clone(), 
@@ -618,7 +595,7 @@ fn test_congruence_preserving_baseconv_unordered() {
         let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
 
-        baseconv.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
+        baseconv.apply_base(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
         
         for j in 0..expected.len() {
             // we currently assume no error happens

@@ -5,10 +5,10 @@ use feanor_math::algorithms::matmul::ComputeInnerProduct;
 use feanor_math::integer::*;
 use feanor_math::matrix::*;
 use feanor_math::homomorphism::*;
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::seq::permute::permute_inv;
 use feanor_math::seq::*;
 use feanor_math::rings::zn::{ZnRingStore, ZnRing};
+use feanor_math::rings::zn::zn_64::*;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::ring::*;
 use feanor_math::ordered::OrderedRingStore;
@@ -45,7 +45,7 @@ use super::RNSOperation;
 /// 
 /// [`RNSMatrixBaseConversion`]: crate::rns_conv::matrix_lift::RNSMatrixBaseConversion
 /// 
-#[deprecated = "use RNSMatrixBaseConversion instead, since it offers better performance"]
+#[deprecated = "use RNSMatrixBaseConversion instead"]
 pub struct RNSBaseConversion<A = Global>
     where A: Allocator + Clone
 {
@@ -151,11 +151,6 @@ impl<A> RNSBaseConversion<A>
 impl<A> RNSOperation for RNSBaseConversion<A> 
     where A: Allocator + Clone
 {
-    type ZnIn = Zn;
-    type ZnInBase = ZnBase;
-    type ZnOut = Zn;
-    type ZnOutBase = ZnBase;
-
     fn input_rings<'a>(&'a self) -> &'a [Zn] {
         &self.from_summands_unordered
     }
@@ -175,7 +170,7 @@ impl<A> RNSOperation for RNSBaseConversion<A>
     /// then the result is guaranteed to be exact.
     /// 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Zn>>, mut output: SubmatrixMut<V2, El<Zn>>)
+    fn apply_base<V1, V2>(&self, input: Submatrix<V1, El<Zn>>, mut output: SubmatrixMut<V2, El<Zn>>)
         where V1: AsPointerToSlice<El<Zn>>,
             V2: AsPointerToSlice<El<Zn>>
     {
@@ -280,7 +275,7 @@ fn test_rns_base_conversion() {
         let expected = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
 
-        table.apply(
+        table.apply_base(
             Submatrix::from_1d(&input, 2, 1), 
             SubmatrixMut::from_1d(&mut actual, 4, 1)
         );
@@ -295,7 +290,7 @@ fn test_rns_base_conversion() {
         let expected = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
 
-        table.apply(
+        table.apply_base(
             Submatrix::from_1d(&input, 2, 1), 
             SubmatrixMut::from_1d(&mut actual, 4, 1)
         );
@@ -317,7 +312,7 @@ fn test_rns_base_conversion_both_unordered() {
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
 
-        table.apply(Submatrix::from_1d(&input, 2, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
+        table.apply_base(Submatrix::from_1d(&input, 2, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
 
         check_almost_exact_result(&to, k, q, &actual, &expected);
     }
@@ -336,7 +331,7 @@ fn test_rns_base_conversion_to_unordered() {
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
 
-        table.apply(Submatrix::from_1d(&input, 2, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
+        table.apply_base(Submatrix::from_1d(&input, 2, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
 
         check_almost_exact_result(&to, k, q, &actual, &expected);
     }
@@ -353,7 +348,7 @@ fn test_rns_base_conversion_small() {
     for k in -(q/2)..=(q/2) {
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
-        table.apply(
+        table.apply_base(
             Submatrix::from_1d(&[from[0].int_hom().map(k), from[1].int_hom().map(k)], 2, 1), 
             SubmatrixMut::from_1d(&mut actual, 1, 1)
         );
@@ -375,7 +370,7 @@ fn test_rns_base_conversion_not_coprime() {
         let expected = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
 
-        table.apply(
+        table.apply_base(
             Submatrix::from_1d(&x, 3, 1), 
             SubmatrixMut::from_1d(&mut actual, 4, 1)
         );
@@ -399,7 +394,7 @@ fn test_rns_base_conversion_not_coprime_from_unordered() {
         let expected = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
 
-        table.apply(
+        table.apply_base(
             Submatrix::from_1d(&input, 3, 1), 
             SubmatrixMut::from_1d(&mut actual, 4, 1)
         );
@@ -423,7 +418,7 @@ fn test_rns_base_conversion_coprime() {
         let expected = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
 
-        table.apply(
+        table.apply_base(
             Submatrix::from_1d(&x, 3, 1), 
             SubmatrixMut::from_1d(&mut actual, 3, 1)
         );
@@ -457,7 +452,7 @@ fn bench_rns_base_conversion(bencher: &mut Bencher) {
                 *in_matrix.at_mut(i, j) = in_moduli[i].random_element(|| rng.rand_u64());
             }
         }
-        conv.apply(in_matrix.as_const(), out_matrix.reborrow());
+        conv.apply_base(in_matrix.as_const(), out_matrix.reborrow());
         for i in 0..out_moduli_count {
             for j in 0..cols {
                 std::hint::black_box(out_matrix.at(i, j));
@@ -519,7 +514,7 @@ fn test_base_conversion_large() {
     let input = (0..in_len).map(|i| conversion.input_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();
     let expected = (0..(primes.len() - in_len)).map(|i| conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();
     let mut output = (0..(primes.len() - in_len)).map(|i| conversion.output_rings().at(i).zero()).collect::<Vec<_>>();
-    conversion.apply(Submatrix::from_1d(&input, in_len, 1), SubmatrixMut::from_1d(&mut output, primes.len() - in_len, 1));
+    conversion.apply_base(Submatrix::from_1d(&input, in_len, 1), SubmatrixMut::from_1d(&mut output, primes.len() - in_len, 1));
 
     for j in 0..to.len() {
         assert!(
