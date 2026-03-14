@@ -13,13 +13,9 @@ The design of CLPX is exactly as for BFV (or BGV), so we start by choosing a cip
 # use std::marker::PhantomData;
 let log2_N = 12;
 let params = Pow2CLPX::new(2 << log2_N);
-let log2_t_can_norm_bound = 10;
-let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, log2_t_can_norm_bound);
+let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
 ```
 It turns out that a lot of functionality of CLPX is exactly as in BFV, and the type [`Pow2CLPX`] is actually just type aliases to its BFV equivalent.
-Really the only difference here is that [`CLPXInstantiation::create_ciphertext_rings()`] takes another parameter - a bound on `log_2(| t |_can)`, which is required to compute how large the modulus of `C_for_multiplication` has to be.
-Here we just set it to `10`, which means we can later choose any `t` with `| t |_can <= 1024`, which is satisfied by all `t` we might be interested in.
-Generally speaking, this can be a rough bound, since its impact on performance is not very large.
 
 Next, we create the plaintext ring.
 ```rust,should_panic
@@ -28,8 +24,7 @@ Next, we create the plaintext ring.
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2CLPX::new(2 << log2_N);
-# let log2_t_can_norm_bound = 10;
-# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, log2_t_can_norm_bound);
+# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
 let P = params.create_plaintext_ring::<true>(todo!(), todo!(), todo!(), todo!());
 ```
 This is actually more involved than in the BFV setting, as you can see by the four parameters.
@@ -72,8 +67,7 @@ Hence, we can use CLPX as follows:
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2CLPX::new(2 << log2_N);
-# let log2_t_can_norm_bound = 10;
-# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, log2_t_can_norm_bound);
+# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
 let ZZX = DensePolyRing::new(BigIntRing::RING, "X");
 let p = BigIntRing::RING.get_ring().parse("93461639715357977769163558199606896584051237541638188580280321", 10).unwrap();
 let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(16) + 2]);
@@ -110,8 +104,7 @@ Applying homomorphic operations is just as easy as for BFV as well.
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2CLPX::new(2 << log2_N);
-# let log2_t_can_norm_bound = 10;
-# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, log2_t_can_norm_bound);
+# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
 # let ZZX = DensePolyRing::new(BigIntRing::RING, "X");
 # let p = BigIntRing::RING.get_ring().parse("93461639715357977769163558199606896584051237541638188580280321", 10).unwrap();
 # let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(16) + 2]);
