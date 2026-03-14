@@ -1088,7 +1088,7 @@ pub fn force_double_rns_repr<NumberRing, A>(C: &ManagedDoubleRNSRing<NumberRing,
     C.get_ring().into_doublerns(x).map(|x| C.get_ring().from_double_rns_repr(x)).unwrap_or(C.zero())
 }
 
-pub fn temporarily_extend_rns_base<'a, ZnTy>(current: &'a zn_rns::Zn<ZnTy, BigIntRing>, by_bits: usize) -> RNSSharedBaseConversion<Global>
+pub fn temporarily_extend_rns_base<'a, ZnTy>(current: &'a zn_rns::Zn<ZnTy, BigIntRing>, by_bits: usize) -> RNSSharedBaseConversion
     where ZnTy: RingStore,
         ZnTy::Type: NiceZn
 {

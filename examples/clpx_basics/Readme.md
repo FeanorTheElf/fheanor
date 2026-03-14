@@ -13,7 +13,7 @@ The design of CLPX is exactly as for BFV (or BGV), so we start by choosing a cip
 # use std::marker::PhantomData;
 let log2_N = 12;
 let params = Pow2CLPX::new(2 << log2_N);
-let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
+let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, 10);
 ```
 It turns out that a lot of functionality of CLPX is exactly as in BFV, and the type [`Pow2CLPX`] is actually just type aliases to its BFV equivalent.
 
@@ -24,7 +24,7 @@ Next, we create the plaintext ring.
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2CLPX::new(2 << log2_N);
-# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
+# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, 10);
 let P = params.create_plaintext_ring::<true>(todo!(), todo!(), todo!(), todo!());
 ```
 This is actually more involved than in the BFV setting, as you can see by the four parameters.
@@ -67,7 +67,7 @@ Hence, we can use CLPX as follows:
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2CLPX::new(2 << log2_N);
-# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
+# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, 10);
 let ZZX = DensePolyRing::new(BigIntRing::RING, "X");
 let p = BigIntRing::RING.get_ring().parse("93461639715357977769163558199606896584051237541638188580280321", 10).unwrap();
 let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(16) + 2]);
@@ -104,7 +104,7 @@ Applying homomorphic operations is just as easy as for BFV as well.
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2CLPX::new(2 << log2_N);
-# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
+# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, 10);
 # let ZZX = DensePolyRing::new(BigIntRing::RING, "X");
 # let p = BigIntRing::RING.get_ring().parse("93461639715357977769163558199606896584051237541638188580280321", 10).unwrap();
 # let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(16) + 2]);
