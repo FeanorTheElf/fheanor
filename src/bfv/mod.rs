@@ -1104,7 +1104,7 @@ fn t_fits_zn_64<I>(ZZ: I, t: &El<I>) -> Option<Zn>
     }
 }
 
-fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, by_bits: usize) -> RNSSharedBaseConversion {
+pub fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, by_bits: usize) -> RNSSharedBaseConversion {
     let current_log2_modulus = ZZbig.abs_log2_ceil(current.modulus()).unwrap();
     let new_log2_modulus = current_log2_modulus + by_bits;
 
