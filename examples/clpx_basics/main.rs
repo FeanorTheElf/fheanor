@@ -22,7 +22,7 @@ use feanor_math::seq::*;
 fn main() {
     let params = Pow2CLPX::new(1 << 13);
 
-    let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, 10);
+    let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
     let N = C.rank();
     println!("N        = {}", N);
     println!("m        = {}", C.acting_galois_group().m());

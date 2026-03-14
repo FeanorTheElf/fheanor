@@ -59,8 +59,8 @@ impl CyclotomicGaloisGroupBase {
                 generators.push(inv_crt(5, 1, &pe, &rest, ZZi64));
             } else {
                 let Zpe = Zn::new(pe as u64);
-                let gen = get_multiplicative_generator(Zpe);
-                generators.push(inv_crt(Zpe.smallest_lift(gen), 1, &pe, &rest, ZZi64));
+                let generator = get_multiplicative_generator(Zpe);
+                generators.push(inv_crt(Zpe.smallest_lift(generator), 1, &pe, &rest, ZZi64));
             }
         }
         return Subgroup::new(GroupValue::from(self.clone()), order, generators.into_iter().map(|x| self.from_ring_el(self.underlying_ring().coerce(&ZZi64, x))).collect());

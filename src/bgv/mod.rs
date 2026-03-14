@@ -21,6 +21,7 @@ use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::seq::*;
 use tracing::instrument;
 
+use crate::bfv::force_double_rns_repr;
 use crate::ciphertext_ring::double_rns_managed::ManagedDoubleRNSRingBase;
 use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
@@ -1245,8 +1246,8 @@ impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
         let t = C.base_ring().coerce(&ZZi64, *P.base_ring().modulus());
         let (a, b) = Self::rlwe_sample(C, rng, sk, noise_sigma);
         let result = Ciphertext {
-            c0: force_double_rns_repr::<Self, _, _>(C, C.inclusion().mul_ref_snd_map(b, &t)),
-            c1: force_double_rns_repr::<Self, _, _>(C, C.inclusion().mul_ref_snd_map(a, &t)),
+            c0: force_double_rns_repr(C, C.inclusion().mul_ref_snd_map(b, &t)),
+            c1: force_double_rns_repr(C, C.inclusion().mul_ref_snd_map(a, &t)),
             implicit_scale: P.base_ring().one()
         };
         return result;
@@ -1356,20 +1357,6 @@ impl<A: Allocator + Clone , C: FheanorConvolution<zn_64::Zn>> BGVInstantiation f
             convolutions
         );
     }
-}
-
-///
-/// Forces a ring element to be internally stored in double-RNS representation.
-/// 
-/// Use in benchmarks, when you want to control which representation the inputs
-/// to the benchmarked code have.
-/// 
-pub fn force_double_rns_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, x: El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>>
-    where Params: BGVInstantiation<CiphertextRing = ManagedDoubleRNSRingBase<NumberRing, A>>,
-        NumberRing: AbstractNumberRing,
-        A: Allocator + Clone
-{
-    C.get_ring().into_doublerns(x).map(|x| C.get_ring().from_double_rns_repr(x)).unwrap_or(C.zero())
 }
 
 #[cfg(test)]
