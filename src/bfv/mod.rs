@@ -792,7 +792,7 @@ impl<A: Allocator + Clone , N: FheanorNegacyclicNTT<Zn>> Pow2BFV<A, N> {
 
     #[instrument(skip_all)]
     pub fn new_with_ntt(m: usize, allocator: A) -> Self {
-        return Self {
+        Self {
             number_ring: Pow2CyclotomicNumberRing::new_with_ntt(m as u64),
             ciphertext_allocator: allocator
         }
@@ -859,6 +859,89 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Po
         let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
         assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
         return (C, C_mul);
+    }
+
+    #[instrument(skip_all)]
+    fn encode_plain_multiplicant(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
+        let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
+        let result = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))));
+        return force_double_rns_repr(C, result);
+    }
+    
+    fn lift_to_Cmul<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+        default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |C_delta, delta| force_double_rns_repr(C_delta, delta))
+    }
+}
+
+///
+/// Instantiation of BFV in power-of-two cyclotomic rings `Z[X]/(X^N + 1)` for `N`
+/// a power of two, and high-precision plaintext moduli.
+/// 
+/// For these rings, using a `DoubleRNSRing` as ciphertext ring is always the best
+/// (i.e. fastest) solution.
+/// 
+#[derive(Debug)]
+pub struct Pow2HighPrecBFV<A: Allocator + Clone  = DefaultCiphertextAllocator, N: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
+    base: Pow2BFV<A, N>
+}
+
+impl Pow2HighPrecBFV {
+
+    pub fn new(m: usize) -> Self {
+        Self::new_with_ntt(m, DefaultCiphertextAllocator::default())
+    }
+}
+
+impl<A: Allocator + Clone , N: FheanorNegacyclicNTT<Zn>> Pow2HighPrecBFV<A, N> {
+
+    #[instrument(skip_all)]
+    pub fn new_with_ntt(m: usize, allocator: A) -> Self {
+        Self {
+            base: Pow2BFV::new_with_ntt(m, allocator)
+        }
+    }
+    
+    pub fn ciphertext_allocator(&self) -> &A {
+        self.base.ciphertext_allocator()
+    }
+}
+
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Display for Pow2HighPrecBFV<A, C> {
+
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BFV({})", self.base)
+    }
+}
+
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Clone for Pow2HighPrecBFV<A, C> {
+
+    fn clone(&self) -> Self {
+        Self {
+            base: self.base.clone()
+        }
+    }
+}
+
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Pow2HighPrecBFV<A, C> {
+
+    type NumberRing = Pow2CyclotomicNumberRing<C>;
+    type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
+    type PlaintextRing = NumberRingQuotientByIntBase<Pow2CyclotomicNumberRing<C>, zn_big::Zn<BigIntRing>>;
+    type PlaintextZnRing = zn_big::ZnBase<BigIntRing>;
+
+    #[instrument(skip_all)]
+    fn number_ring(&self) -> &Pow2CyclotomicNumberRing<C> {
+        self.base.number_ring()
+    }
+
+    #[instrument(skip_all)]
+    fn create_plaintext_ring(&self, t: El<BigIntRing>) -> PlaintextRing<Self> {
+        NumberRingQuotientByIntBase::new(self.number_ring().clone(), zn_big::Zn::new(ZZbig, t))
+    }
+
+    #[instrument(skip_all)]
+    fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>) {
+        self.base.create_ciphertext_rings(log2_q)
     }
 
     #[instrument(skip_all)]
@@ -1334,6 +1417,21 @@ fn test_pow2_large_t() {
     let res = Pow2BFV::hom_mul(&P, &C, &C_mul, Pow2BFV::clone_ct(&C, &ct), Pow2BFV::clone_ct(&C, &ct), &rk);
 
     assert_el_eq!(&P, &P.one(), Pow2BFV::dec(&P, &C, res, &sk));
+}
+
+#[test]
+fn test_pow2_huge_t() {    
+    let instantiation = Pow2HighPrecBFV::new(1 << 11);
+    let P = instantiation.create_plaintext_ring(ZZbig.power_of_two(70));
+    let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
+    let sk = Pow2HighPrecBFV::gen_sk(&C, rand::rng(), SecretKeyDistribution::UniformTernary);
+    let rk = Pow2HighPrecBFV::gen_rk(&C, rand::rng(), &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
+
+    let m = P.inclusion().compose(P.base_ring().can_hom(&ZZbig).unwrap()).map(ZZbig.add(ZZbig.power_of_two(69), ZZbig.one()));
+    let ct = Pow2HighPrecBFV::enc_sym(&P, &C, rand::rng(), &m, &sk, 3.2);
+    let res = Pow2HighPrecBFV::hom_mul(&P, &C, &C_mul, Pow2HighPrecBFV::clone_ct(&C, &ct), Pow2HighPrecBFV::clone_ct(&C, &ct), &rk);
+
+    assert_el_eq!(&P, &P.one(), Pow2HighPrecBFV::dec(&P, &C, res, &sk));
 }
 
 #[test]
