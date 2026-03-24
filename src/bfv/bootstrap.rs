@@ -188,6 +188,9 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     ///    large, even with `v = 1` the bound on the noise `p^v/2` is often far from tight.
     ///    Setting this to a tighter bound will enable the use of more efficient digit extraction
     ///    polynomials. Note that if this is set, it is required that `v = 1`.
+    ///  - `lin_transform_max_levels` maximal number of sequential plaintext-ciphertext multiplications
+    ///    performed by the linear transform. Higher values can lead to better performance, while
+    ///    lower values improve noise growth.
     ///  - `gk_digits` specifies the gadget vector used for Galois keys. This is required to
     ///    estimate the number of RNS factors used for the Slots-to-Coeffs transform.
     ///  - `cache_dir` specifies a directory to load and store precomputed data. If it is `None`,
@@ -202,6 +205,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         C: &CiphertextRing<Params>, 
         v: usize,
         digit_extract_error_bound: Option<usize>,
+        lin_transform_max_levels: usize,
         gk_digits: &RNSGadgetVectorDigitIndices, 
         cache_dir: Option<&str>
     ) -> Self
@@ -239,8 +243,8 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
         let m = plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
-        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || pow2::coeffs_to_slots_thin(&H));
+        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || pow2::slots_to_coeffs_thin(&original_H, lin_transform_max_levels));
+        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || pow2::coeffs_to_slots_thin(&H, lin_transform_max_levels));
 
         // we estimate the noise growth of the slots-to-coeffs transform as `log2(|Gal|)` multiplications by
         // ring elements of size at most `t`
@@ -282,6 +286,9 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     ///    large, even with `v = 1` the bound on the noise `p^v/2` is often far from tight.
     ///    Setting this to a tighter bound will enable the use of more efficient digit extraction
     ///    polynomials. Note that if this is set, it is required that `v = 1`.
+    ///  - `lin_transform_max_levels` maximal number of sequential plaintext-ciphertext multiplications
+    ///    performed by the linear transform. Higher values can lead to better performance, while
+    ///    lower values improve noise growth.
     ///  - `gk_digits` specifies the gadget vector used for Galois keys. This is required to
     ///    estimate the number of RNS factors used for the Slots-to-Coeffs transform.
     ///  - `cache_dir` specifies a directory to load and store precomputed data. If it is `None`,
@@ -296,6 +303,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         C: &CiphertextRing<Params>, 
         v: usize,
         digit_extract_error_bound: Option<usize>,
+        lin_transform_max_levels: usize,
         gk_digits: &RNSGadgetVectorDigitIndices, 
         cache_dir: Option<&str>
     ) -> Self
@@ -330,8 +338,8 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
         let m = plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
-        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || composite::powcoeffs_to_slots_thin(&H));
+        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || composite::slots_to_powcoeffs_thin(&original_H, lin_transform_max_levels));
+        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || composite::powcoeffs_to_slots_thin(&H, lin_transform_max_levels));
 
         // we estimate the noise growth of the slots-to-coeffs transform as `log2(m)` multiplications by
         // ring elements of size at most `t`
@@ -395,7 +403,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         self.slots_to_coeffs_plaintext_ring.get_ring().plaintext_ring()
     }
 
-    pub fn coeffs_to_slots_ciphertext_ring(&self) -> &CiphertextRing<Params> {
+    pub fn slots_to_coeffs_ciphertext_ring(&self) -> &CiphertextRing<Params> {
         self.slots_to_coeffs_plaintext_ring.get_ring().ciphertext_ring()
     }
 
@@ -459,7 +467,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
                 Params::dec_println_slots(P_base, C, &ct, sk, None);
             }
 
-            let C_input = self.coeffs_to_slots_ciphertext_ring();
+            let C_input = self.slots_to_coeffs_ciphertext_ring();
             let ct_input = Params::mod_switch_ct(P_base, &C_input, C, ct);
             let C_to_C_input_drop_factors = RNSFactorIndexList::missing_from(C_input.base_ring(), C.base_ring());
             let sk_input = debug_sk.map(|sk| C_input.get_ring().drop_rns_factor_element(C.get_ring(), &C_to_C_input_drop_factors, &sk));
@@ -683,7 +691,7 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
     let digits = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, &digits, Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, 4, &digits, Some("."));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
@@ -720,7 +728,7 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
     let digits = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, &digits, Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, 4, &digits, Some("."));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
@@ -754,7 +762,7 @@ fn test_pow2_bfv_thin_bootstrapping_sparse_key_encapsulation() {
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
     let digits = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, &digits, Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, 4, &digits, Some("."));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
@@ -790,7 +798,7 @@ fn test_composite_bfv_thin_bootstrapping_2() {
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(685..700);
     let digits = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C, 9, None, &digits, Some("."));
+    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C, 9, None, 4, &digits, Some("."));
     
     let sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
@@ -857,7 +865,7 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
     let gk_digits = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
     let rk_digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C, 6, None, &gk_digits, Some("."));
+    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C, 6, None, 4, &gk_digits, Some("."));
     
     let sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
@@ -886,7 +894,7 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
 
 #[test]
 #[ignore]
-fn measure_time_double_rns_pow2_bfv_thin_bootstrapping() {
+fn measure_time_double_rns_pow2_bfv_thin_bootstrapping_t257_sqr() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
     tracing_subscriber::registry().with(filtered_chrome_layer).init();
@@ -894,12 +902,12 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping() {
     let mut rng = rand::rng();
     
     let params = Pow2BFV::new(1 << 16);
-    let t = 257;
+    let t = 257 * 257;
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
     let gk_digits = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
     let rk_digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 1, Some(6), &gk_digits, Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 1, Some(6), 4, &gk_digits, Some("."));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
@@ -928,6 +936,48 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping() {
 
 #[test]
 #[ignore]
+fn measure_time_double_rns_pow2_bfv_thin_bootstrapping_t65537() {
+    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    tracing_subscriber::registry().with(filtered_chrome_layer).init();
+    
+    let mut rng = rand::rng();
+    
+    let params = Pow2BFV::new(1 << 16);
+    let t = 65537;
+    let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
+    let (C, C_mul) = params.create_ciphertext_rings(805..820);
+    let gk_digits = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
+    let rk_digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 1, Some(6), 4, &gk_digits, Some("."));
+    
+    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &gk_digits, 3.2);
+        (g, gk)
+    }).collect::<Vec<_>>();
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &rk_digits, 3.2);
+    let encaps = SparseKeyEncapsulationKey::new(bootstrapper.intermediate_plaintext_ring(), &C, &sk, 2, 32, &mut rng, 3.2);
+
+    let m = P.int_hom().map(2);
+    let ct = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
+    let res_ct = bootstrapper.bootstrap_thin::<true>(
+        &C, 
+        &C_mul, 
+        &P, 
+        ct, 
+        &rk, 
+        &gk,
+        Some(&encaps),
+        Some(&sk)
+    );
+
+    println!("final noise budget: {}", Pow2BFV::noise_budget(&P, &C, &res_ct, &sk));
+    assert_el_eq!(P, P.int_hom().map(2), Pow2BFV::dec(&P, &C, res_ct, &sk));
+}
+
+#[test]
+#[ignore]
 fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
@@ -941,7 +991,7 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
     let gk_digits = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
     let rk_digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C, 6, None, &gk_digits, Some("."));
+    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C, 6, None, 4, &gk_digits, Some("."));
     
     let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {

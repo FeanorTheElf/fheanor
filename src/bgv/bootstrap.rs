@@ -139,6 +139,9 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
     ///    large, even with `v = 1` the bound on the noise `p^v/2` is often far from tight.
     ///    Setting this to a tighter bound will enable the use of more efficient digit extraction
     ///    polynomials. Note that if this is set, it is required that `v = 1`.
+    ///  - `lin_transform_max_levels` maximal number of sequential plaintext-ciphertext multiplications
+    ///    performed by the linear transform. Higher values can lead to better performance, while
+    ///    lower values improve noise growth.
     ///  - `gk_digits` specifies the gadget vector used for Galois keys. This is required to
     ///    estimate the number of RNS factors used for the Slots-to-Coeffs transform.
     ///  - `strategy` is the modulus-switching strategy to use when evaluating the digit
@@ -152,6 +155,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         C_master: &CiphertextRing<Params>, 
         v: usize,
         digit_extract_error_bound: Option<usize>,
+        lin_transform_max_levels: usize, 
         _gk_digits: &RNSGadgetVectorDigitIndices, 
         strategy: Strategy,
         cache_dir: Option<&str>
@@ -190,8 +194,8 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
         let m = plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
-        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || pow2::coeffs_to_slots_thin(&H));
+        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || pow2::slots_to_coeffs_thin(&original_H, lin_transform_max_levels));
+        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || pow2::coeffs_to_slots_thin(&H, lin_transform_max_levels));
         
         // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
         // ring elements of size at most `t`
@@ -222,6 +226,9 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
     ///    polynomials. Note that if this is set, it is required that `v = 1`.
     ///  - `gk_digits` specifies the gadget vector used for Galois keys. This is required to
     ///    estimate the number of RNS factors used for the Slots-to-Coeffs transform.
+    ///  - `lin_transform_max_levels` maximal number of sequential plaintext-ciphertext multiplications
+    ///    performed by the linear transform. Higher values can lead to better performance, while
+    ///    lower values improve noise growth.
     ///  - `strategy` is the modulus-switching strategy to use when evaluating the digit
     ///    extraction circuits during bootstrapping.
     ///  - `cache_dir` specifies a directory to load and store precomputed data. If it is `None`,
@@ -233,6 +240,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         C_master: &CiphertextRing<Params>, 
         v: usize,
         digit_extract_error_bound: Option<usize>,
+        lin_transform_max_levels: usize,
         _gk_digits: &RNSGadgetVectorDigitIndices,
         strategy: Strategy, 
         cache_dir: Option<&str>
@@ -268,8 +276,8 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
         let m = plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs =  create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
-        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || composite::powcoeffs_to_slots_thin(&H));
+        let slots_to_coeffs =  create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || composite::slots_to_powcoeffs_thin(&original_H, lin_transform_max_levels));
+        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || composite::powcoeffs_to_slots_thin(&H, lin_transform_max_levels));
         
         // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
         // ring elements of size at most `t`
@@ -658,7 +666,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     let P = params.create_plaintext_ring(t);
     let C_master = params.create_ciphertext_ring(790..800);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C_master, 2, None, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C_master, 2, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
@@ -696,7 +704,7 @@ fn test_composite_bgv_thin_bootstrapping_2_sparse_key_encapsulation() {
     let P = params.create_plaintext_ring(t);
     let C_master = params.create_ciphertext_ring(790..800);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C_master, 4, None, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
+    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C_master, 4, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
@@ -741,7 +749,7 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let C_master = params.create_ciphertext_ring(805..820);
     assert_eq!(15, C_master.base_ring().len());
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C_master, 7, None, &key_switch_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
+    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C_master, 7, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, sk_distr);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
@@ -787,7 +795,7 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
     assert_eq!(15, C_master.base_ring().len());
     let gk_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
     let rk_params = RNSGadgetVectorDigitIndices::select_digits(3, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C_master, 2, None, &gk_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C_master, 2, None, 4, &gk_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, sk_distr);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {

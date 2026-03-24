@@ -171,12 +171,12 @@ fn slots_to_powcoeffs_fat_fst_step<R>(H: &HypercubeIsomorphism<R>, dim_index: us
 /// This requires that the underlying hypercube structure is a Halevi-Shoup hypercube structure, and that `d l_1 = phi(m_1)`.
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_powcoeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+pub fn slots_to_powcoeffs_fat<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_fat_impl(H))
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_fat_impl(H), max_levels)
 }
 
 fn slots_to_powcoeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
@@ -218,12 +218,12 @@ fn slots_to_powcoeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTran
 /// This requires that the underlying hypercube structure is a Halevi-Shoup hypercube structure, and that `d l_1 = phi(m_1)`.
 /// 
 #[instrument(skip_all)]
-pub fn powcoeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+pub fn powcoeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_fat_impl(H))
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_fat_impl(H), max_levels)
 }
 
 fn powcoeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
@@ -263,12 +263,12 @@ fn powcoeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTran
 /// doesn't contain a scalar, the behavior is unspecified.
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_powcoeffs_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+pub fn slots_to_powcoeffs_thin<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_thin_impl(H))
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_thin_impl(H), max_levels)
 }
 
 fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
@@ -296,12 +296,12 @@ fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTra
 /// full rank, and cannot be the mathematical inverse of [`slots_to_powcoeffs_thin()`].
 /// 
 #[instrument(skip_all)]
-pub fn powcoeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+pub fn powcoeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_thin_impl(H))
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_thin_impl(H), max_levels)
 }
 
 fn powcoeffs_to_slots_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>

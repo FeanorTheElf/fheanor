@@ -1095,6 +1095,17 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     }
 
     ///
+    /// Returns the sum of the number of outputs of each Galois gate in the circuit.
+    /// 
+    pub fn galois_gate_output_sum(&self) -> usize {
+        self.gates.iter().map(|gate| match gate {
+            PlaintextCircuitGate::Gal(gs, _) => gs.len(),
+            PlaintextCircuitGate::Mul(_, _) => 0,
+            PlaintextCircuitGate::Square(_) => 0
+        }).sum()
+    }
+
+    ///
     /// Returns all galois automorphisms which are evaluated by some
     /// gate in this circuit.
     /// 

@@ -29,6 +29,13 @@ use super::trace::extract_linear_map;
 use crate::{NiceZn};
 
 ///
+/// Approximately, how much an unhoisted automorphism is more expensive
+/// than a hoisted one; used for determining the optimal bs/gs ratio
+/// when optimizing the circuit layout.
+/// 
+const UNHOISTED_AUTO_COUNT_OVERHEAD: usize = 3;
+
+///
 /// A linear transform of the ring `R_t = Z[X]/(Phi_m(X), t)`, written in the form
 /// ```text
 ///   x  ->  sum_σ c_σ σ(x)
@@ -236,6 +243,14 @@ impl<R> MatmulTransform<R>
         };
         result.canonicalize(H.ring(), H.hypercube());
         return result;
+    }
+
+    pub fn clone<S>(&self, ring: S) -> Self
+        where S: RingStore<Type = R>
+    {
+        Self {
+            data: self.data.iter().map(|(idx, coeff)| (idx.clone(), ring.clone_el(coeff))).collect()
+        }
     }
 
     ///
@@ -457,7 +472,44 @@ impl<R> MatmulTransform<R>
             ))).collect()
         };
         result.canonicalize(ring, &H);
+        debug_assert_eq!(self.composed_automorphism_count(H, run_first), result.automorphism_count());
         return result;
+    }
+
+    ///
+    /// Counts the number of automorphisms required to represent the composition
+    /// of both transforms as a [`MatmulTransform`].
+    /// 
+    /// This function tries to be lightweight and not actually compute the coefficients
+    /// of the composed transform. Thus, it will not detect cases where a cancellation
+    /// between coefficients occurs, and thus the result is technically only an upper bound
+    /// to the actual number of automorphisms (but in most cases it will be the equal).
+    /// Because of this reason, this function currently gives the same result as
+    /// [`MatmulTransform::automorphism_count()`] on the result of [`MatmulTransform::compose()`].
+    /// 
+    fn composed_automorphism_count(&self, H: &HypercubeStructure, run_first: &MatmulTransform<R>) -> usize {
+        let Gal = H.galois_group();
+        let mut result_automorphisms = self.data.iter().flat_map(|(self_g, _)| run_first.data.iter().map(|(first_g, _)|
+            Gal.representative(&Gal.op(H.map_incl_frobenius(self_g), H.map_incl_frobenius(first_g)))
+        )).collect::<Vec<_>>();
+        result_automorphisms.sort_unstable();
+        result_automorphisms.dedup();
+        return result_automorphisms.len();
+    }
+
+    ///
+    /// Counts the number of automorphisms required to represent the current transform
+    /// in the format 
+    /// ```text
+    ///   x  ->  sum_σ c_σ σ(x)
+    /// ```
+    /// Note that technically, [`MatmulTransform`]s may contain zero coefficients `c_σ`,
+    /// but the corresponding automorphisms are still counted here. However, most functions
+    /// operating on [`MatmulTransform`]s will avoid producing zero coefficients for efficiency
+    /// reasons, thus this count should be very accurate in practice.
+    /// 
+    pub fn automorphism_count(&self) -> usize {
+        self.data.len()
     }
 
     ///
@@ -581,10 +633,14 @@ impl<R> MatmulTransform<R>
 
     
     /// 
-    /// In the returned lists, we use the first entry for the "frobenius-dimension";
+    /// Computes `max_step, min_step, gcd_step, sizes` such that all automorphisms are in the hypercube
+    /// `X { min_step[i], min_step[i] + gcd_step[i], ..., max_step[i] }`. 
     /// 
-    /// Note that `gcd_step[i]` will contain `usize::MAX` instead of the expected `0` if there is only one entry
+    /// The last list `sizes` contains the number of elements along each dimension. This is correct even
+    /// if `gcd_step[i] == usize::MAX`, we is set instead of `0` if there is only one entry
     /// in dimension `i` (i.e. `min_step[i] = max_step[i]`), since this makes using it via `step_by` easier.
+    /// 
+    /// In the returned lists, we use the first entry for the "frobenius-dimension".
     /// 
     /// Requires that `self` is defined w.r.t. the given ring and [`HypercubeStructure`].
     /// 
@@ -674,8 +730,6 @@ impl<R> MatmulTransform<R>
 
         let (_, _, _, sizes) = self.compute_automorphisms_per_dimension(ring, H);
 
-        const UNHOISTED_AUTO_COUNT_OVERHEAD: usize = 3;
-
         let preferred_baby_steps = (1..=(sizes.iter().copied().product::<usize>())).min_by_key(|preferred_baby_steps| {
             let params = Self::baby_step_giant_step_params(sizes.as_fn().map_fn(|s| *s), *preferred_baby_steps);
             return params.hoisted_automorphism_count + params.unhoisted_automorphism_count * UNHOISTED_AUTO_COUNT_OVERHEAD;
@@ -694,9 +748,18 @@ impl<R> MatmulTransform<R>
     /// Requires that all transforms are defined w.r.t. the given ring and [`HypercubeStructure`].
     /// 
     #[instrument(skip_all)]
-    pub fn to_circuit_many<S>(ring: S, H: &HypercubeStructure, transforms: Vec<Self>) -> PlaintextCircuit<R>
+    pub fn to_circuit_many<S>(ring: S, H: &HypercubeStructure, mut transforms: Vec<Self>, max_levels: usize) -> PlaintextCircuit<R>
         where S: Copy + RingStore<Type = R>
     {
+        assert!(max_levels > 0);
+        while transforms.len() > max_levels {
+            let delta_complexity = |[t1, t2]: &[MatmulTransform<_>; 2]| (t2.composed_automorphism_count(H, t1) as f64).sqrt() - (t1.automorphism_count() as f64).sqrt() - (t2.automorphism_count() as f64).sqrt();
+            let merge_idx = transforms.array_windows::<2>().enumerate().min_by(|(_, ts1), (_, ts2)|
+                f64::total_cmp(&delta_complexity(ts1), &delta_complexity(ts2) )
+            ).unwrap().0;
+            let t2 = transforms.remove(merge_idx + 1);
+            transforms[merge_idx] = t2.compose(ring, H, &transforms[merge_idx]);
+        }
         transforms.into_iter().fold(PlaintextCircuit::identity(1, ring), |current, next| next.to_circuit(ring, H).compose(current, ring))
     }
 
@@ -725,8 +788,8 @@ impl<R> MatmulTransform<R>
 
         let mixed_dim_i = params.mixed_step_dimension;
         let mixed_dim_baby_steps = params.mixed_step_dimension_baby_steps;
-        let mixed_dim_steps_on_top = StaticRing::<i64>::RING.checked_div(&max_step[mixed_dim_i], &gcd_step[mixed_dim_i].try_into().unwrap()).unwrap();
-        let mixed_dim_steps_on_bottom = StaticRing::<i64>::RING.checked_div(&min_step[mixed_dim_i], &gcd_step[mixed_dim_i].try_into().unwrap()).unwrap();
+        let mixed_dim_steps_on_top = StaticRing::<i64>::RING.checked_div(&max_step[mixed_dim_i], &gcd_step[mixed_dim_i].try_into().unwrap_or(0)).unwrap();
+        let mixed_dim_steps_on_bottom = StaticRing::<i64>::RING.checked_div(&min_step[mixed_dim_i], &gcd_step[mixed_dim_i].try_into().unwrap_or(0)).unwrap();
         let mixed_dim_baby_steps_on_top = mixed_dim_steps_on_top % mixed_dim_baby_steps as i64;
         let mixed_dim_baby_steps_on_bottom = mixed_dim_baby_steps_on_top - mixed_dim_baby_steps as i64 + 1;
         let mixed_dim_giant_steps_on_top = StaticRing::<i64>::RING.checked_div(&(mixed_dim_steps_on_top - mixed_dim_baby_steps_on_top), &(mixed_dim_baby_steps as i64)).unwrap();
@@ -871,6 +934,12 @@ use feanor_math::assert_el_eq;
 use crate::{ZZi64, ZZbig};
 #[cfg(test)]
 use feanor_math::integer::*;
+#[cfg(test)]
+use std::cmp::max;
+#[cfg(test)]
+use std::slice::from_ref;
+#[cfg(test)]
+use crate::circuit::evaluator::DefaultCircuitEvaluator;
 
 #[test]
 fn test_to_circuit_single() {
@@ -881,12 +950,18 @@ fn test_to_circuit_single() {
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
     let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
+
+    let transform = MatmulTransform::identity(&ring, H.hypercube());
+    let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
+    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube());
+    let actual = compiled_transform.evaluate(from_ref(&input), ring.identity()).pop().unwrap();
+    assert_el_eq!(&ring, &input, &actual);
+
     let transform = MatmulTransform::blockmatmul1d(&H, 0, |(i, k), (j, l), _| if j == i + 1 && k == 0 && l == 0 {
         H.slot_ring().base_ring().one()
     } else {
         H.slot_ring().base_ring().zero()
     });
-
     let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     let expected = H.from_slot_values([2, 3, 4, 0].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
 
@@ -908,6 +983,49 @@ fn test_to_circuit_single() {
     assert_el_eq!(&ring, &expected, &actual);
 
     assert_eq!(2, compiled_transform.required_galois_keys(H.galois_group()).len());
+}
+
+#[test]
+fn test_to_circuit_many() {
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
+    let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
+    assert_eq!(1, hypercube.dim_count());
+    assert_eq!(8, hypercube.d());
+    assert_eq!(4, hypercube.dim_length(0));
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
+    let perm = [0, 2, 1, 3];
+    let permutation = MatmulTransform::matmul1d(&H, 0, |i, j, _| if i == perm[j] {
+        H.slot_ring().one()
+    } else {
+        H.slot_ring().zero()
+    });
+
+    let transform = MatmulTransform::to_circuit_many(&ring, H.hypercube(), vec![
+        permutation.clone(&ring),
+        permutation.clone(&ring),
+        MatmulTransform::mult_ring_element(&ring, H.hypercube(), &ring.int_hom().map(2))
+    ], 2);
+    assert_eq!(4, transform.galois_gate_output_sum());
+
+    let mul_depth = transform.evaluate_generic(&[0], DefaultCircuitEvaluator::new(|_| 0, |a, b, c| match b {
+        Coefficient::One | Coefficient::Zero | Coefficient::NegOne => max(a, *c),
+        _ => max(a, c + 1)
+    }).with_gal(|x, gs| gs.iter().map(|_| x).collect())).pop().unwrap();
+    assert_eq!(2, mul_depth);
+
+    let transform = MatmulTransform::to_circuit_many(&ring, H.hypercube(), vec![
+        MatmulTransform::blockmatmul0d(&H, |i, j, _| if i == 0 && j == 0 { ring.base_ring().one() } else { ring.base_ring().zero() }),
+        permutation,
+        MatmulTransform::mult_ring_element(&ring, H.hypercube(), &ring.int_hom().map(2))
+    ], 2);
+    assert_eq!(2 + 4, transform.galois_gate_output_sum());
+
+    let mul_depth = transform.evaluate_generic(&[0], DefaultCircuitEvaluator::new(|_| 0, |a, b, c| match b {
+        Coefficient::One | Coefficient::Zero | Coefficient::NegOne => max(a, *c),
+        _ => max(a, c + 1)
+    }).with_gal(|x, gs| gs.iter().map(|_| x).collect())).pop().unwrap();
+    assert_eq!(2, mul_depth);
 }
 
 #[test]

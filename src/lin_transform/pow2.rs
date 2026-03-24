@@ -309,12 +309,12 @@ fn pow2_bitreversed_inv_dwt<G, R>(H: &HypercubeIsomorphism<R>, dim_index: usize,
 /// into the coefficient of `X^(bitrev(i, l) * m/(4l))`
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_coeffs_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+pub fn slots_to_coeffs_thin<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_coeffs_base(H))
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_coeffs_base(H), max_levels)
 }
 
 #[instrument(skip_all)]
@@ -387,12 +387,12 @@ fn slots_to_coeffs_base<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R
 /// of `X^(bitrev(i, l) * m/(4l) + m/4 + k - d/2)` if `k >= d/2`.
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_coeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+pub fn slots_to_coeffs_fat<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_coeffs_fat_impl(H))
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_coeffs_fat_impl(H), max_levels)
 }
 
 ///
@@ -410,7 +410,7 @@ pub fn slots_to_coeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R
 /// where `0 <= k < d/2`.
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_coeffs_fat_pack<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+pub fn slots_to_coeffs_fat_pack<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
@@ -438,7 +438,7 @@ pub fn slots_to_coeffs_fat_pack<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCirc
         result = PlaintextCircuit::linear_transform(&[Coefficient::One, Coefficient::Other(ring.pow(ring.canonical_gen(), d >> i))], ring).tensor_pow(d >> i, ring).compose(result, ring);
     }
 
-    result = MatmulTransform::to_circuit_many(ring, H.hypercube(), slots_to_coeffs_fat_Xbasis(H)).compose(result, ring);
+    result = MatmulTransform::to_circuit_many(ring, H.hypercube(), slots_to_coeffs_fat_Xbasis(H), max_levels).compose(result, ring);
 
     return result;
 }
@@ -627,7 +627,7 @@ fn slots_to_coeffs_base_inv<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransfo
 /// each slot only contains an element in `Z/pZ`. 
 /// 
 #[instrument(skip_all)]
-pub fn coeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+pub fn coeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
@@ -639,7 +639,7 @@ pub fn coeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<
     let frobenius_subgroup = H.galois_group().parent().get_group().clone().subgroup([H.hypercube().frobenius(1)]);
     debug_assert_eq!(frobenius_subgroup.group_order(), H.slot_ring().rank());
     let trace_circuit = trace_circuit(H.ring(), &frobenius_subgroup);
-    let result_circuit = MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), result);
+    let result_circuit = MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), result, max_levels);
     return trace_circuit.compose(result_circuit, H.ring());
 }
 
@@ -656,12 +656,12 @@ pub fn coeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<
 /// `0 <= k < d/2` and `l in {0, 1}`.
 /// 
 #[instrument(skip_all)]
-pub fn coeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+pub fn coeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), coeffs_to_slots_fat_impl(H))
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), coeffs_to_slots_fat_impl(H), max_levels)
 }
 
 ///
@@ -680,7 +680,7 @@ pub fn coeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R
 /// output, where `0 <= k < d/2`.
 /// 
 #[instrument(skip_all)]
-pub fn coeffs_to_slots_fat_unpack<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+pub fn coeffs_to_slots_fat_unpack<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient + DivisibilityRing,
         BaseRing<R>: NiceZn
@@ -699,7 +699,7 @@ pub fn coeffs_to_slots_fat_unpack<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCi
     take_mut::take(base_transform.last_mut().unwrap(), |transform| transform.compose(ring, H.hypercube(), &MatmulTransform::mult_ring_element(ring, H.hypercube(), 
         &ring.inclusion().map(ring.base_ring().invert(&ring.base_ring().int_hom().map(d as i32)).unwrap())
     )));
-    let mut result = MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), base_transform);
+    let mut result = MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), base_transform, max_levels);
 
     for i in (1..log2_d).rev() {
         let coeff = H.ring().pow(H.ring().canonical_gen(), m - (1 << (log2_d - i - 1)));
@@ -860,7 +860,7 @@ fn test_slots_to_coeffs_non_cyclotomic_ring() {
         H.slot_ring().zero(),
         H.slot_ring().one(),
     ]);
-    let actual = MatmulTransform::to_circuit_many(&P, &h, slots_to_coeffs_base(&H)).evaluate(&[input], P.identity()).pop().unwrap();
+    let actual = MatmulTransform::to_circuit_many(&P, &h, slots_to_coeffs_base(&H), usize::MAX).evaluate(&[input], P.identity()).pop().unwrap();
 
     let expected = P.from_canonical_basis([
         P.base_ring().zero(), 
@@ -884,7 +884,7 @@ fn test_slots_to_coeffs_non_cyclotomic_ring() {
         H.slot_ring().neg_one(),
         H.slot_ring().zero(),
     ]);
-    let actual = MatmulTransform::to_circuit_many(&P, &h, slots_to_coeffs_base(&H)).evaluate(&[input], P.identity()).pop().unwrap();
+    let actual = MatmulTransform::to_circuit_many(&P, &h, slots_to_coeffs_base(&H), usize::MAX).evaluate(&[input], P.identity()).pop().unwrap();
 
     let expected = P.from_canonical_basis([
         P.base_ring().zero(), 
@@ -1199,7 +1199,7 @@ fn test_coeffs_to_slots_fat_unpack() {
         }
     }
     let current = ring_literal(&ring, &current);
-    let actual = coeffs_to_slots_fat_unpack(&H).evaluate(&[current], ring.identity());
+    let actual = coeffs_to_slots_fat_unpack(&H, usize::MAX).evaluate(&[current], ring.identity());
     let expected = (0..2).map(|k| H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, _)| 
         H.slot_ring().int_hom().map((i + 1 + 16 * bitreverse(k, 1)) as i32)
     ))).collect::<Vec<_>>();
@@ -1226,7 +1226,7 @@ fn test_coeffs_to_slots_fat_unpack() {
         }
     }
 
-    let actual = coeffs_to_slots_fat_unpack(&H).evaluate(&[ring_literal(&ring, &current)], ring.identity());
+    let actual = coeffs_to_slots_fat_unpack(&H, usize::MAX).evaluate(&[ring_literal(&ring, &current)], ring.identity());
     let expected = (0..4).map(|k| H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, _)| 
         H.slot_ring().int_hom().map((i + 1 + 16 * bitreverse(k, 2)) as i32)
     ))).collect::<Vec<_>>();
@@ -1248,7 +1248,7 @@ fn test_slots_to_coeffs_pack() {
     let input = (0..2).map(|k| H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, _)| 
         H.slot_ring().int_hom().map((i + 1 + 16 * bitreverse(k, 1)) as i32)
     ))).collect::<Vec<_>>();
-    let actual = slots_to_coeffs_fat_pack(&H).evaluate(&input, ring.identity());
+    let actual = slots_to_coeffs_fat_pack(&H, usize::MAX).evaluate(&input, ring.identity());
     
     let mut expected = [0; 32];
     for i in 0..8 {
@@ -1270,7 +1270,7 @@ fn test_slots_to_coeffs_pack() {
     let input = (0..4).map(|k| H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, _)| 
         H.slot_ring().int_hom().map((i + 1 + 16 * bitreverse(k, 2)) as i32)
     ))).collect::<Vec<_>>();
-    let actual = slots_to_coeffs_fat_pack(&H).evaluate(&input, ring.identity());
+    let actual = slots_to_coeffs_fat_pack(&H, usize::MAX).evaluate(&input, ring.identity());
 
     let mut expected = [0; 64];
     for i in 0..16 {
@@ -1394,7 +1394,7 @@ fn test_coeffs_to_slots_thin() {
         }
     }
     let current = ring_literal(&ring, &input);
-    let circuit = coeffs_to_slots_thin(&H);
+    let circuit = coeffs_to_slots_thin(&H, usize::MAX);
     let actual = circuit.evaluate(std::slice::from_ref(&current), ring.identity()).pop().unwrap();
     let expected = H.from_slot_values((1..17).map(|i| H.slot_ring().int_hom().map(i)));
     assert_el_eq!(&ring, &expected, &actual);
@@ -1410,7 +1410,7 @@ fn test_coeffs_to_slots_thin() {
     input[16] = 1;
 
     let current = ring_literal(&ring, &input);
-    let circuit = coeffs_to_slots_thin(&H);
+    let circuit = coeffs_to_slots_thin(&H, usize::MAX);
     let actual = circuit.evaluate(std::slice::from_ref(&current), ring.identity()).pop().unwrap();
     let expected = H.from_slot_values([0, 0, 1, 0].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     assert_el_eq!(&ring, &expected, &actual);
@@ -1426,7 +1426,7 @@ fn test_coeffs_to_slots_thin() {
         }
     }
     let current = ring_literal(&ring, &input);
-    let circuit = coeffs_to_slots_thin(&H);
+    let circuit = coeffs_to_slots_thin(&H, usize::MAX);
     let actual = circuit.evaluate(std::slice::from_ref(&current), ring.identity()).pop().unwrap();
     let expected = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     assert_el_eq!(&ring, &expected, &actual);
