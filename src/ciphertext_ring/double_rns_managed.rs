@@ -295,6 +295,10 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
         }
     }
 
+    pub fn element_allocation_size(&self) -> usize {
+        2 * self.unmanaged_ring().get_ring().element_allocation_size()
+    }
+
     ///
     /// Returns the representation of the given element w.r.t. the multiplicative basis, possibly computing
     /// this representation if it is not available. If the element is zero, `None` is returned.

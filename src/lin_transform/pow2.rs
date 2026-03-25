@@ -9,7 +9,6 @@ use feanor_math::rings::extension::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::VectorFn;
-use feanor_math::seq::VectorView;
 use tracing::instrument;
 
 use crate::circuit::Coefficient;
@@ -135,7 +134,7 @@ fn pow2_bitreversed_dwt_butterfly<G, R>(H: &HypercubeIsomorphism<R>, dim_index: 
             (0..H.hypercube().dim_count()).map(|i| if i == dim_index { -(l as i64) / 2 } else { 0 }).collect::<Vec<_>>(),
             backward_mask
         )
-    ].iter().map(|(shift, coeff)| (shift.copy_els(), H.ring().clone_el(coeff))));
+    ]);
     
     return result;
 }
@@ -219,7 +218,7 @@ fn pow2_bitreversed_inv_dwt_butterfly<G, R>(H: &HypercubeIsomorphism<R>, dim_ind
             (0..H.hypercube().dim_count()).map(|i| if i == dim_index { -(l as i64) / 2 } else { 0 }).collect::<Vec<_>>(),
             backward_mask
         )
-    ].iter().map(|(shift, coeff)| (shift.copy_els(), H.ring().clone_el(coeff))));
+    ]);
 
     return result;
 }
@@ -354,7 +353,7 @@ fn slots_to_coeffs_base<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R
                     H.slot_ring().one()
                 }))
             )
-        ].iter().map(|(shift, coeff)| (shift.copy_els(), H.ring().clone_el(coeff)))));
+        ]));
 
         // then map the `a_(i0) + 𝝵^(m/4) a_(i1)` to `sum_i (a_(i0) + 𝝵^(m/4) a_(i1)) 𝝵^(i g^k)` 
         // for each slot `(k, 0)`, and similarly for the slots `(*, 1)`. The negation in the second 
@@ -602,7 +601,7 @@ fn slots_to_coeffs_base_inv<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransfo
                     H.slot_ring().clone_el(&root_of_unity_inv)
                 })), two_inv)
             )
-        ].iter().map(|(shift, coeff)| (shift.copy_els(), H.ring().clone_el(coeff)))));
+        ]));
 
         return result;
     } else {

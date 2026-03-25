@@ -172,6 +172,10 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
         self.rank() * self.base_ring().len()
     }
 
+    pub fn element_allocation_size(&self) -> usize {
+        self.rank() * self.base_ring().len() * size_of::<El<Zn>>()
+    }
+
     ///
     /// Returns a view on the representation of the given element w.r.t. the small basis. 
     /// In particular, the `i`-th row of the returned matrix contains the coefficients of the element 

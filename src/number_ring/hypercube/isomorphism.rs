@@ -252,6 +252,10 @@ impl<R> HypercubeIsomorphism<R>
         };
     }
 
+    pub fn allocation_size(&self) -> usize {
+        self.slot_to_ring_interpolation.allocation_size()
+    }
+
     pub fn hypercube(&self) -> &HypercubeStructure {
         &self.hypercube_structure
     }

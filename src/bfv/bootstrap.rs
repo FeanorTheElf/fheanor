@@ -45,7 +45,7 @@ use super::*;
 /// let P = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
 /// let (C, C_mul) = params.create_ciphertext_rings(420..440);
 /// let digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-/// let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, &digits, Some("."));
+/// let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, 4, &digits, Some("."));
 /// 
 /// // creating keys
 /// let sk = Pow2BFV::gen_sk(&C, rng(), SecretKeyDistribution::UniformTernary);
@@ -905,7 +905,7 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping_t257_sqr() {
     let t = 257 * 257;
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
-    let gk_digits = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
+    let gk_digits = RNSGadgetVectorDigitIndices::select_digits(C.base_ring().len().div_ceil(2), C.base_ring().len());
     let rk_digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
     let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 1, Some(6), 4, &gk_digits, Some("."));
     
@@ -947,7 +947,7 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping_t65537() {
     let t = 65537;
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
-    let gk_digits = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
+    let gk_digits = RNSGadgetVectorDigitIndices::select_digits(C.base_ring().len().div_ceil(2), C.base_ring().len());
     let rk_digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
     let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 1, Some(6), 4, &gk_digits, Some("."));
     
@@ -961,6 +961,7 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping_t65537() {
 
     let m = P.int_hom().map(2);
     let ct = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
+
     let res_ct = bootstrapper.bootstrap_thin::<true>(
         &C, 
         &C_mul, 

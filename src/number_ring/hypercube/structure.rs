@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use feanor_math::algorithms::discrete_log::*;
 use feanor_math::algorithms::eea::{signed_gcd, signed_lcm};
 use feanor_math::divisibility::DivisibilityRingStore;
@@ -59,6 +61,7 @@ pub struct HypercubeStructure {
     pub(super) ord_gs: Vec<usize>,
     pub(super) gs: Vec<GaloisGroupEl>,
     pub(super) representations: Vec<(GaloisGroupEl, /* first element is frobenius */ Box<[usize]>)>,
+    pub(super) signed_normalization_offset: (Vec<usize>, GaloisGroupEl),
     pub(super) choice: HypercubeTypeData
 }
 
@@ -101,6 +104,11 @@ impl HypercubeStructure {
         assert!((1..all_elements.len()).all(|i| !galois_group.eq_el(&all_elements[i - 1].0, &all_elements[i].0)), "not a bijection");
         assert_eq!(int_cast(galois_group.subgroup_order(), ZZi64, ZZbig) as usize, all_elements.len());
 
+        let signed_normalization_offset = [d].iter().chain(ls.iter()).map(|x| (x - 1).div_ceil(2)).collect::<Vec<_>>();
+        let signed_normalization_offset_el = [&frobenius].into_iter().chain(gs.iter()).zip(signed_normalization_offset.iter())
+            .map(|(g, k)| galois_group.pow(g, &int_cast(*k as i64, ZZbig, ZZi64)))
+            .fold(galois_group.identity(), |x, y| galois_group.op(x, y));
+
         let ord_gs = gs.iter().map(|g| galois_group.element_order(g)).collect();
         return Self {
             galois_group: galois_group,
@@ -109,6 +117,7 @@ impl HypercubeStructure {
             ls,
             ord_gs: ord_gs,
             gs: gs,
+            signed_normalization_offset: (signed_normalization_offset, signed_normalization_offset_el),
             choice: HypercubeTypeData::Generic,
             representations: all_elements
         };
@@ -335,9 +344,25 @@ impl HypercubeStructure {
     /// This is the vector `(a_0, a_1, ..., a_r)` such that `g = p^a_0 h(a_1, ..., a_r)` and
     /// `a_0 in { 0, ..., d - 1 }` and `a_i` for `i > 0` is within `{ 0, ..., l_i - 1 }`.
     /// 
-    pub fn std_preimage(&self, g: &GaloisGroupEl) -> &[usize] {
+    pub fn std_preimage<'a>(&'a self, g: &GaloisGroupEl) -> Cow<'a, [usize]> {
         let idx = self.representations.binary_search_by_key(&self.galois_group.representative(g), |(g, _)| self.galois_group.representative(g)).unwrap();
-        return &self.representations[idx].1;
+        return Cow::Borrowed(&self.representations[idx].1);
+    }
+
+    ///
+    /// Computes the "signed standard preimage" of the given `g` under `h`.
+    /// 
+    /// This is the vector `(a_0, a_1, ..., a_r)` such that `g = p^a_0 h(a_1, ..., a_r)` and
+    /// `a_0 in { (1 - d)/2, ..., (d - 1)/2 }` and `a_i` for `i > 0` is within `{ (1 - l_i)/2, ..., (l_i - 1)/2 }`
+    /// (rounding every quotient towards negative infinity, if necessary).
+    /// 
+    pub fn std_preimage_signed<'a>(&'a self, g: &GaloisGroupEl) -> Cow<'a, [i64]> {
+        Cow::Owned(
+            self.std_preimage(&self.galois_group.op_ref(g, &self.signed_normalization_offset.1))
+            .iter().copied().zip(self.signed_normalization_offset.0.iter().copied())
+            .map(|(x, offset)| x as i64 - offset as i64)
+            .collect::<Vec<_>>()
+        )
     }
 
     ///

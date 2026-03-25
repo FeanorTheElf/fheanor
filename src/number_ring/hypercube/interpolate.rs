@@ -113,6 +113,12 @@ impl<P> FastPolyInterpolation<P>
         };
     }
 
+    pub fn allocation_size(&self) -> usize {
+        self.unit_vectors.iter().map(|vec| vec.iter().map(|(l, r)|
+            (self.poly_ring().degree(l).unwrap_or(0) + self.poly_ring().degree(r).unwrap_or(0) + 2) * size_of::<El<<P::Type as RingExtension>::BaseRing>>()
+        ).sum::<usize>()).sum()
+    }
+
     pub fn poly_ring(&self) -> &P {
         &self.poly_ring
     }
