@@ -1255,7 +1255,7 @@ impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
     fn encode_plain(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
         let ZZi64_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
         let result = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZi64_to_Zq.map(P.base_ring().smallest_lift(c))));
-        return C.get_ring().to_doublerns(&result).map(|x| C.get_ring().from_double_rns_repr(C.get_ring().unmanaged_ring().clone_el(x))).unwrap_or(C.zero());
+        return C.get_ring().to_doublerns(&result).map(|x| C.get_ring().from_doublerns(C.get_ring().unmanaged_ring().clone_el(x))).unwrap_or(C.zero());
     }
 }
 

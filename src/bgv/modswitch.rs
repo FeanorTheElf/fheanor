@@ -1774,7 +1774,6 @@ fn test_level_digits() {
     let b = [2, 2, 3, 3];
     let k = 2;
     let (c, d) = level_digits(&a, &b, k).unwrap();
-    println!("{:?}, {:?}", c, d);
     assert!((0..4).all(|i| c[i] <= b[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
@@ -1784,7 +1783,6 @@ fn test_level_digits() {
     let b = [3, 3, 3, 3];
     let k = 3;
     let (c, d) = level_digits(&a, &b, k).unwrap();
-    println!("{:?}, {:?}", c, d);
     assert!((0..4).all(|i| c[i] <= b[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
@@ -1794,7 +1792,6 @@ fn test_level_digits() {
     let b = [3, 3, 3, 3];
     let k = 4;
     let (c, d) = level_digits(&a, &b, k).unwrap();
-    println!("{:?}, {:?}", c, d);
     assert!((0..4).all(|i| c[i] <= b[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
@@ -1804,7 +1801,6 @@ fn test_level_digits() {
     let b = [2, 2, 2, 2];
     let k = 1;
     let (c, d) = level_digits(&a, &b, k).unwrap();
-    println!("{:?}, {:?}", c, d);
     assert!((0..4).all(|i| c[i] <= b[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
@@ -1819,7 +1815,6 @@ fn test_level_digits() {
     let b = [1, 2, 3, 4];
     let k = 1;
     let (c, d) = level_digits(&a, &b, k).unwrap();
-    println!("{:?}, {:?}", c, d);
     assert!((0..4).all(|i| c[i] <= b[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
@@ -1829,7 +1824,6 @@ fn test_level_digits() {
     let b = [1, 2, 3, 4];
     let k = 1;
     let (c, d) = level_digits(&a, &b, k).unwrap();
-    println!("{:?}, {:?}", c, d);
     assert!((0..4).all(|i| c[i] <= b[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
     assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));

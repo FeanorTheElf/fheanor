@@ -32,7 +32,6 @@ impl<R> FheanorConvolution<R> for NTTConvolution<R::Type, R::Type, Identity<R>>
         R::Type: ZnRing
 {
     fn new(ring: R, max_log2_len: usize) -> Self {
-        println!("{:?}", ring.integer_ring().format(ring.modulus()));
         assert!(ring.integer_ring().is_one(&ring.integer_ring().euclidean_rem(ring.integer_ring().clone_el(ring.modulus()), &ring.integer_ring().power_of_two(max_log2_len))));
         NTTConvolution::new(ring)
     }

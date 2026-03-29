@@ -1173,7 +1173,7 @@ pub fn force_double_rns_repr<NumberRing, A>(C: &ManagedDoubleRNSRing<NumberRing,
     where NumberRing: AbstractNumberRing,
         A: Allocator + Clone
 {
-    C.get_ring().into_doublerns(x).map(|x| C.get_ring().from_double_rns_repr(x)).unwrap_or(C.zero())
+    C.get_ring().into_doublerns(x).map(|x| C.get_ring().from_doublerns(x)).unwrap_or(C.zero())
 }
 
 fn t_fits_zn_64<I>(ZZ: I, t: &El<I>) -> Option<Zn>
