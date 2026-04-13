@@ -1,6 +1,7 @@
 /target
 *.ignore.rs
 trace-*.json
+out-*
 perf.data
 perf.data.*
 hypercube_*.json
