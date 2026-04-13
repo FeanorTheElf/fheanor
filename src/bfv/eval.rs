@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use feanor_math::rings::poly::sparse_poly::SparsePolyRingBase;
+use feanor_math::rings::zn::ZnRingStore;
 use tracing::instrument;
 
 use feanor_math::ring::*;
@@ -448,7 +449,8 @@ fn test_hom_evaluate_circuit() {
     let (P, C, C_mul, sk, rk, _, ct) = test_setup_bfv(Pow2BFV::new(1 << 8));
     let FpX = DensePolyRing::new(Zn::new(17), "X");
     let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(7) - 3 * X.pow_ref(3) + 2 * X + 10]);
-    let circuit = poly_to_circuit(&FpX, from_ref(&f));
+    let circuit = poly_to_circuit(&FpX, from_ref(&f))
+        .change_ring_uniform(|x| x.change_ring(|x| FpX.base_ring().smallest_lift(x)));
 
     let res = circuit.evaluate_bfv::<Pow2BFV, _>(ZZi64, &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], &mut 0, None).into_iter().next().unwrap();
     assert_el_eq!(&P, P.inclusion().map(FpX.evaluate(&f, &FpX.base_ring().int_hom().map(2), FpX.base_ring().identity())), &Pow2BFV::dec(&P, &C, res, &sk));

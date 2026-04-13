@@ -164,6 +164,46 @@ pub trait SerializeDeserializeWith<Data> {
     fn deserialize_with<'a>(data: &'a Data) -> Self::DeserializeWithData<'a>;
 }
 
+pub struct RingElSerializeDeserializeWithRing<R: ?Sized + RingBase + SerializableElementRing> {
+    value: R::Element,
+    ring: PhantomData<Box<R>>
+}
+
+impl<R: ?Sized + RingBase + SerializableElementRing> RingElSerializeDeserializeWithRing<R> {
+
+    pub const fn from(value: R::Element) -> Self {
+        Self { value: value, ring: PhantomData }
+    }
+
+    pub fn into(self) -> R::Element {
+        self.value
+    }
+}
+
+pub struct RingElDeserializeWithRing<R>(DeserializeWithRing<R>)
+    where R: RingStore, R::Type: SerializableElementRing;
+
+impl<'de, R> DeserializeSeed<'de> for RingElDeserializeWithRing<R>
+    where R: RingStore, R::Type: SerializableElementRing
+{
+    type Value = RingElSerializeDeserializeWithRing<R::Type>;
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        self.0.deserialize(deserializer).map(RingElSerializeDeserializeWithRing::from)
+    }
+}
+
+impl<R> SerializeDeserializeWith<R> for RingElSerializeDeserializeWithRing<R::Type>
+    where R: RingStore,
+        R::Type: SerializableElementRing
+{
+    type SerializeWithData<'a> = SerializeWithRing<'a, &'a R> where Self: 'a, R: 'a;
+    type DeserializeWithData<'a> = RingElDeserializeWithRing<&'a R> where Self: 'a, R: 'a;
+
+    fn serialize_with<'a>(&'a self, data: &'a R) -> Self::SerializeWithData<'a> { SerializeWithRing::new(&self.value, data) }
+    fn deserialize_with<'a>(data: &'a R) -> Self::DeserializeWithData<'a> { RingElDeserializeWithRing(DeserializeWithRing::new(data)) }
+}
+
 #[derive(PartialEq, Eq)]
 pub enum StoreAs {
     None,

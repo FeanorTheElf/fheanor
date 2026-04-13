@@ -8,6 +8,7 @@ use feanor_math::ring::*;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::rings::zn::zn_64::Zn;
+use feanor_math::rings::zn::ZnRingStore;
 use feanor_math::homomorphism::*;
 use polys::{digit_retain_poly, poly_to_circuit, precomputed_p_2};
 use tracing::instrument;
@@ -21,6 +22,7 @@ use crate::{ZZbig, ZZi64};
 /// in particular [`polys::poly_to_circuit()`].
 /// 
 pub mod polys;
+pub mod paterson_stockmeyer;
 
 ///
 /// The digit extraction operation, as required during BFV and
@@ -94,7 +96,8 @@ impl DigitExtract {
         let digit_extraction_circuits = (1..=v).rev().map(|i| {
             let required_digits = (2..=(v - i + 1)).chain([r + v - i + 1].into_iter()).collect::<Vec<_>>();
             let poly_ring = DensePolyRing::new(Zn::new(StaticRing::<i64>::RING.pow(p, *required_digits.last().unwrap()) as u64), "X");
-            let circuit = poly_to_circuit(&poly_ring, &required_digits.iter().map(|j| digit_retain_poly(&poly_ring, *j)).collect::<Vec<_>>());
+            let circuit = poly_to_circuit(&poly_ring, &required_digits.iter().map(|j| digit_retain_poly(&poly_ring, *j)).collect::<Vec<_>>())
+                .change_ring_uniform(|x| x.change_ring(|x| poly_ring.base_ring().smallest_lift(x)));
             return (required_digits, circuit);
         }).collect::<Vec<_>>();
         assert!(digit_extraction_circuits.is_sorted_by_key(|(digits, _)| *digits.last().unwrap()));
@@ -117,11 +120,10 @@ impl DigitExtract {
         
         let poly_ring = DensePolyRing::new(Zn::new(StaticRing::<i64>::RING.pow(p, e) as u64), "X");
         let p_half = poly_ring.inclusion().map(poly_ring.base_ring().coerce(&ZZi64, p / 2));
-        let digit_extraction_circuits = vec![
-            (vec![e], poly_to_circuit(&poly_ring, &[
-                poly_ring.add(poly_ring.evaluate(&bounded_digit_retain_poly(&poly_ring, B), &poly_ring.sub_ref_snd(poly_ring.indeterminate(), &p_half), poly_ring.inclusion()), p_half)
-            ]))
-        ];
+        let circuit = poly_to_circuit(&poly_ring, &[
+            poly_ring.add(poly_ring.evaluate(&bounded_digit_retain_poly(&poly_ring, B), &poly_ring.sub_ref_snd(poly_ring.indeterminate(), &p_half), poly_ring.inclusion()), p_half)
+        ]).change_ring_uniform(|x| x.change_ring(|x| poly_ring.base_ring().smallest_lift(x)));
+        let digit_extraction_circuits = vec![(vec![e], circuit)];
         
         return Self::new_with_circuits(int_cast(p, ZZbig, ZZi64), e, e - 1, StaticRing::<i64>::RING, digit_extraction_circuits);
     }
@@ -334,8 +336,6 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
     }
 }
 
-#[cfg(test)]
-use feanor_math::rings::zn::ZnRingStore;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]

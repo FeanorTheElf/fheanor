@@ -1,0 +1,664 @@
+use std::cmp::{min, max};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::ops::RangeInclusive;
+use std::slice::from_ref;
+
+use feanor_math::divisibility::{DivisibilityRing, DivisibilityRingStore};
+use feanor_math::integer::IntegerRingStore;
+use feanor_math::ring::*;
+use feanor_math::rings::finite::{FiniteRing, FiniteRingStore};
+use feanor_math::rings::poly::{PolyRing, PolyRingStore};
+
+use crate::circuit::PlaintextCircuit;
+use crate::circuit::serialization::SerializablePlaintextCircuit;
+use crate::*;
+
+fn addition_chain_lengths(k: usize, available: &[usize]) -> (Vec<usize>, Vec<usize>) {
+    debug_assert!(available.is_sorted());
+    let mut costs = vec![0, 0];
+    let mut next = vec![0, 1];
+    let mut available_i = 0;
+    while available_i < available.len() && available[available_i] < 2 {
+        available_i += 1;
+    }
+    for i in 2..=k {
+        if available_i < available.len() && i == available[available_i] {
+            costs.push(0);
+            next.push(i);
+            available_i += 1;
+        } else {
+            let next_power_two = 1 << ZZi64.abs_log2_ceil(&(i as i64)).unwrap();
+            let potential_steps = (i - next_power_two / 2)..=(next_power_two / 2);
+            let j = potential_steps.min_by_key(|j| costs[*j] + costs[i - j] + 1).unwrap();
+            costs.push(costs[j] + costs[i - j] + 1);
+            next.push(j);
+        }
+    }
+    return (costs, next);
+}
+
+fn addition_chain_for(target: usize, shortest_addition_chain_list: &[usize]) -> Vec<(usize, (usize, usize))> {
+    let mut open = vec![target];
+    let mut closed = BTreeMap::new();
+    while let Some(value) = open.pop() {
+        if shortest_addition_chain_list[value] == value {
+            continue;
+        } else {
+            let left = shortest_addition_chain_list[value];
+            let right = value - left;
+            closed.insert(value, (left, right));
+            if !closed.contains_key(&left) {
+                open.push(left);
+            }
+            if !closed.contains_key(&right) {
+                open.push(right)
+            }
+        }
+    }
+    return closed.into_iter().collect();
+}
+
+fn minimum_somewhat_continuous_function<F>(range: RangeInclusive<usize>, mut f: F, steps: usize) -> usize
+    where F: FnMut(usize) -> i64
+{
+    assert!(steps >= 1);
+    let len = (range.end() - range.start() + 1) as usize;
+    if len == 1 {
+        return *range.start();
+    }
+    debug_assert!(2 * (len / 3) + 1 < len);
+    let delta = max(1, len / steps);
+    let approx = (*range.start()..*range.end()).step_by(delta).chain([*range.end()]).min_by_key(|x| f(*x)).unwrap();
+    if delta > 1 {
+        return minimum_somewhat_continuous_function(max(*range.start(), approx.saturating_sub(len as usize / 3))..=min(*range.end(), approx + len as usize / 3), f, steps);
+    } else {
+        return approx;
+    }
+}
+
+pub fn heuristic_decomposition<R, F>(poly_ring: R, to_evaluate: Vec<El<R>>, mut factors_to_circuit: F) -> PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>
+    where R: RingStore + Copy,
+        R::Type: PolyRing,
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: DivisibilityRing,
+        F: FnMut(R, Vec<El<R>>) -> PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>
+{
+    if to_evaluate.len() == 0 {
+        return PlaintextCircuit::empty();
+    }
+    let base_ring = poly_ring.base_ring();
+
+    let mut nontrivial_operation = false;
+    let mut precompute_square = false;
+    let mut polynomials = Vec::new();
+    let mut pre_circuits = Vec::new();
+    let mut post_circuits = Vec::new();
+
+    for f in to_evaluate {
+        let d = poly_ring.degree(&f).unwrap();
+        let current_output_idx = polynomials.len() + 1;
+        if d == 0 {
+            nontrivial_operation = true;
+            post_circuits.push(PlaintextCircuit::constant(base_ring.clone_el(poly_ring.coefficient_at(&f, 0)), base_ring));
+        } else if d == 1 {
+            nontrivial_operation = true;
+            post_circuits.push(PlaintextCircuit::add(base_ring).compose(
+                PlaintextCircuit::constant(base_ring.clone_el(poly_ring.coefficient_at(&f, 0)), base_ring).tensor(
+                    PlaintextCircuit::linear_transform_ring(from_ref(poly_ring.coefficient_at(&f, 1)), base_ring), 
+                    base_ring
+                ),
+                base_ring
+            ));
+        } else if (1..=d).step_by(2).all(|i| base_ring.is_zero(poly_ring.coefficient_at(&f, i))) {
+            nontrivial_operation = true;
+            precompute_square = true;
+            let factored_poly = poly_ring.from_terms(poly_ring.terms(&f).map(|(c, i)| (base_ring.clone_el(c), i.checked_div(2).unwrap())));
+            polynomials.push(factored_poly);
+            pre_circuits.push(PlaintextCircuit::select(2, &[1], base_ring));
+            post_circuits.push(PlaintextCircuit::select(current_output_idx + 1, &[current_output_idx], base_ring))
+        } else if (0..=d).step_by(2).all(|i| base_ring.is_zero(poly_ring.coefficient_at(&f, i))) {
+            nontrivial_operation = true;
+            precompute_square = true;
+            let factored_poly = poly_ring.from_terms(poly_ring.terms(&f).map(|(c, i)| (base_ring.clone_el(c), i.checked_sub(1).unwrap().checked_div(2).unwrap())));
+            polynomials.push(factored_poly);
+            pre_circuits.push(PlaintextCircuit::select(2, &[1], base_ring));
+            post_circuits.push(PlaintextCircuit::mul(base_ring).compose(PlaintextCircuit::select(current_output_idx + 1, &[0, current_output_idx], base_ring), base_ring));
+        } else {
+            polynomials.push(f);
+            pre_circuits.push(PlaintextCircuit::select(1, &[0], base_ring));
+            post_circuits.push(PlaintextCircuit::select(current_output_idx + 1, &[current_output_idx], base_ring));
+        }
+    }
+
+    if nontrivial_operation {
+        let polynomials_len = polynomials.len();
+        let main_circuit = heuristic_decomposition(poly_ring, polynomials, factors_to_circuit);
+        assert_eq!(main_circuit.output_count(), polynomials_len);
+
+        let pre_stage_inputs = if precompute_square { 2 } else { 1 };
+        let mut pre_circuit = pre_circuits.into_iter().fold(
+            PlaintextCircuit::drop(pre_stage_inputs), 
+            |current: PlaintextCircuit<_>, pre_circuit| {
+                let pad_count = pre_stage_inputs - pre_circuit.input_count();
+                current.tensor(
+                    pre_circuit.tensor(
+                        PlaintextCircuit::drop(pad_count),
+                        base_ring
+                    ),
+                    base_ring
+                ).compose(
+                    PlaintextCircuit::identity(pre_stage_inputs, base_ring).output_twice(base_ring),
+                    base_ring
+                )
+            }
+        );
+        if precompute_square {
+            pre_circuit = pre_circuit.compose(
+                PlaintextCircuit::identity(1, base_ring).tensor(
+                    PlaintextCircuit::square(base_ring), 
+                    base_ring
+                ).compose(
+                    PlaintextCircuit::identity(1, base_ring).output_times(pre_stage_inputs, base_ring), 
+                    base_ring
+                ), 
+                base_ring
+            );
+        }
+        assert_eq!(1, pre_circuit.input_count());
+        assert_eq!(polynomials_len, pre_circuit.output_count());
+
+        let main_stage_outputs = polynomials_len + 1;
+        let post_circuit = post_circuits.into_iter().fold(
+            PlaintextCircuit::drop(main_stage_outputs),
+            |current: PlaintextCircuit<_>, post_circuit| {
+                let pad_count = main_stage_outputs - post_circuit.input_count();
+                current.tensor(
+                    post_circuit.tensor(
+                        PlaintextCircuit::drop(pad_count),
+                        base_ring
+                    ),
+                    base_ring
+                ).compose(
+                    PlaintextCircuit::identity(main_stage_outputs, base_ring).output_twice(base_ring),
+                    base_ring
+                )
+            }
+        );
+        return post_circuit.compose(
+            PlaintextCircuit::identity(1, base_ring).tensor(
+                main_circuit.compose(pre_circuit, base_ring), 
+                base_ring
+            ).compose(
+                PlaintextCircuit::identity(1, base_ring).output_twice(base_ring), 
+                base_ring
+            ),
+            base_ring
+        );
+    } else {
+        return factors_to_circuit(poly_ring, polynomials);
+    }
+}
+
+///
+/// The evaluation strategy is as follows:
+///  - compute powers `x^i` for `i` in `precomputed_powers`; this always
+///    includes `1, 2, ..., k`, and usually many powers of two
+///  - for a polynomial `f` of degree `d`, recursively write it as `f = q X^l + r`
+///    and `r = c q + s`, where `l = split_at_monomial[d]`. Then `f = q (X^l + c) + s`,
+///    and we evaluate it by combining `x^l` and `q(x), c(x), s(x)`, which are evaluated
+///    recursively 
+///  - asymptotically, we would choose l = (d + k) / 2 so that deg(c) < k and we 
+///    can derive `c(x)`` from the precomputed powers; this leads to a reduction
+///    `d -> 2 x (d - k)/2` on each recursive step, with means we need `log2(d/k) - 1`
+///    recursive steps until we reach degree `k` and can continue with precomputed powers.
+///    Thus, the total cost is `2^(log2(d/k) - 1) + k = d/(2k) + k`, which is optimized
+///    at `k = sqrt(d/2)`, leading to `sqrt(2d)`. In practice, we will optimize the 
+///    concrete choice of `l` using dynamic programming. 
+/// 
+struct PatersonStockmeyerPlan {
+    split_at_monomial: Vec<Vec<usize>>,
+    k: usize,
+    /// these do not necessarily include the numbers 0..=k (but may include some)
+    extra_precomputed_powers: Vec<usize>,
+    #[allow(unused)]
+    mul_count: usize
+}
+
+///
+/// This function accurately estimates the cost for our variant of Paterson-Stockmeyer
+/// evaluation of generic polynomials of the given degrees (as explained in [`PatersonStockmeyerPlan`]), 
+/// and picks the choice leading to the smallest number of multiplications, under the restriction of
+/// having optimal multiplicative depth.
+/// 
+/// However, the heuristic is in general not optimal. Also, we assume that the underlying
+/// ring is a field. If there are zero-divisors, the plan cannot be used as-is. Nevertheless,
+/// we currently base the evaluation on the plan, and if we encounter a leading coefficient
+/// that is a zero divisor, we improvise later. 
+/// 
+fn plan_paterson_stockmeyer_circuit(ds: &[usize]) -> PatersonStockmeyerPlan {
+    let max_d = ds.iter().copied().max().unwrap();
+    let max_log2_d = ZZi64.abs_log2_floor(&(max_d as i64)).unwrap_or(0);
+
+    fn compute_cost_split(d: usize, l: usize, power_costs: &[usize], prev_costs: &[usize]) -> usize {
+        let deg_q = d.saturating_sub(l);
+        let deg_c = l.saturating_sub(deg_q + 1);
+        let deg_s = min(deg_q.saturating_sub(1), l - 1);
+        let max_degree_mult_depth = 1 << ZZi64.abs_log2_ceil(&(d as i64)).unwrap().saturating_sub(1);
+        if deg_q > max_degree_mult_depth || deg_c > max_degree_mult_depth || l > max_degree_mult_depth  {
+            usize::MAX
+        } else {
+            prev_costs[deg_q] + prev_costs[deg_c] + prev_costs[deg_s] + power_costs[l] + 1
+        }
+    }
+
+    fn get_mult_number(d: usize, k: usize, power_costs: &[usize]) -> usize {
+        assert!(k >= 1);
+        let mut result = Vec::with_capacity(d + 1);
+        result.extend((0..=k).map(|_| 0));
+        for i in (k + 1)..(d + 1) {
+            result.push((1..(i + 1)).map(|l| 
+                compute_cost_split(i, l, power_costs, &result)
+            ).min().unwrap());
+        }
+        return result[d];
+    }
+
+    let max_k = max(20, 2 * (max_d as f64).sqrt().ceil() as usize);
+    let min_k = max(1, ((max_d as f64).sqrt().floor() as usize / 2).saturating_sub(10));
+    let mut cache = HashMap::new();
+    let rough_k = minimum_somewhat_continuous_function(min_k..=max_k, |k| if let Some(res) = cache.get(&k) {
+        *res
+    } else {
+        let mut precomputed_powers = (0..=k).chain((0..max_log2_d).map(|i| 1 << i)).collect::<Vec<_>>();
+        precomputed_powers.sort();
+        precomputed_powers.dedup();
+        let (power_costs, _) = addition_chain_lengths(max_d, &precomputed_powers);
+        let cost = ds.iter().map(|d| get_mult_number(*d, k, &power_costs)).sum::<usize>() + precomputed_powers.len() - 2;
+        cache.insert(k, cost as i64);
+        return cost as i64;
+    }, 4);
+
+    let (exact_k, precomputed_powers, precomputed_powers_pow2) = (max(rough_k.saturating_sub(4), 1)..(rough_k + 9)).rev().flat_map(|k| (0..5).map(move |skipped_pow2s| (k, skipped_pow2s)))
+        .map(|(k, skipped_pow2s)| {
+            let precomputed_powers_pow2 = (0..max_log2_d.saturating_sub(skipped_pow2s)).map(|i| 1 << i).collect::<Vec<_>>();
+            let mut precomputed_powers = (0..=k).chain((0..max_log2_d.saturating_sub(skipped_pow2s)).map(|i| 1 << i)).collect::<Vec<_>>();
+            precomputed_powers.sort();
+            precomputed_powers.dedup();
+            return (k, precomputed_powers, precomputed_powers_pow2);
+        })
+        .min_by_key(|(k, precomputed_powers, _)| {
+            let (power_costs, _) = addition_chain_lengths(max_d, &precomputed_powers);
+            let cost = ds.iter().map(|d| get_mult_number(*d, (*k).try_into().unwrap(), &power_costs)).sum::<usize>() + precomputed_powers.len() - 2;
+            return cost;
+        }).unwrap();
+
+    println!("determined k = {}", exact_k);
+
+    let (power_costs, _) = addition_chain_lengths(max_d, &precomputed_powers);
+    let mut min_costs: Vec<usize> = Vec::new();
+    min_costs.extend((0..=exact_k).map(|_| 0));
+    let mut split_at_monomial = Vec::new();
+    split_at_monomial.extend((0..=exact_k).map(|_| Vec::new()));
+    for d in (exact_k + 1)..(max_d + 1) {
+        let mut possible_l = (((d as f64 * 0.4).floor() as usize)..=((d as f64 * 0.6).ceil() as usize)).map(|l| (l, compute_cost_split(d, l, &power_costs, &min_costs))).collect::<Vec<_>>();
+        let min_cost = possible_l.iter().map(|(_, cost)| *cost).min().unwrap();
+        possible_l.retain(|(_, cost)| *cost <= min_cost);
+        min_costs.push(min_cost);
+        split_at_monomial.push(possible_l.into_iter().map(|(l, _)| l).collect());
+    }
+
+    return PatersonStockmeyerPlan {
+        k: exact_k,
+        mul_count: ds.iter().map(|d| min_costs[*d]).sum::<usize>() + precomputed_powers.len() - 2,
+        extra_precomputed_powers: precomputed_powers_pow2,
+        split_at_monomial: split_at_monomial,
+    };
+}
+
+enum PatersonStockmeyerSplit<R>
+    where R: RingStore,
+        R::Type: PolyRing,
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: DivisibilityRing
+{
+    Precomputed {
+        f: El<R>
+    },
+    InnerNode {
+        q: Box<PatersonStockmeyerSplit<R>>,
+        c: Box<PatersonStockmeyerSplit<R>>,
+        s: Box<PatersonStockmeyerSplit<R>>,
+        factor: El<<R::Type as RingExtension>::BaseRing>,
+        l: usize
+    }
+}
+
+impl<R> PatersonStockmeyerSplit<R>
+    where R: RingStore + Copy,
+        R::Type: PolyRing,
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: DivisibilityRing
+{
+    fn create_recursive(poly_ring: R, mut f: El<R>, plan: &PatersonStockmeyerPlan, rec_depth: usize) -> Result<Self, ()> {
+        const MAX_ATTEMPTS: usize = 3;
+        let d = poly_ring.degree(&f).unwrap_or(0);
+        if d <= plan.k {
+            return Ok(Self::Precomputed { f: f });
+        } else if let Some(f_lc_inv) = poly_ring.base_ring().invert(poly_ring.lc(&f).unwrap()) {
+            let lc_f = poly_ring.base_ring().clone_el(poly_ring.lc(&f).unwrap());
+            poly_ring.inclusion().mul_assign_map(&mut f, f_lc_inv);
+
+            for l in plan.split_at_monomial[d].iter().take(MAX_ATTEMPTS) {
+                // println!("{}[{}] trying split at {}", "  ".repeat(rec_depth), d, l);
+                let X_l = poly_ring.from_terms([(poly_ring.base_ring().one(), *l)]);
+                let (q, r) = poly_ring.div_rem_monic(poly_ring.clone_el(&f), &X_l);
+                let (c, s) = poly_ring.div_rem_monic(r, &q);
+
+                match (
+                    PatersonStockmeyerSplit::create_recursive(poly_ring, q, plan, rec_depth + 1),
+                    PatersonStockmeyerSplit::create_recursive(poly_ring, c, plan, rec_depth + 1),
+                    PatersonStockmeyerSplit::create_recursive(poly_ring, s, plan, rec_depth + 1)
+                ) {
+                    (Ok(q), Ok(c), Ok(s)) => return Ok(Self::InnerNode { q: Box::new(q), c: Box::new(c), s: Box::new(s), l: *l, factor: lc_f }),
+                    _ => {}
+                }
+            }
+            // println!("{}[{}] fails", "  ".repeat(rec_depth), d);
+            return Err(());
+        } else {
+            // println!("{}[{}] fails", "  ".repeat(rec_depth), d);
+            return Err(());
+        }
+    }
+
+    fn requried_monomials(&self, poly_ring: R, monomials: &mut BTreeSet<usize>) {
+        match self {
+            PatersonStockmeyerSplit::Precomputed { f } => {
+                for (_, i) in poly_ring.terms(&f) {
+                    if i > 0 {
+                        monomials.insert(i);
+                    }
+                }
+            },
+            PatersonStockmeyerSplit::InnerNode { q, c, s, l, factor: _ } => {
+                assert!(*l > 0);
+                monomials.insert(*l);
+                q.requried_monomials(poly_ring, monomials);
+                c.requried_monomials(poly_ring, monomials);
+                s.requried_monomials(poly_ring, monomials);
+            }
+        }
+    }
+
+    fn to_circuit_recursive(self, poly_ring: R, input_powers: &[usize], rec_depth: usize) -> (El<R>, PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>)
+        where <<R::Type as RingExtension>::BaseRing as RingStore>::Type: SerializableElementRing
+    {
+        let base_ring = poly_ring.base_ring();
+        let get_power_idx = |power: usize| input_powers.iter().enumerate().filter(|(_, val)| **val == power).next().unwrap().0;
+        match self {
+            PatersonStockmeyerSplit::Precomputed { f } => {
+                let circuit = PlaintextCircuit::add(base_ring).compose(
+                    PlaintextCircuit::linear_transform_ring(
+                        &input_powers.iter().copied().map(|k| base_ring.clone_el(poly_ring.coefficient_at(&f, k))).collect::<Vec<_>>(), 
+                        base_ring
+                    ).tensor(PlaintextCircuit::constant(base_ring.clone_el(poly_ring.coefficient_at(&f, 0)), base_ring), base_ring),
+                    base_ring
+                );
+                return (f, circuit);
+            },
+            PatersonStockmeyerSplit::InnerNode { q, c, s, l, factor } => {
+                let Xl = PlaintextCircuit::select(input_powers.len(), &[get_power_idx(l)], base_ring);
+                let (q, q_circuit) = q.to_circuit_recursive(poly_ring, input_powers, rec_depth + 1);
+                let (c, c_circuit) = c.to_circuit_recursive(poly_ring, input_powers, rec_depth + 1);
+                let (s, s_circuit) = s.to_circuit_recursive(poly_ring, input_powers, rec_depth + 1);
+                let f_circuit = PlaintextCircuit::linear_transform_ring(&[factor], base_ring).compose(
+                    PlaintextCircuit::add(base_ring).compose(
+                        PlaintextCircuit::mul(base_ring).compose(
+                            PlaintextCircuit::add(base_ring).compose(Xl.tensor(c_circuit, base_ring), base_ring)
+                                .tensor(q_circuit, base_ring),
+                            base_ring
+                        ).tensor(s_circuit, base_ring),
+                        base_ring
+                    ).compose(
+                        PlaintextCircuit::identity(input_powers.len(), base_ring).output_times(4, base_ring),
+                        base_ring
+                    ),
+                    base_ring
+                );
+                debug_assert_eq!(input_powers.len(), f_circuit.input_count());
+                debug_assert_eq!(1, f_circuit.output_count());
+                let mut Xl = poly_ring.one();
+                poly_ring.mul_assign_monomial(&mut Xl, l);
+                let f = poly_ring.add(poly_ring.mul(poly_ring.add(c, Xl), q), s);
+                return (f, f_circuit);
+            }
+        }
+    }
+}
+
+///
+/// Computes a circuit to evaluate the given list of polynomials, using a variant
+/// of Paterson-Stockmeyer.
+/// 
+/// The polynomials are required to have invertible leading coefficients, since
+/// polynomial division is part of Paterson-Stockmeyer. The used variant is
+/// depth-aware, and each circuit output will have a low multiplicative depth.
+/// Parameters are optimized according to a heuristic, which usually results in
+/// very efficient circuits.
+/// 
+pub fn paterson_stockmeyer_circuit<R>(poly_ring: R, polynomials: &[El<R>]) -> Result<PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>, ()>
+    where R: RingStore,
+        R::Type: PolyRing,
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: DivisibilityRing + FiniteRing + SerializableElementRing
+{
+    let degrees = polynomials.iter().map(|f| poly_ring.degree(f).expect("all polynomials must be nonzero")).collect::<Vec<_>>();
+    let plan = plan_paterson_stockmeyer_circuit(&degrees);
+    assert!(plan.k >= 1);
+
+    fn precomputed_power_circuit<R>(poly_ring: R, precomputed_powers: &[usize]) -> PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>
+        where R: RingStore,
+            R::Type: PolyRing,
+            <<R::Type as RingExtension>::BaseRing as RingStore>::Type: DivisibilityRing + FiniteRing
+    {
+        assert!(precomputed_powers.is_sorted());
+        let base_ring = poly_ring.base_ring();
+        let mut current = PlaintextCircuit::identity(1, base_ring);
+        let mut current_powers = vec![1];
+        debug_assert_eq!(1, current.input_count());
+        debug_assert_eq!(current_powers.len(), current.output_count());
+        let get_idx = |pow: usize, current_powers: &[usize]| current_powers.binary_search(&pow).unwrap();
+        for power in precomputed_powers {
+            let (_, addition_chain_list) = addition_chain_lengths(*power, &current_powers);
+            let chain = addition_chain_for(*power, &addition_chain_list);
+            for (to_compute, (from_left, from_right)) in chain {
+                current = PlaintextCircuit::identity(current_powers.len(), base_ring).tensor(
+                    PlaintextCircuit::mul(base_ring).compose(PlaintextCircuit::select(current_powers.len(), &[get_idx(from_left, &current_powers), get_idx(from_right, &current_powers)], base_ring), base_ring),
+                    base_ring
+                ).compose(current.output_twice(base_ring), base_ring);
+                current_powers.push(to_compute);
+                debug_assert_eq!(1, current.input_count());
+                debug_assert_eq!(current_powers.len(), current.output_count());
+            }
+        }
+        return PlaintextCircuit::select(
+            current_powers.len(), 
+            &precomputed_powers.iter().map(|pow| get_idx(*pow, &current_powers)).collect::<Vec<_>>(), 
+            base_ring
+        ).compose(current, base_ring);
+    }
+
+    let mut rng = oorandom::Rand64::new(0);
+    for _ in 0..10 {
+        let random_value = poly_ring.base_ring().random_element(|| rng.rand_u64());
+        let mut splits = Vec::new();
+        for poly in polynomials {
+            let randomized_poly = poly_ring.evaluate(poly, &poly_ring.from_terms([(poly_ring.base_ring().one(), 1), (poly_ring.base_ring().clone_el(&random_value), 0)]), poly_ring.inclusion());
+            if let Ok(split) = PatersonStockmeyerSplit::create_recursive(&poly_ring, randomized_poly, &plan, 0) {
+                splits.push(split);
+            } else {
+                break;
+            }
+        }
+        if splits.len() == polynomials.len() {
+            let mut precomputed_powers = BTreeSet::new();
+            precomputed_powers.extend(plan.extra_precomputed_powers.iter().copied());
+            drop(plan);
+            for split in &splits {
+                split.requried_monomials(&poly_ring, &mut precomputed_powers);
+            }
+            debug_assert!(!precomputed_powers.contains(&0));
+            let precomputed_powers = precomputed_powers.into_iter().collect::<Vec<_>>();
+            let main_circuit = splits.into_iter().fold(
+                PlaintextCircuit::drop(precomputed_powers.len()),
+                |current, next| current.tensor(next.to_circuit_recursive(&poly_ring, &precomputed_powers, 0).1, poly_ring.base_ring())
+                        .compose(PlaintextCircuit::identity(precomputed_powers.len(), poly_ring.base_ring()).output_twice(poly_ring.base_ring()), poly_ring.base_ring())
+            );
+            debug_assert_eq!(precomputed_powers.len(), main_circuit.input_count());
+            debug_assert_eq!(polynomials.len(), main_circuit.output_count());
+            
+            let precompute_powers_circuit = precomputed_power_circuit(&poly_ring, &precomputed_powers);
+            // println!("{}", serde_json::to_string_pretty(&SerializablePlaintextCircuit::new_no_galois(poly_ring.base_ring(), &precompute_powers_circuit)).unwrap());
+
+            let de_randomize_circuit = PlaintextCircuit::add(poly_ring.base_ring()).compose(
+                PlaintextCircuit::identity(1, poly_ring.base_ring()).tensor(
+                    PlaintextCircuit::constant(poly_ring.base_ring().negate(random_value), poly_ring.base_ring()), 
+                    poly_ring.base_ring()
+                ), 
+                poly_ring.base_ring()
+            );
+            return Ok(main_circuit.compose(precompute_powers_circuit, poly_ring.base_ring()).compose(de_randomize_circuit, poly_ring.base_ring()));
+        }
+    }
+    return Err(());
+}
+
+#[cfg(test)]
+use feanor_math::homomorphism::Homomorphism;
+#[cfg(test)]
+use feanor_math::assert_el_eq;
+#[cfg(test)]
+use feanor_math::rings::poly::dense_poly::DensePolyRing;
+#[cfg(test)]
+use crate::digit_extract::polys::*;
+#[cfg(test)]
+use feanor_math::rings::zn::zn_64::Zn;
+
+#[test]
+fn test_heuristic_decomposition() {
+    let ZZX = DensePolyRing::new(ZZi64, "X");
+
+    let [f] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(4)]);
+    let actual = heuristic_decomposition(&ZZX, vec![f], |_, _| unreachable!());
+    let expected = PlaintextCircuit::square(ZZi64).compose(PlaintextCircuit::square(ZZi64), ZZi64);
+    assert!(expected.eq(&actual));
+
+    let [f] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(5)]);
+    let actual = heuristic_decomposition(&ZZX, vec![f], |_, _| unreachable!());
+    let expected = PlaintextCircuit::mul(ZZi64).compose(
+        PlaintextCircuit::identity(1, ZZi64).tensor(
+            PlaintextCircuit::square(ZZi64).compose(PlaintextCircuit::square(ZZi64), ZZi64), 
+            ZZi64
+        ), 
+        ZZi64
+    ).compose(
+        PlaintextCircuit::identity(1, ZZi64).output_twice(ZZi64), 
+        ZZi64
+    );
+    assert!(expected.eq(&actual));
+
+    let [f, g] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + 2 * X.pow_ref(3) - X, X.pow_ref(2) + 2 * X - 1]);
+    let mut dense_part_mults = 0;
+    let actual = heuristic_decomposition(&ZZX, vec![ZZX.clone_el(&f)], |ZZX, polys| {
+        assert_eq!(1, polys.len());
+        assert_el_eq!(ZZX, g, &polys[0]);
+        let result: PlaintextCircuit<StaticRingBase<i64>> = poly_to_circuit(ZZX, &polys);
+        dense_part_mults = result.multiplication_gate_count();
+        return result;
+    });
+    // println!("{}", serde_json::to_string_pretty(&SerializablePlaintextCircuit::new_no_galois(&ZZi64, &actual)).unwrap());
+    assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
+    for x in -10..10 {
+        assert_eq!(vec![ZZX.evaluate(&f, &x, ZZi64.identity())], actual.evaluate_no_galois(&[x], ZZi64.identity()));
+    }
+}
+
+#[test]
+fn test_plan_single() {
+    assert_eq!(0, plan_paterson_stockmeyer_circuit(&[1]).mul_count);
+    assert_eq!(1, plan_paterson_stockmeyer_circuit(&[2]).mul_count);
+    assert_eq!(2, plan_paterson_stockmeyer_circuit(&[3]).mul_count);
+    assert_eq!(2, plan_paterson_stockmeyer_circuit(&[4]).mul_count);
+    assert_eq!(3, plan_paterson_stockmeyer_circuit(&[5]).mul_count);
+    assert_eq!(3, plan_paterson_stockmeyer_circuit(&[6]).mul_count);
+    assert_eq!(4, plan_paterson_stockmeyer_circuit(&[7]).mul_count);
+    assert_eq!(4, plan_paterson_stockmeyer_circuit(&[8]).mul_count);
+    assert_eq!(4, plan_paterson_stockmeyer_circuit(&[9]).mul_count);
+    assert_eq!(5, plan_paterson_stockmeyer_circuit(&[10]).mul_count);
+}
+
+#[test]
+fn test_plan_multiple() {
+    assert_eq!(
+        12,
+        plan_paterson_stockmeyer_circuit(&[17, 34]).mul_count
+    )
+}
+
+#[test]
+fn test_evaluation_circuit() {
+    let FpX = DensePolyRing::new(Zn::new(65537), "X");
+    let Fp = FpX.base_ring();
+    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1]);
+    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f)).unwrap();
+    for i in 0..10 {
+        assert_el_eq!(Fp, FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
+    }
+
+    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1]);
+    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f)).unwrap();
+    for i in 0..10 {
+        assert_el_eq!(Fp, FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
+    }
+
+    let f = FpX.from_terms((0..=17).map(|i| (Fp.int_hom().map(1 << i), i)));
+    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f)).unwrap();
+    for i in 0..20 {
+        assert_el_eq!(Fp, FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
+    }
+}
+
+#[test]
+fn test_evaluation_circuit_multiple() {
+    let FpX = DensePolyRing::new(Zn::new(65537), "X");
+    let Fp = FpX.base_ring();
+    let polys = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1, X.pow_ref(2) - 1]);
+    let circuit = paterson_stockmeyer_circuit(&FpX, &polys).unwrap();
+    for i in 0..10 {
+        assert_el_eq!(Fp, FpX.evaluate(&polys[0], &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
+        assert_el_eq!(Fp, FpX.evaluate(&polys[1], &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[1]);
+    }
+
+    let polys = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1, X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1, X.pow_ref(2) - 1]);
+    let circuit = paterson_stockmeyer_circuit(&FpX, &polys).unwrap();
+    for i in 0..10 {
+        assert_el_eq!(Fp, FpX.evaluate(&polys[0], &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
+        assert_el_eq!(Fp, FpX.evaluate(&polys[1], &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[1]);
+        assert_el_eq!(Fp, FpX.evaluate(&polys[2], &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[2]);
+    }
+}
+
+#[test]
+#[ignore]
+fn circuit_for_65537() {
+    use feanor_math::rings::zn::zn_64::Zn;
+    use crate::cache::*;
+
+    let Zp2X = DensePolyRing::new(Zn::new(65537 * 65537), "X");
+    let poly = create_cached::<_, _, _, true>(
+        &Zp2X,
+        || RingElSerializeDeserializeWithRing::from(centered_digit_extract_poly(&Zp2X, 2)), 
+        &filename_keys!(digit_retain_poly, p: 65537, e: 2), 
+        Some("."), 
+        cache::StoreAs::AlwaysJson
+    ).into();
+    let circuit = heuristic_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], |Zp2X, polys| paterson_stockmeyer_circuit(&Zp2X, &polys).unwrap());
+    println!("best mults  {}", circuit.multiplication_gate_count());
+    println!("bsgs mults {}", poly_to_circuit(&Zp2X, from_ref(&poly)).multiplication_gate_count());
+}
