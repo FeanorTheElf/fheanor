@@ -66,7 +66,7 @@ use super::PreparedMultiplicationRing;
 /// let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
 /// let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
 /// // `element` is stored in small-basis representation
-/// let element = ring.get_ring().from_small_basis_repr(ring.get_ring().unmanaged_ring().get_ring().from_non_fft(ring.base_ring().int_hom().map(2)));
+/// let element = ring.get_ring()..from_small_basis(ring.get_ring().unmanaged_ring().get_ring().from_non_fft(ring.base_ring().int_hom().map(2)));
 /// // this will point to the same payload as `element`
 /// let mut element_copy = ring.clone_el(&element);
 /// // this will convert `element` to double-rns representation; it is now stored once w.r.t. small-basis
