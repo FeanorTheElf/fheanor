@@ -845,8 +845,8 @@ fn test_digit_extract_homomorphic() {
     assert_eq!(2, m_high % 17);
     
     let m_low = Pow2BFV::dec(&P2, &C, Pow2BFV::clone_ct(&C, &ct_low), &sk);
-    assert!(P1.wrt_canonical_basis(&m_low).iter().skip(1).all(|x| P2.base_ring().is_zero(&x)));
-    let m_low = P1.base_ring().smallest_positive_lift(P1.wrt_canonical_basis(&m_low).at(0));
+    assert!(P2.wrt_canonical_basis(&m_low).iter().skip(1).all(|x| P2.base_ring().is_zero(&x)));
+    let m_low = P2.base_ring().smallest_positive_lift(P2.wrt_canonical_basis(&m_low).at(0));
     assert_eq!(5, m_low % (17 * 17));
 }
 

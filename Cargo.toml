@@ -20,7 +20,7 @@ feanor-math-hexl = { version = "0.2.6", optional = true }
 oorandom = "11.1.3"
 serde = { version = "1.0.207", features = ["derive"] }
 thread_local = "1.1.8"
-rand = "0.9.1"
+rand = "0.9.3"
 rand_distr = "0.5.1"
 take_mut = "0.2.2"
 feanor-mempool = "2.1.0"
