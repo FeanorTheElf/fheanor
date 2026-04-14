@@ -244,13 +244,9 @@ impl<R: ?Sized + RingBase> LinearCombination<R> {
             factors: self.factors.into_iter().map(|c| change_factor(c)).collect()
         }
     }
-}
-
-impl<R: RingBase + Default> PartialEq for LinearCombination<R> {
     
-    fn eq(&self, other: &Self) -> bool {
+    fn eq<S: RingStore<Type = R> + Copy>(&self, other: &Self, ring: S) -> bool {
         assert_eq!(self.factors.len(), other.factors.len());
-        let ring = RingValue::<R>::default();
         return self.constant.eq(&other.constant, &ring) &&
             self.factors.iter().zip(other.factors.iter()).all(|(lhs, rhs)| lhs.eq(rhs, &ring));
     }
@@ -274,14 +270,11 @@ impl<R: ?Sized + RingBase> PlaintextCircuitGate<R> {
             PlaintextCircuitGate::Square(t) => PlaintextCircuitGate::Square(t.clone(ring))
         }
     }
-}
-
-impl<R: RingBase + Default> PartialEq for PlaintextCircuitGate<R> {
     
-    fn eq(&self, other: &Self) -> bool {
+    fn eq<S: RingStore<Type = R> + Copy>(&self, other: &Self, ring: S) -> bool {
         match (self, other) {
-            (PlaintextCircuitGate::Mul(self_lhs, self_rhs), PlaintextCircuitGate::Mul(other_lhs, other_rhs)) => self_lhs == other_lhs && self_rhs == other_rhs,
-            (PlaintextCircuitGate::Square(self_t), PlaintextCircuitGate::Square(other_t)) => self_t == other_t,
+            (PlaintextCircuitGate::Mul(self_lhs, self_rhs), PlaintextCircuitGate::Mul(other_lhs, other_rhs)) => self_lhs.eq(other_lhs, ring) && self_rhs.eq(other_rhs, ring),
+            (PlaintextCircuitGate::Square(self_t), PlaintextCircuitGate::Square(other_t)) => self_t.eq(other_t, ring),
             _ => false
         }
     }
@@ -313,13 +306,6 @@ pub struct PlaintextCircuit<R: ?Sized + RingBase> {
     input_count: usize,
     gates: Vec<PlaintextCircuitGate<R>>,
     output_transforms: Vec<LinearCombination<R>>
-}
-
-impl<R: RingBase + Default> PartialEq for PlaintextCircuit<R> {
-
-    fn eq(&self, other: &Self) -> bool {
-        self.input_count == other.input_count && self.gates == other.gates && self.output_transforms == other.output_transforms
-    }
 }
 
 impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
@@ -354,6 +340,14 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
             input_count: self.input_count,
             output_transforms: self.output_transforms.iter().map(|t| t.clone(ring)).collect()
         }
+    }
+
+    pub fn eq<S: RingStore<Type = R> + Copy>(&self, other: &Self, ring: S) -> bool {
+        self.input_count == other.input_count && 
+        self.gates.len() == other.gates.len() && 
+        self.gates.iter().zip(other.gates.iter()).all(|(l, r)| l.eq(r, ring)) && 
+        self.output_transforms.len() == other.output_transforms.len() &&
+        self.output_transforms.iter().zip(other.output_transforms.iter()).all(|(l, r)| l.eq(r, ring))
     }
 
     fn computed_wire_count(&self) -> usize {
@@ -1232,7 +1226,7 @@ fn test_circuit_tensor_compose() {
             constant: Coefficient::Zero,
             factors: vec![Coefficient::Zero, Coefficient::One]
         }]
-    } == x_sqr);
+    }.eq(&x_sqr, ring));
 
     let x = PlaintextCircuit::identity(1, ring);
     let y = PlaintextCircuit::identity(1, ring);
@@ -1330,13 +1324,13 @@ fn test_serialization() {
     let tokens = SerializablePlaintextCircuit::new_no_galois(&ring, &circuit).serialize(&serializer).unwrap();
     let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(true).build();
     let deserialized_circuit = DeserializeSeedPlaintextCircuit::new_no_galois(&ring).deserialize(&mut deserializer).unwrap();
-    assert!(deserialized_circuit == circuit);
+    assert!(deserialized_circuit.eq(&circuit, ring));
 
     let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
     let tokens = SerializablePlaintextCircuit::new_no_galois(&ring, &circuit).serialize(&serializer).unwrap();
     let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(false).build();
     let deserialized_circuit = DeserializeSeedPlaintextCircuit::new_no_galois(&ring).deserialize(&mut deserializer).unwrap();
-    assert!(deserialized_circuit == circuit);
+    assert!(deserialized_circuit.eq(&circuit, ring));
 }
 
 #[test]
@@ -1344,5 +1338,5 @@ fn test_identity_galois() {
     let Gal = CyclotomicGaloisGroupBase::new(5).into().full_subgroup();
     let ring = StaticRing::<i64>::RING;
     let circuit = PlaintextCircuit::gal(Gal.identity(), &Gal, ring);
-    assert!(circuit == PlaintextCircuit::identity(1, ring));
+    assert!(circuit.eq(&PlaintextCircuit::identity(1, ring), &ring));
 }

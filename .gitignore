@@ -10,6 +10,8 @@ coeffs2slots_*.json
 slots2coeffs_*.json
 coeffs2slots_*.pcd
 slots2coeffs_*.pcd
+digit_extract_*.json
+digit_extract_*.pcd
 bgv_memtrace
 .vscode
 **/*.old.rs

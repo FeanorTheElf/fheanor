@@ -10,19 +10,30 @@ use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::rings::zn::zn_64::Zn;
 use feanor_math::rings::zn::ZnRingStore;
 use feanor_math::homomorphism::*;
-use polys::{digit_retain_poly, poly_to_circuit, precomputed_p_2};
 use tracing::instrument;
 
 use crate::circuit::PlaintextCircuit;
-use crate::digit_extract::polys::bounded_digit_retain_poly;
+use crate::digit_extract::digit_retain::bounded_digit_retain_poly;
+use crate::digit_extract::digit_retain::digit_retain_poly;
+use crate::digit_extract::polys::poly_to_circuit;
+use crate::digit_extract::polys::precomputed_p_2;
 use crate::{ZZbig, ZZi64};
 
 ///
-/// Contains various tools to digit extraction polynomials and convert them into circuits,
-/// in particular [`polys::poly_to_circuit()`].
+/// Contains functions to compute Halevi and Shoup digit extraction polynomials,
+/// Chen and Han digit retain polynomials, and MHWW digit retain polynomials.
+/// 
+pub mod digit_retain;
+///
+/// Contains a heuristic adaption of the Paterson-Stockmeyer to finite rings;
+/// this is used internally by [`polys::poly_to_circuit()`].
+/// 
+pub mod paterson_stockmeyer;
+///
+/// Contains [`polys::poly_to_circuit()`] to convert multiple polynomials into
+/// a [`PlaintextCircuit`] that evaluates them.
 /// 
 pub mod polys;
-pub mod paterson_stockmeyer;
 
 ///
 /// The digit extraction operation, as required during BFV and

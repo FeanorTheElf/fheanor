@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use feanor_math::rings::poly::sparse_poly::SparsePolyRingBase;
-use feanor_math::rings::zn::ZnRingStore;
 use tracing::instrument;
 
 use feanor_math::ring::*;
@@ -443,6 +442,8 @@ use feanor_math::rings::zn::zn_64::*;
 use feanor_math::assert_el_eq;
 #[cfg(test)]
 use crate::bfv::{Pow2BFV, test_setup_bfv};
+#[cfg(test)]
+use feanor_math::rings::zn::ZnRingStore;
 
 #[test]
 fn test_hom_evaluate_circuit() {
