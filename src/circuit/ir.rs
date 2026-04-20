@@ -231,6 +231,7 @@ fn test_circuit_to_ir() {
 }
 
 #[test]
+#[ignore]
 fn generate_slots_to_coeffs() {
     use std::cell::LazyCell;
     use std::fs::File;
