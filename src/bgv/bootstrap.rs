@@ -404,7 +404,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
                 Params::dec_println_slots(P_base, &C_input, &ct_input, sk, Some("."));
             }
 
-            let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[key_switches]| {
+            let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[]| {
                 let result = DefaultModswitchStrategy::never_modswitch().evaluate_circuit(
                     &self.slots_to_coeffs_thin, 
                     C_master,
@@ -418,7 +418,6 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
                     }], 
                     None, 
                     gks,
-                    key_switches,
                     debug_sk
                 );
                 assert_eq!(1, result.len());
@@ -475,7 +474,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
                 Params::dec_println(P_main, &C_master, &noisy_decryption.data, sk);
             }
 
-            let noisy_decryption_in_slots = log_time::<_, _, LOG, _>("3. Computing Coeffs-to-Slots transform", |[key_switches]| {
+            let noisy_decryption_in_slots = log_time::<_, _, LOG, _>("3. Computing Coeffs-to-Slots transform", |[]| {
                 let result = self.modswitch_strategy.evaluate_circuit(
                     &self.coeffs_to_slots_thin, 
                     C_master,
@@ -484,7 +483,6 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
                     &[noisy_decryption], 
                     None, 
                     gks,
-                    key_switches,
                     debug_sk
                 );
                 assert_eq!(1, result.len());
@@ -495,7 +493,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
                 Params::dec_println_slots(P_main, &C_current, &noisy_decryption_in_slots.data, &Params::mod_switch_sk(&C_current, C_master, sk), Some("."));
             }
 
-            let final_result = log_time::<_, _, LOG, _>("4. Computing digit extraction", |[key_switches]| {
+            let final_result = log_time::<_, _, LOG, _>("4. Computing digit extraction", |[]| {
 
                 let C_current = Params::mod_switch_down_C(C_master, &noisy_decryption_in_slots.dropped_rns_factor_indices);
                 let rounding_divisor_half = C_current.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(ZZbig.clone_el(self.p()), self.v()), &ZZbig.int_hom().map(2)));
@@ -519,7 +517,6 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
                     C_master,
                     digit_extraction_input,
                     rk,
-                    key_switches,
                     debug_sk
                 ).0;
             });
@@ -600,7 +597,6 @@ impl DigitExtract {
         C_master: &CiphertextRing<Params>, 
         input: ModulusAwareCiphertext<Params, Strategy>, 
         rk: &RelinKey<Params>,
-        key_switches: &mut usize,
         debug_sk: Option<&SecretKey<Params>>
     ) -> (ModulusAwareCiphertext<Params, Strategy>, ModulusAwareCiphertext<Params, Strategy>) {
         assert!(LOG || debug_sk.is_none());
@@ -624,7 +620,7 @@ impl DigitExtract {
         return self.evaluate_generic(
             input,
             |exp, inputs, circuit| {
-                let digit_extracted = modswitch_strategy.evaluate_circuit(circuit, ZZi64, get_P(exp), C_master, inputs, Some(rk), &[], key_switches, debug_sk);
+                let digit_extracted = modswitch_strategy.evaluate_circuit(circuit, ZZi64, get_P(exp), C_master, inputs, Some(rk), &[], debug_sk);
                 if LOG && /* don't log if the circuit is just adding/cloning elements */ circuit.has_multiplication_gates() {
                     println!("Digit extraction modulo p^{} done", exp);
                     if let Some(sk) = debug_sk {

@@ -976,11 +976,9 @@ use crate::{ZZi64, ZZbig};
 #[cfg(test)]
 use feanor_math::integer::*;
 #[cfg(test)]
-use std::cmp::max;
-#[cfg(test)]
 use std::slice::from_ref;
 #[cfg(test)]
-use crate::circuit::evaluator::DefaultCircuitEvaluator;
+use crate::circuit::evaluator::CircuitEvaluator;
 
 #[test]
 fn test_to_circuit_single() {
@@ -1057,6 +1055,30 @@ fn test_to_circuit_single() {
 
 #[test]
 fn test_to_circuit_many() {
+    struct MulDepthEvaluator;
+
+    impl<'a, R: ?Sized + RingBase> CircuitEvaluator<'a, usize, R> for MulDepthEvaluator {
+
+        fn gal(&mut self, val: usize, gs: &'a [GaloisGroupEl]) -> Vec<usize> { gs.iter().map(|_| val).collect() }
+        fn add_constant(&mut self, val: usize, _: &'a Coefficient<R>) -> usize { val }
+        fn mul(&mut self, _: usize, _: usize) -> usize { unreachable!() }
+        fn square(&mut self, _: usize) -> usize { unreachable!() }
+        fn supports_gal(&self) -> bool { true }
+        fn supports_mul(&self) -> bool { false }
+
+        fn inner_prod<'b, I>(&mut self, data: I) -> usize
+            where I: Iterator<Item = (&'a Coefficient<R>, &'b usize)>,
+                R: 'a,
+                usize: 'b
+        {
+            data.map(|(c, v)| match c {
+                Coefficient::One | Coefficient::NegOne => *v,
+                Coefficient::Zero => 0,
+                Coefficient::Integer(_) | Coefficient::Other(_) => *v + 1
+            }).max().unwrap_or(0)
+        }
+    }
+
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
@@ -1078,10 +1100,7 @@ fn test_to_circuit_many() {
     ], 2);
     assert_eq!(4, transform.galois_gate_output_sum());
 
-    let mul_depth = transform.evaluate_generic(&[0], DefaultCircuitEvaluator::new(|_| 0, |a, b, c| match b {
-        Coefficient::One | Coefficient::Zero | Coefficient::NegOne => max(a, *c),
-        _ => max(a, c + 1)
-    }).with_gal(|x, gs| gs.iter().map(|_| x).collect())).pop().unwrap();
+    let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
     assert_eq!(2, mul_depth);
 
     let transform = MatmulTransform::to_circuit_many(&ring, H.hypercube(), vec![
@@ -1091,10 +1110,7 @@ fn test_to_circuit_many() {
     ], 2);
     assert_eq!(2 + 4, transform.galois_gate_output_sum());
 
-    let mul_depth = transform.evaluate_generic(&[0], DefaultCircuitEvaluator::new(|_| 0, |a, b, c| match b {
-        Coefficient::One | Coefficient::Zero | Coefficient::NegOne => max(a, *c),
-        _ => max(a, c + 1)
-    }).with_gal(|x, gs| gs.iter().map(|_| x).collect())).pop().unwrap();
+    let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
     assert_eq!(2, mul_depth);
 
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
@@ -1126,10 +1142,7 @@ fn test_to_circuit_many() {
     // no bs/gs algorithm will be used here, since hoisting is considered better with current configuration
     assert_eq!(3 + 3, transform.galois_gate_output_sum());
 
-    let mul_depth = transform.evaluate_generic(&[0], DefaultCircuitEvaluator::new(|_| 0, |a, b, c| match b {
-        Coefficient::One | Coefficient::Zero | Coefficient::NegOne => max(a, *c),
-        _ => max(a, c + 1)
-    }).with_gal(|x, gs| gs.iter().map(|_| x).collect())).pop().unwrap();
+    let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
     assert_eq!(2, mul_depth);
 }
 

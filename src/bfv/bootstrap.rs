@@ -475,7 +475,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
                 Params::dec_println_slots(P_base, &C_input, &ct_input, sk, None);
             }
 
-            let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[key_switches]| {
+            let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[]| {
                 let galois_group = P_base.acting_galois_group();
                 let modswitched_gks = self.slots_to_coeffs_thin.required_galois_keys(&galois_group).iter().map(|g| {
                     if let Some((_, gk)) = gks.iter().filter(|(provided_g, _)| galois_group.eq_el(g, provided_g)).next() {
@@ -495,7 +495,6 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
                     std::slice::from_ref(&ct_input), 
                     None, 
                     &modswitched_gks, 
-                    key_switches, 
                     None
                 );
                 assert_eq!(1, result.len());
@@ -532,7 +531,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
                 Params::dec_println(P_main, C, &noisy_decryption, sk);
             }
 
-            let noisy_decryption_in_slots = log_time::<_, _, LOG, _>("3. Computing Coeffs-to-Slots transform", |[key_switches]| {
+            let noisy_decryption_in_slots = log_time::<_, _, LOG, _>("3. Computing Coeffs-to-Slots transform", |[]| {
                 let result = self.coeffs_to_slots_thin.evaluate_bfv::<Params, _>(
                     &self.intermediate_plaintext_ring, 
                     P_main, 
@@ -541,7 +540,6 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
                     std::slice::from_ref(&noisy_decryption), 
                     None, 
                     gks, 
-                    key_switches, 
                     None
                 );
                 assert_eq!(1, result.len());
@@ -551,10 +549,10 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
                 Params::dec_println_slots(P_main, C, &noisy_decryption_in_slots, sk, None);
             }
 
-            let result = log_time::<_, _, LOG, _>("4. Performing digit extraction", |[key_switches]| {
+            let result = log_time::<_, _, LOG, _>("4. Performing digit extraction", |[]| {
                 let rounding_divisor_half = P_main.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(self.p(), self.v()), &ZZbig.int_hom().map(2)));
                 let digit_extraction_input = Params::hom_add_plain(P_main, C, &P_main.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots);
-                self.digit_extract.evaluate_bfv::<Params>(P_base, &self.plaintext_ring_hierarchy, P_main, C, C_mul, digit_extraction_input, rk, key_switches, debug_sk).0
+                self.digit_extract.evaluate_bfv::<Params>(P_base, &self.plaintext_ring_hierarchy, P_main, C, C_mul, digit_extraction_input, rk, debug_sk).0
             });
             return result;
         })
@@ -637,7 +635,6 @@ impl DigitExtract {
         C_mul: &CiphertextRing<Params>, 
         input: Ciphertext<Params>, 
         rk: &RelinKey<Params>,
-        key_switches: &mut usize,
         debug_sk: Option<&SecretKey<Params>>
     ) -> (Ciphertext<Params>, Ciphertext<Params>) {
         let ZZ = P_base.base_ring().integer_ring();
@@ -666,7 +663,6 @@ impl DigitExtract {
                     params,
                     Some(rk),
                     &[],
-                    key_switches,
                     debug_sk
                 )
             },
@@ -838,7 +834,7 @@ fn test_digit_extract_homomorphic() {
     let ct = Pow2BFV::enc_sym(&P2, &C, &mut rng, &m, &sk, 3.2);
 
     let digitextract = DigitExtract::new_default(17, 2, 1);
-    let (ct_high, ct_low) = digitextract.evaluate_bfv::<Pow2BFV>(&P1, &[], &P2, &C, &C_mul, ct, &rk, &mut 0, Some(&sk));
+    let (ct_high, ct_low) = digitextract.evaluate_bfv::<Pow2BFV>(&P1, &[], &P2, &C, &C_mul, ct, &rk, Some(&sk));
     let m_high = Pow2BFV::dec(&P1, &C, Pow2BFV::clone_ct(&C, &ct_high), &sk);
     assert!(P1.wrt_canonical_basis(&m_high).iter().skip(1).all(|x| P1.base_ring().is_zero(&x)));
     let m_high = P1.base_ring().smallest_positive_lift(P1.wrt_canonical_basis(&m_high).at(0));

@@ -1,7 +1,7 @@
-use crate::feanor_math::group::AbelianGroupStore;
+use crate::{circuit::evaluator::CircuitEvaluator, feanor_math::group::AbelianGroupStore};
 
 use super::*;
-use crate::circuit::{evaluator::DefaultCircuitEvaluator, Coefficient, PlaintextCircuit};
+use crate::circuit::{Coefficient, PlaintextCircuit};
 
 pub trait AsCLPXPlaintext<Params: CLPXInstantiation>: RingBase {
 
@@ -41,16 +41,6 @@ pub trait AsCLPXPlaintext<Params: CLPXInstantiation>: RingBase {
     ) -> Ciphertext<Params> {
         Params::hom_add(C, dst, &self.hom_mul_to(P, C, lhs, Params::clone_ct(C, rhs)))
     }
-
-    ///
-    /// Applies a Galois automorphism to a plaintext.
-    /// 
-    fn apply_galois_action_plain(
-        &self,
-        P: &PlaintextRing<Params>, 
-        x: &Self::Element,
-        gs: &[GaloisGroupEl]
-    ) -> Vec<Self::Element>;
 }
 
 impl<R, Params> AsCLPXPlaintext<Params> for R
@@ -80,18 +70,6 @@ impl<R, Params> AsCLPXPlaintext<Params> for R
     ) -> Ciphertext<Params> {
         Params::hom_mul_plain(P, C, &P.can_hom(RingValue::from_ref(self)).unwrap().map_ref(m), ct)
     }
-
-    ///
-    /// Applies a Galois automorphism to a plaintext.
-    /// 
-    default fn apply_galois_action_plain(
-        &self,
-        _P: &PlaintextRing<Params>, 
-        x: &Self::Element,
-        gs: &[GaloisGroupEl]
-    ) -> Vec<Self::Element> {
-        self.apply_galois_action_many(x, gs)
-    }
 }
 
 impl<Params: CLPXInstantiation> AsCLPXPlaintext<Params> for StaticRingBase<i64> {
@@ -114,15 +92,6 @@ impl<Params: CLPXInstantiation> AsCLPXPlaintext<Params> for StaticRingBase<i64> 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
         Params::hom_mul_plain(P, C, &P.inclusion().compose(P.base_ring().can_hom(&ZZi64).unwrap()).map_ref(m), ct)
-    }
-
-    fn apply_galois_action_plain(
-        &self,
-        _P: &PlaintextRing<Params>, 
-        x: &Self::Element,
-        gs: &[GaloisGroupEl]
-    ) -> Vec<Self::Element> {
-        gs.iter().map(|_| self.clone_el(x)).collect()
     }
 }
 
@@ -147,14 +116,77 @@ impl<Params: CLPXInstantiation> AsCLPXPlaintext<Params> for BigIntRingBase {
     ) -> Ciphertext<Params> {
         Params::hom_mul_plain(P, C, &P.inclusion().compose(P.base_ring().can_hom(&ZZbig).unwrap()).map_ref(m), ct)
     }
+}
+struct CLPXEvaluator<'a, R: ?Sized + AsCLPXPlaintext<Inst> , Inst: CLPXInstantiation> {
+    galois_group: &'a CyclotomicGaloisGroup,
+    ring: &'a R,
+    P: &'a PlaintextRing<Inst>,
+    C: &'a CiphertextRing<Inst>,
+    C_mul: Option<&'a CiphertextRing<Inst>>,
+    rk: Option<&'a RelinKey<Inst>>,
+    gks: &'a [(GaloisGroupEl, KeySwitchKey<Inst>)]
+}
 
-    fn apply_galois_action_plain(
-        &self,
-        _P: &PlaintextRing<Params>, 
-        x: &Self::Element,
-        gs: &[GaloisGroupEl]
-    ) -> Vec<Self::Element> {
-        gs.iter().map(|_| self.clone_el(x)).collect()
+impl<'a, 'b, R: ?Sized + AsCLPXPlaintext<Inst> , Inst: CLPXInstantiation> CircuitEvaluator<'b, Ciphertext<Inst>, R> for CLPXEvaluator<'a, R, Inst> {
+
+    fn supports_gal(&self) -> bool {
+        self.gks.len() > 0
+    }
+
+    fn supports_mul(&self) -> bool {
+        self.C_mul.is_some() && self.rk.is_some()
+    }
+
+    fn add_constant(&mut self, val: Ciphertext<Inst>, constant: &'b Coefficient<R>) -> Ciphertext<Inst> {
+        let ring = RingRef::new(self.ring);
+        self.ring.hom_add_to(self.P, self.C, &constant.clone(ring).to_ring_el(ring), val)
+    }
+
+    fn gal(&mut self, val: Ciphertext<Inst>, gs: &'b [GaloisGroupEl]) -> Vec<Ciphertext<Inst>> {
+        let gks = gs.as_fn().map_fn(|g| &self.gks.iter().filter(|(gk_g, _)| self.galois_group.eq_el(g, gk_g)).next().expect("galois key not present").1);
+        if gs.len() == 1 {
+            vec![Inst::hom_galois(self.P, self.C, val, &gs[0], gks.at(0))]
+        } else {
+            Inst::hom_galois_many(self.P, self.C, val, gs, &gks)
+        }
+    }
+
+    fn inner_prod<'c, I>(&mut self, mut data: I) -> Ciphertext<Inst>
+        where I: Iterator<Item = (&'b Coefficient<R>, &'c Ciphertext<Inst>)>,
+            R: 'b,
+            Ciphertext<Inst>: 'c
+    {
+        if let Some((coeff, ciphertext)) = data.next() {
+            let mut result = if let Coefficient::One = coeff {
+                Inst::clone_ct(self.C, ciphertext)
+            } else if let Some(int) = coeff.as_integer() {
+                <StaticRingBase<i64> as AsCLPXPlaintext<Inst>>::hom_mul_to(ZZi64.get_ring(), self.P, self.C, &(int as i64), Inst::clone_ct(self.C, ciphertext))
+            } else if let Coefficient::Other(coeff) = coeff {
+                self.ring.hom_mul_to(self.P, self.C, coeff, Inst::clone_ct(self.C, ciphertext))
+            } else {
+                unreachable!()
+            };
+            for (coeff, ciphertext) in data {
+                if let Coefficient::One = coeff {
+                    result = Inst::hom_add(self.C, result, ciphertext);
+                } else if let Some(int) = coeff.as_integer() {
+                    result = <StaticRingBase<i64> as AsCLPXPlaintext<Inst>>::hom_fma(ZZi64.get_ring(), self.P, self.C, result, &(int as i64), ciphertext);
+                } else if let Coefficient::Other(coeff) = coeff {
+                    result = self.ring.hom_fma(self.P, self.C, result, coeff, ciphertext);
+                }
+            }
+            return result;
+        } else {
+            return Inst::transparent_zero(self.C);
+        }
+    }
+
+    fn mul(&mut self, lhs: Ciphertext<Inst>, rhs: Ciphertext<Inst>) -> Ciphertext<Inst> {
+        Inst::hom_mul(self.P, self.C, self.C_mul.unwrap(), lhs, rhs, self.rk.unwrap())
+    }
+
+    fn square(&mut self, val: Ciphertext<Inst>) -> Ciphertext<Inst> {
+        Inst::hom_square(self.P, self.C, self.C_mul.unwrap(), val, self.rk.unwrap())
     }
 }
 
@@ -169,7 +201,6 @@ impl<R: RingBase> PlaintextCircuit<R> {
         inputs: &[Ciphertext<Params>], 
         rk: Option<&RelinKey<Params>>, 
         gks: &[(GaloisGroupEl, KeySwitchKey<Params>)], 
-        key_switches: &mut usize,
         _debug_sk: Option<&SecretKey<Params>>
     ) -> Vec<Ciphertext<Params>>
         where Params: CLPXInstantiation,
@@ -179,43 +210,21 @@ impl<R: RingBase> PlaintextCircuit<R> {
         assert!(!self.has_multiplication_gates() || C_mul.is_some());
         assert_eq!(C_mul.is_some(), rk.is_some());
         let galois_group = C.acting_galois_group();
-        let key_switches = RefCell::new(key_switches);
         return self.evaluate_generic(
             inputs,
-            DefaultCircuitEvaluator::<_, R, _, _, _, _, _, _>::new(
-                |x| match x {
-                    Coefficient::Zero => Params::transparent_zero(C),
-                    x => ring.get_ring().hom_add_to(P, C, &x.clone(ring).to_ring_el(ring), Params::transparent_zero(C))
-                },
-                |dst, x, ct| match x {
-                    Coefficient::Zero => dst,
-                    Coefficient::One => Params::hom_add(C, dst, ct),
-                    Coefficient::NegOne => Params::hom_sub(C, dst, ct),
-                    Coefficient::Integer(x) => ring.get_ring().hom_fma(P, C, dst, &ring.int_hom().map(*x), ct),
-                    Coefficient::Other(x) => ring.get_ring().hom_fma(P, C, dst, x, ct)
-                }
-            ).with_mul(|lhs, rhs| {
-                **key_switches.borrow_mut() += 1;
-                Params::hom_mul(P, C, C_mul.unwrap(), lhs, rhs, rk.unwrap())
-            }).with_square(|x| {
-                **key_switches.borrow_mut() += 1;
-                Params::hom_square(P, C, C_mul.unwrap(), x, rk.unwrap())
-            }).with_gal(|x, gs| if gs.len() == 1 {
-                **key_switches.borrow_mut() += 1;
-                vec![Params::hom_galois(P, C, x, &gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(g, &gs[0])).next().unwrap().1)]
-            } else {
-                **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(*g)).count();
-                Params::hom_galois_many(P, C, x, gs, gs.as_fn().map_fn(|expected_g| if let Some(gk) = gks.iter().filter(|(g, _)| galois_group.eq_el(g, expected_g)).next() {
-                    &gk.1
-                } else {
-                    panic!("Galois key for {} not found", galois_group.underlying_ring().format(&galois_group.as_ring_el(expected_g)))
-                }))
-            })
+            CLPXEvaluator {
+                C: C,
+                C_mul: C_mul,
+                P: P,
+                galois_group: galois_group.parent(),
+                gks: gks,
+                ring: ring.get_ring(),
+                rk: rk
+            }
         );
     }
 }
 
-use std::cell::RefCell;
 #[cfg(test)]
 use std::slice::from_ref;
 #[cfg(test)]
@@ -231,6 +240,6 @@ fn test_hom_evaluate_circuit() {
     let circuit = poly_to_circuit(&FpX, from_ref(&f))
         .change_ring_uniform(|x| x.change_ring(|x| FpX.base_ring().smallest_lift(x)));
 
-    let res = circuit.evaluate_clpx::<Pow2CLPX, _>(ZZbig, &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], &mut 0, None).into_iter().next().unwrap();
+    let res = circuit.evaluate_clpx::<Pow2CLPX, _>(ZZbig, &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], None).into_iter().next().unwrap();
     assert_el_eq!(&P, P.inclusion().map(FpX.evaluate(&f, &P.wrt_canonical_basis(&m).at(0), FpX.base_ring().identity())), &Pow2CLPX::dec(&P, &C, res, &sk));
 }

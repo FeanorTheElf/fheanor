@@ -27,7 +27,6 @@ use tracing::instrument;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::perform_rns_op;
 use crate::ciphertext_ring::BGFVCiphertextRing;
-use crate::circuit::evaluator::DefaultCircuitEvaluator;
 use crate::circuit::PlaintextCircuit;
 use crate::gadget_product::digits::*;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};

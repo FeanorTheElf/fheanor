@@ -26,6 +26,7 @@ pub mod serialization;
 /// how to evaluate an arithmetic circuit.
 /// 
 pub mod evaluator;
+pub mod ir;
 
 ///
 /// A coefficient used in a [`PlaintextCircuit`].
@@ -179,6 +180,15 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
         }
     }
 
+    pub fn as_integer(&self) -> Option<i32> {
+        match self {
+            Coefficient::Integer(x) => Some(*x),
+            Coefficient::NegOne => Some(-1),
+            Coefficient::Zero => Some(0),
+            Coefficient::One => Some(1),
+            Coefficient::Other(_) => None
+        }
+    }
 }
 
 ///
@@ -204,11 +214,14 @@ impl<R: ?Sized + RingBase> LinearCombination<R> {
         where E: CircuitEvaluator<'a, T, R>
     {
         assert_eq!(self.factors.len(), first_inputs.len() + second_inputs.len());
-        let constant = evaluator.constant(&self.constant);
-        evaluator.add_inner_prod(
-            constant, 
-            self.factors.iter().zip(first_inputs.iter().chain(second_inputs.iter()))
-        )
+        let result = evaluator.inner_prod(
+            self.factors.iter().zip(first_inputs.iter().chain(second_inputs.iter())).filter(|(l, _)| !l.is_zero())
+        );
+        if self.constant.is_zero() {
+            result
+        } else {
+            evaluator.add_constant(result, &self.constant)
+        }
     }
 
     fn compose<S>(self, input_transforms: &[LinearCombination<R>], ring: S) -> LinearCombination<R>
@@ -1204,6 +1217,8 @@ use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use serde::Serialize;
 #[cfg(test)]
 use serde::de::DeserializeSeed;
+#[cfg(test)]
+use crate::ZZi64;
 
 #[test]
 fn test_circuit_tensor_compose() {
@@ -1339,4 +1354,18 @@ fn test_identity_galois() {
     let ring = StaticRing::<i64>::RING;
     let circuit = PlaintextCircuit::gal(Gal.identity(), &Gal, ring);
     assert!(circuit.eq(&PlaintextCircuit::identity(1, ring), &ring));
+}
+
+#[test]
+fn test_evaluate() {
+    let ring = StaticRing::<i64>::RING;
+    let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
+    let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
+    let x_neg_x = PlaintextCircuit::mul(ring).compose(x.clone(ring).tensor(neg_x, ring), ring).compose(x.output_twice(ring), ring);
+    let two_minus_x_neg_x = PlaintextCircuit::add(ring).compose(x_neg_x.tensor(PlaintextCircuit::constant(2, ring), ring), ring);
+    let circuit = PlaintextCircuit::square(ring).compose(two_minus_x_neg_x, ring); // (2 - x * x) * (2 - x * x)
+
+    for x in -10..=10 {
+        assert_eq!(vec![(2 - x * x) * (2 - x * x)], circuit.evaluate_generic(&[x], HomEvaluator::new(ZZi64.identity())));
+    }
 }
