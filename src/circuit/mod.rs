@@ -11,6 +11,7 @@ use feanor_math::homomorphism::Homomorphism;
 use feanor_math::ring::*;
 use feanor_math::rings::zn::*;
 use feanor_math::serialization::SerializableElementRing;
+use tracing::instrument;
 
 use crate::cache::*;
 use crate::number_ring::galois::*;
@@ -940,6 +941,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     ///     | | |  
     /// ```
     /// 
+    #[instrument(skip_all)]
     pub fn compose<S: RingStore<Type = R> + Copy>(self, first: Self, ring: S) -> Self {
         assert_eq!(first.output_count(), self.input_count());
 

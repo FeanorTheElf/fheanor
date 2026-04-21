@@ -1,4 +1,7 @@
 use std::alloc::Allocator;
+use std::fmt::{Debug, Display};
+use std::ops::{Deref, DerefMut};
+use std::str::FromStr;
 
 use append_only_vec::AppendOnlyVec;
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
@@ -23,8 +26,8 @@ use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 
 pub trait ElAsIntListRing: RingBase {
 
-    fn as_int_list(&self, el: &Self::Element) -> Vec<i64>;
-    fn from_int_list(&self, list: &[i64]) -> Self::Element;
+    fn as_int_list(&self, el: &Self::Element) -> Vec<i128>;
+    fn from_int_list(&self, list: &[i128]) -> Self::Element;
 }
 
 impl<NumberRing, ZnTy, A, C> ElAsIntListRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
@@ -34,12 +37,12 @@ impl<NumberRing, ZnTy, A, C> ElAsIntListRing for NumberRingQuotientByIntBase<Num
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
-    fn as_int_list(&self, el: &Self::Element) -> Vec<i64> {
-        self.wrt_canonical_basis(el).iter().map(|x| int_cast(self.base_ring().smallest_lift(x), ZZi64, self.base_ring().integer_ring())).collect()
+    fn as_int_list(&self, el: &Self::Element) -> Vec<i128> {
+        self.wrt_canonical_basis(el).iter().map(|x| int_cast(self.base_ring().smallest_lift(x), ZZi128, self.base_ring().integer_ring())).collect()
     }
 
-    fn from_int_list(&self, list: &[i64]) -> Self::Element {
-        let mod_modulus = self.base_ring().can_hom(&ZZi64).unwrap();
+    fn from_int_list(&self, list: &[i128]) -> Self::Element {
+        let mod_modulus = self.base_ring().can_hom(&ZZbig).unwrap().compose(ZZbig.can_hom(&ZZi128).unwrap());
         self.from_canonical_basis(list.iter().copied().map(|x| mod_modulus.map(x)))
     }
 }
@@ -51,25 +54,97 @@ impl<NumberRing, ZnTy, A, C> ElAsIntListRing for NumberRingQuotientByIdealBase<N
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
-    fn as_int_list(&self, el: &Self::Element) -> Vec<i64> {
-        self.wrt_canonical_basis(el).iter().map(|x| int_cast(self.base_ring().smallest_lift(x), ZZi64, self.base_ring().integer_ring())).collect()
+    fn as_int_list(&self, el: &Self::Element) -> Vec<i128> {
+        self.wrt_canonical_basis(el).iter().map(|x| int_cast(self.base_ring().smallest_lift(x), ZZi128, self.base_ring().integer_ring())).collect()
     }
 
-    fn from_int_list(&self, list: &[i64]) -> Self::Element {
-        let mod_modulus = self.base_ring().can_hom(&ZZi64).unwrap();
+    fn from_int_list(&self, list: &[i128]) -> Self::Element {
+        let mod_modulus = self.base_ring().can_hom(&ZZbig).unwrap().compose(ZZbig.can_hom(&ZZi128).unwrap());
         self.from_canonical_basis(list.iter().copied().map(|x| mod_modulus.map(x)))
     }
 }
 
 impl ElAsIntListRing for StaticRingBase<i64> {
 
-    fn as_int_list(&self, el: &Self::Element) -> Vec<i64> {
+    fn as_int_list(&self, el: &Self::Element) -> Vec<i128> {
+        vec![*el as i128]
+    }
+
+    fn from_int_list(&self, list: &[i128]) -> Self::Element {
+        assert_eq!(1, list.len());
+        int_cast(list[0], ZZi64, ZZi128)
+    }
+}
+
+impl ElAsIntListRing for StaticRingBase<i128> {
+
+    fn as_int_list(&self, el: &Self::Element) -> Vec<i128> {
         vec![*el]
     }
 
-    fn from_int_list(&self, list: &[i64]) -> Self::Element {
+    fn from_int_list(&self, list: &[i128]) -> Self::Element {
         assert_eq!(1, list.len());
         list[0]
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct PlaintextDataI128 {
+    data: Vec<i128>,
+}
+
+impl Display for PlaintextDataI128 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.data)
+    }
+}
+
+impl Debug for PlaintextDataI128 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+impl From<Vec<i128>> for PlaintextDataI128 {
+    fn from(value: Vec<i128>) -> Self {
+        Self { data: value }
+    }
+}
+
+impl From<PlaintextDataI128> for Vec<i128> {
+    fn from(value: PlaintextDataI128) -> Vec<i128> {
+        value.data
+    }
+}
+
+impl FromStr for PlaintextDataI128 {
+
+    type Err = ();
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.starts_with("[") || !s.ends_with("]") {
+            return Err(());
+        }
+        let s = &s[1..(s.len() - 1)];
+        let mut result = Vec::new();
+        for int in s.split(", ") {
+            result.push(i128::from_str(int).map_err(|_| ())?);
+        }
+        return Ok(Self::from(result));
+    }
+}
+
+impl Deref for PlaintextDataI128 {
+    type Target = Vec<i128>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl DerefMut for PlaintextDataI128 {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
     }
 }
 
@@ -175,7 +250,7 @@ impl<'idents, 'constants, 'values, R: ?Sized + RingBase> CircuitEvaluator<'const
     }
 }
 
-pub fn circuit_to_ir<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>, circuit: &PlaintextCircuit<R::Type>) -> Program
+pub fn circuit_to_ir<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>, circuit: &PlaintextCircuit<R::Type>) -> Program<PlaintextDataI128>
     where R: RingStore + Copy,
         R::Type: ElAsIntListRing
 {
@@ -202,7 +277,7 @@ pub fn circuit_to_ir<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>,
     return Program::new(
         &program_inputs, 
         instructions.into_vec(),
-        constants.iter().map(|(k, v)| (k.as_str(), PlaintextData::from(ring.get_ring().as_int_list(&(*v).clone(ring).to_ring_el(ring))))).collect()
+        constants.iter().map(|(k, v)| (k.as_str(), PlaintextDataI128::from(ring.get_ring().as_int_list(&(*v).clone(ring).to_ring_el(ring))))).collect()
     );
 }
 
@@ -254,17 +329,17 @@ fn generate_slots_to_coeffs() {
         Some("."), 
         || pow2::coeffs_to_slots_thin(&H, 4)
     );
-    let program = circuit_to_ir(&P, P.acting_galois_group(), &coeffs_to_slots);
-    write!(BufWriter::new(File::open("./coeffs_to_slots_m65536_p65537_e5_levels4.fheir").unwrap()), "{}", program).unwrap();
+    let program: Program<PlaintextDataI128> = circuit_to_ir(&P, P.acting_galois_group(), &coeffs_to_slots);
+    write!(BufWriter::new(File::create("./coeffs_to_slots_m65536_p65537_e5_levels4.fheir").unwrap()), "{}", program).unwrap();
 
     let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(1 << 16), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), 4)));
     let H = LazyCell::new(|| H.change_modulus(&P));
     let slots_to_coeffs = create_circuit_cached::<_, _, true>(
         &P, 
-        &filename_keys![coeffs2slots, m: 1 << 16, p: 65537, e: 5, levels: 4], 
+        &filename_keys![slots_to_coeffs, m: 1 << 16, p: 65537, e: 4, levels: 4], 
         Some("."), 
         || pow2::slots_to_coeffs_thin(&H, 4)
     );
     let program = circuit_to_ir(&P, P.acting_galois_group(), &slots_to_coeffs);
-    write!(BufWriter::new(File::open("./slots_to_coeffs_m65536_p65537_e4_levels4.fheir").unwrap()), "{}", program).unwrap();
+    write!(BufWriter::new(File::create("./slots_to_coeffs_m65536_p65537_e4_levels4.fheir").unwrap()), "{}", program).unwrap();
 }
