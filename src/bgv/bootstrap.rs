@@ -10,7 +10,7 @@ use crate::bgv::modswitch::DefaultModswitchStrategy;
 use crate::circuit::*;
 use crate::filename_keys;
 use crate::log_time;
-use crate::digit_extract::DigitExtract;
+use crate::poly_eval::digit_extract::DigitExtract;
 
 use crate::lin_transform::composite;
 use crate::number_ring::galois::*;
@@ -733,8 +733,8 @@ fn test_composite_bgv_thin_bootstrapping_2_sparse_key_encapsulation() {
 #[test]
 fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
-    tracing_subscriber::registry().with(filtered_chrome_layer).init();
+    let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer, tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
     
     let mut rng = StdRng::from_seed([0; 32]);
 
@@ -778,8 +778,8 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
 #[test]
 fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
-    tracing_subscriber::registry().with(filtered_chrome_layer).init();
+    let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer, tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
     
     let mut rng = StdRng::from_seed([0; 32]);
 

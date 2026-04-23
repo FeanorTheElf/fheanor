@@ -7,7 +7,6 @@ use append_only_vec::AppendOnlyVec;
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::homomorphism::Homomorphism;
-use feanor_math::integer::int_cast;
 use feanor_math::primitive_int::*;
 use feanor_math::ring::RingStore;
 use feanor_math::ring::*;
@@ -15,6 +14,7 @@ use feanor_math::rings::extension::FreeAlgebra;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::VectorFn;
 use fhe_ir::*;
+use tracing::instrument;
 
 use crate::circuit::evaluator::CircuitEvaluator;
 use crate::number_ring::galois::*;
@@ -24,125 +24,185 @@ use crate::circuit::{Coefficient, PlaintextCircuit};
 use crate::number_ring::AbstractNumberRing;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 
-pub trait ElAsIntListRing: RingBase {
+pub trait ElToIRRing: RingBase {
 
-    fn as_int_list(&self, el: &Self::Element) -> Vec<i128>;
-    fn from_int_list(&self, list: &[i128]) -> Self::Element;
+    type ElRepr: Display + FromStr;
+
+    fn into_repr(&self, el: Self::Element) -> Self::ElRepr;
+    fn from_repr(&self, repr: Self::ElRepr) -> Self::Element;
 }
 
-impl<NumberRing, ZnTy, A, C> ElAsIntListRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+impl<NumberRing, ZnTy, A, C> ElToIRRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing,
         ZnTy: RingStore + Clone,
         ZnTy::Type: NiceZn,
+        <ZnTy::Type as ZnRing>::IntegerRing: Default,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
-    fn as_int_list(&self, el: &Self::Element) -> Vec<i128> {
-        self.wrt_canonical_basis(el).iter().map(|x| int_cast(self.base_ring().smallest_lift(x), ZZi128, self.base_ring().integer_ring())).collect()
+    type ElRepr = IntList<<ZnTy::Type as ZnRing>::IntegerRing>;
+
+    fn into_repr(&self, el: Self::Element) -> Self::ElRepr {
+        IntList::from(self.wrt_canonical_basis(&el).iter().map(|x| self.base_ring().smallest_lift(x)).collect::<Vec<_>>())
     }
 
-    fn from_int_list(&self, list: &[i128]) -> Self::Element {
-        let mod_modulus = self.base_ring().can_hom(&ZZbig).unwrap().compose(ZZbig.can_hom(&ZZi128).unwrap());
-        self.from_canonical_basis(list.iter().copied().map(|x| mod_modulus.map(x)))
+    fn from_repr(&self, repr: Self::ElRepr) -> Self::Element {
+        let mod_modulus = self.base_ring().can_hom(self.base_ring().integer_ring()).unwrap();
+        self.from_canonical_basis(Vec::from(repr).into_iter().map(|x| mod_modulus.map(x)))
     }
 }
 
-impl<NumberRing, ZnTy, A, C> ElAsIntListRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
+impl<NumberRing, ZnTy, A, C> ElToIRRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing,
         ZnTy: RingStore + Clone,
         ZnTy::Type: NiceZn,
+        <ZnTy::Type as ZnRing>::IntegerRing: Default,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
-    fn as_int_list(&self, el: &Self::Element) -> Vec<i128> {
-        self.wrt_canonical_basis(el).iter().map(|x| int_cast(self.base_ring().smallest_lift(x), ZZi128, self.base_ring().integer_ring())).collect()
+    type ElRepr = IntList<<ZnTy::Type as ZnRing>::IntegerRing>;
+
+    fn into_repr(&self, el: Self::Element) -> Self::ElRepr {
+        IntList::from(self.wrt_canonical_basis(&el).iter().map(|x| self.base_ring().smallest_lift(x)).collect::<Vec<_>>())
     }
 
-    fn from_int_list(&self, list: &[i128]) -> Self::Element {
-        let mod_modulus = self.base_ring().can_hom(&ZZbig).unwrap().compose(ZZbig.can_hom(&ZZi128).unwrap());
-        self.from_canonical_basis(list.iter().copied().map(|x| mod_modulus.map(x)))
-    }
-}
-
-impl ElAsIntListRing for StaticRingBase<i64> {
-
-    fn as_int_list(&self, el: &Self::Element) -> Vec<i128> {
-        vec![*el as i128]
-    }
-
-    fn from_int_list(&self, list: &[i128]) -> Self::Element {
-        assert_eq!(1, list.len());
-        int_cast(list[0], ZZi64, ZZi128)
+    fn from_repr(&self, repr: Self::ElRepr) -> Self::Element {
+        let mod_modulus = self.base_ring().can_hom(self.base_ring().integer_ring()).unwrap();
+        self.from_canonical_basis(Vec::from(repr).into_iter().map(|x| mod_modulus.map(x)))
     }
 }
 
-impl ElAsIntListRing for StaticRingBase<i128> {
+impl ElToIRRing for StaticRingBase<i64> {
 
-    fn as_int_list(&self, el: &Self::Element) -> Vec<i128> {
-        vec![*el]
+    type ElRepr = i64;
+
+    fn from_repr(&self, repr: Self::ElRepr) -> Self::Element {
+        repr
     }
 
-    fn from_int_list(&self, list: &[i128]) -> Self::Element {
-        assert_eq!(1, list.len());
-        list[0]
+    fn into_repr(&self, el: Self::Element) -> Self::ElRepr {
+        el
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct PlaintextDataI128 {
-    data: Vec<i128>,
+impl ElToIRRing for StaticRingBase<i128> {
+
+    type ElRepr = i128;
+
+    fn from_repr(&self, repr: Self::ElRepr) -> Self::Element {
+        repr
+    }
+
+    fn into_repr(&self, el: Self::Element) -> Self::ElRepr {
+        el
+    }
 }
 
-impl Display for PlaintextDataI128 {
+pub struct IntList<I>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{
+    data: Vec<El<I>>,
+}
+
+impl<I> Clone for IntList<I>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{
+    fn clone(&self) -> Self {
+        let ring = I::default();
+        Self {
+            data: self.data.iter().map(|x| ring.clone_el(x)).collect()
+        }
+    }
+}
+impl<I> PartialEq for IntList<I>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{
+    fn eq(&self, other: &Self) -> bool {
+        let ring = I::default();
+        self.data.len() == other.data.len() && self.data.iter().zip(other.data.iter()).all(|(l, r)| ring.eq_el(l, r))
+    }
+}
+
+impl<I> Eq for IntList<I>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{}
+
+impl<I> Display for IntList<I>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.data)
+        let ring = I::default();
+        write!(f, "{:?}", self.data.iter().map(|x| ring.format(x)).collect::<Vec<_>>())
     }
 }
 
-impl Debug for PlaintextDataI128 {
+impl<I> Debug for IntList<I>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self)
     }
 }
 
-impl From<Vec<i128>> for PlaintextDataI128 {
-    fn from(value: Vec<i128>) -> Self {
+impl<I> From<Vec<El<I>>> for IntList<I>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{
+    fn from(value: Vec<El<I>>) -> Self {
         Self { data: value }
     }
 }
 
-impl From<PlaintextDataI128> for Vec<i128> {
-    fn from(value: PlaintextDataI128) -> Vec<i128> {
+impl<I> From<IntList<I>> for Vec<El<I>>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{
+    fn from(value: IntList<I>) -> Vec<El<I>> {
         value.data
     }
 }
 
-impl FromStr for PlaintextDataI128 {
-
+impl<I> FromStr for IntList<I>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{
     type Err = ();
     
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if !s.starts_with("[") || !s.ends_with("]") {
             return Err(());
         }
+        let ring = I::default();
         let s = &s[1..(s.len() - 1)];
         let mut result = Vec::new();
         for int in s.split(", ") {
-            result.push(i128::from_str(int).map_err(|_| ())?);
+            result.push(ring.parse(int, 10).map_err(|()| ())?);
         }
         return Ok(Self::from(result));
     }
 }
 
-impl Deref for PlaintextDataI128 {
-    type Target = Vec<i128>;
+impl<I> Deref for IntList<I>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{
+    type Target = Vec<El<I>>;
 
     fn deref(&self) -> &Self::Target {
         &self.data
     }
 }
 
-impl DerefMut for PlaintextDataI128 {
+impl<I> DerefMut for IntList<I>
+    where I: RingStore + Default,
+        I::Type: IntegerRing
+{
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
     }
@@ -250,9 +310,10 @@ impl<'idents, 'constants, 'values, R: ?Sized + RingBase> CircuitEvaluator<'const
     }
 }
 
-pub fn circuit_to_ir<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>, circuit: &PlaintextCircuit<R::Type>) -> Program<PlaintextDataI128>
+#[instrument(skip_all)]
+pub fn circuit_to_ir<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>, circuit: &PlaintextCircuit<R::Type>) -> Program<<R::Type as ElToIRRing>::ElRepr>
     where R: RingStore + Copy,
-        R::Type: ElAsIntListRing
+        R::Type: ElToIRRing
 {
     let constants = AppendOnlyVec::new();
     let identifiers = AppendOnlyVec::new();
@@ -277,7 +338,7 @@ pub fn circuit_to_ir<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>,
     return Program::new(
         &program_inputs, 
         instructions.into_vec(),
-        constants.iter().map(|(k, v)| (k.as_str(), PlaintextDataI128::from(ring.get_ring().as_int_list(&(*v).clone(ring).to_ring_el(ring))))).collect()
+        constants.iter().map(|(k, v)| (k.as_str(), ring.get_ring().into_repr((*v).clone(ring).to_ring_el(ring)))).collect()
     );
 }
 
@@ -298,8 +359,8 @@ fn test_circuit_to_ir() {
             %4 = mul %3, %3
             return %4
         }
-        @0: [-1]
-        @1: [2]
+        @0: -1
+        @1: 2
     "#.as_bytes()).unwrap();
     program.check().unwrap();
     assert_eq!(program, circuit_to_ir(ring, &CyclotomicGaloisGroupBase::new(2).into().full_subgroup(), &circuit));
@@ -308,6 +369,10 @@ fn test_circuit_to_ir() {
 #[test]
 #[ignore]
 fn generate_slots_to_coeffs() {
+    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer, tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
+    
     use std::cell::LazyCell;
     use std::fs::File;
     use std::io::{BufWriter, Write};
@@ -318,28 +383,31 @@ fn generate_slots_to_coeffs() {
     use crate::number_ring::NumberRingQuotientStore;
     use crate::circuit::create_circuit_cached;
 
-    let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(1 << 16), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), 5)));
+    let m = 1 << 14;
+    let e = 1;
+
+    let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)));
     let H = LazyCell::new(|| {
         let hypercube = HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
         HypercubeIsomorphism::new::<true>(&&P, &hypercube, Some("."))
     });
     let coeffs_to_slots = create_circuit_cached::<_, _, true>(
         &P, 
-        &filename_keys![coeffs2slots, m: 1 << 16, p: 65537, e: 5, levels: 4], 
+        &filename_keys![coeffs2slots, m: m, p: 65537, e: e + 1, levels: 4], 
         Some("."), 
         || pow2::coeffs_to_slots_thin(&H, 4)
     );
-    let program: Program<PlaintextDataI128> = circuit_to_ir(&P, P.acting_galois_group(), &coeffs_to_slots);
-    write!(BufWriter::new(File::create("./coeffs_to_slots_m65536_p65537_e5_levels4.fheir").unwrap()), "{}", program).unwrap();
+    let program: Program<IntList<BigIntRing>> = circuit_to_ir(&P, P.acting_galois_group(), &coeffs_to_slots);
+    write!(BufWriter::new(File::create(format!("./coeffs_to_slots_m{}_p65537_e{}_levels4.fheir", m, e + 1).as_str()).unwrap()), "{}", program).unwrap();
 
-    let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(1 << 16), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), 4)));
+    let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e)));
     let H = LazyCell::new(|| H.change_modulus(&P));
     let slots_to_coeffs = create_circuit_cached::<_, _, true>(
         &P, 
-        &filename_keys![slots_to_coeffs, m: 1 << 16, p: 65537, e: 4, levels: 4], 
+        &filename_keys![slots2coeffs, m: m, p: 65537, e: e, levels: 4], 
         Some("."), 
         || pow2::slots_to_coeffs_thin(&H, 4)
     );
     let program = circuit_to_ir(&P, P.acting_galois_group(), &slots_to_coeffs);
-    write!(BufWriter::new(File::create("./slots_to_coeffs_m65536_p65537_e4_levels4.fheir").unwrap()), "{}", program).unwrap();
+    write!(BufWriter::new(File::create(format!("./slots_to_coeffs_m{}_p65537_e{}_levels4.fheir", m, e).as_str()).unwrap()), "{}", program).unwrap();
 }

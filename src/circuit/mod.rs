@@ -27,6 +27,9 @@ pub mod serialization;
 /// how to evaluate an arithmetic circuit.
 /// 
 pub mod evaluator;
+///
+/// Contains an interface to the FHE intermediate representation format specified by [`fhe_ir`]. 
+/// 
 pub mod ir;
 
 ///
@@ -305,7 +308,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuitGate<R> {
 /// a circuit will allow for much simpler testing, since it can also be executed
 /// on unencrypted data.
 /// 
-/// Simple ways to create circuits are by using [`crate::digit_extract::polys::low_depth_paterson_stockmeyer()`]
+/// Simple ways to create circuits are by using [`poly_to_circuit()`]
 /// and [`crate::lin_transform::matmul::MatmulTransform::matmul1d()`]. However, you 
 /// can also manually build a circuit using the functions of [`PlaintextCircuit`], in
 /// particular [`PlaintextCircuit::linear_transform()`], [`PlaintextCircuit::select()`],
@@ -315,6 +318,8 @@ impl<R: ?Sized + RingBase> PlaintextCircuitGate<R> {
 /// 
 /// Note that the ring is not stored by the circuit, but the same ring must be provided 
 /// with every circuit operation that requires ring arithmetic. 
+/// 
+/// [`poly_to_circuit()`]: crate::poly_eval::to_circuit::poly_to_circuit()
 /// 
 pub struct PlaintextCircuit<R: ?Sized + RingBase> {
     input_count: usize,
@@ -1004,22 +1009,6 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// Hence, it is recommended that the given functions for `constant` and `add_prod` perform a match on
     /// the given [`Coefficient`] and treat the `0` resp. `1` case differently.
     /// 
-    /// # Example
-    /// 
-    /// ```
-    /// # use fheanor::circuit::*;
-    /// # use fheanor::circuit::evaluator::*;
-    /// # use feanor_math::ring::*;
-    /// # use feanor_math::primitive_int::*;
-    /// let circuit = PlaintextCircuit::add(StaticRing::<i64>::RING);
-    /// assert_eq!(vec![3], circuit.evaluate_generic(
-    ///     &[1 as i32, 2 as i32], 
-    ///     DefaultCircuitEvaluator::new(
-    ///         |x| x.to_ring_el(StaticRing::<i64>::RING) as i32, 
-    ///         |x, c, y| x + c.mul_to(*y as i64, StaticRing::<i64>::RING) as i32,
-    ///     )
-    /// ));
-    /// ```
     /// Of course, this example could have been more easily implemented using [`PlaintextCircuit::evaluate()`], since
     /// the operations used here exactly match the ones of `StaticRing::<i32>::RING`.
     /// 

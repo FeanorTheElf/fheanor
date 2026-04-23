@@ -231,7 +231,7 @@ pub mod lin_transform;
 /// Contains algorithms to build arithmetic circuits, with a focus on
 /// digit extraction polynomials.
 /// 
-pub mod digit_extract;
+pub mod poly_eval;
 
 ///
 /// Contains an implementation of the BFV scheme.

@@ -1,4 +1,5 @@
-use crate::{circuit::evaluator::CircuitEvaluator, feanor_math::group::AbelianGroupStore};
+use crate::circuit::evaluator::CircuitEvaluator;
+use crate::feanor_math::group::AbelianGroupStore;
 
 use super::*;
 use crate::circuit::{Coefficient, PlaintextCircuit};
@@ -230,7 +231,7 @@ use std::slice::from_ref;
 #[cfg(test)]
 use feanor_math::rings::poly::{dense_poly::DensePolyRing, PolyRingStore};
 #[cfg(test)]
-use crate::digit_extract::polys::poly_to_circuit;
+use crate::poly_eval::to_circuit::poly_to_circuit;
 
 #[test]
 fn test_hom_evaluate_circuit() {

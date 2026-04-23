@@ -419,7 +419,7 @@ use std::slice::from_ref;
 #[cfg(test)]
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 #[cfg(test)]
-use crate::digit_extract::polys::poly_to_circuit;
+use crate::poly_eval::to_circuit::poly_to_circuit;
 #[cfg(test)]
 use feanor_math::rings::zn::zn_64::*;
 #[cfg(test)]

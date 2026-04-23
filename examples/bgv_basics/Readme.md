@@ -397,7 +397,6 @@ let enc_x_pow4 = modswitch_strategy.evaluate_circuit(
     }],
     Some(&rk),
     &[],
-    &mut 0,
     None
 ).into_iter().next().unwrap();
 let C_new = Pow2BGV::mod_switch_down_C(&C_initial, &enc_x_pow4.dropped_rns_factor_indices);

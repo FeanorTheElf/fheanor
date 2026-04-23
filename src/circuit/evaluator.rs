@@ -21,28 +21,7 @@ use super::Coefficient;
 /// equivalent of a "virtual machine" running those programs.
 /// 
 /// If you want to evaluate a circuit on ring elements, use [`HomEvaluator`]
-/// or [`HomEvaluatorGal`]. Otherwise, you can build a custom evaluator
-/// using [`DefaultCircuitEvaluator`], for example as follows:
-/// ```rust
-/// # use fheanor::circuit::*;
-/// # use fheanor::circuit::evaluator::*;
-/// # use feanor_math::ring::*;
-/// # use feanor_math::primitive_int::*;
-/// let ring = StaticRing::<i64>::RING;
-/// let square_xy = PlaintextCircuit::square(ring).compose(PlaintextCircuit::mul(ring), ring);
-/// // assume that, for some reason, we want to wrap the integers in Box; instead of
-/// // implementing our own ring which has boxed integers as elements, we use DefaultCircuitEvaluator
-/// assert_eq!(36, *square_xy.evaluate_generic(
-///     &[Box::new(2), Box::new(3)],
-///     DefaultCircuitEvaluator::new(
-///         /* create constant = */ |x| Box::new(x.to_ring_el(ring)),
-///         /* add product = */ |base, lhs, rhs| Box::new(*base + lhs.to_ring_el(ring) * **rhs)
-///     )
-///         .with_mul(|lhs: Box<i64>, rhs| Box::new(*lhs * *rhs))
-///         // this is optional, but may improve performance if squaring is cheaper than general multiplication
-///         .with_square(|x| Box::new(ring.pow(*x, 2)))
-/// ).into_iter().next().unwrap());
-/// ```
+/// or [`HomEvaluatorGal`]. Otherwise, you can build a custom evaluator.
 /// 
 pub trait CircuitEvaluator<'a, T, R: ?Sized + RingBase> {
 

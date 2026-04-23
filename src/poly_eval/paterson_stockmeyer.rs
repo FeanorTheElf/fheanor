@@ -416,7 +416,7 @@ use feanor_math::assert_el_eq;
 #[cfg(test)]
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 #[cfg(test)]
-use crate::digit_extract::polys::*;
+use crate::poly_eval::to_circuit::*;
 #[cfg(test)]
 use feanor_math::rings::zn::zn_64::Zn;
 #[cfg(test)]
@@ -533,7 +533,7 @@ fn circuit_for_65537() {
     use feanor_math::rings::zn::zn_64::Zn;
     use crate::cache::*;
     use crate::number_ring::galois::*;
-    use crate::digit_extract::digit_retain::{centered_digit_extract_poly, cmod};
+    use crate::poly_eval::digit_extract::{centered_digit_extract_poly, cmod};
 
     let Zp2X = DensePolyRing::new(Zn::new(65537 * 65537), "X");
     let poly = create_cached::<_, _, _, true>(

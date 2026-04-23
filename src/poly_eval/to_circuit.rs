@@ -4,90 +4,14 @@ use std::cmp::min;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::divisibility::*;
 use feanor_math::integer::*;
-use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
 use feanor_math::seq::*;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use tracing::instrument;
 
 use crate::circuit::PlaintextCircuit;
-use crate::digit_extract::paterson_stockmeyer::paterson_stockmeyer_circuit;
+use crate::poly_eval::paterson_stockmeyer::paterson_stockmeyer_circuit;
 use crate::*;
-
-///
-/// Returns the best arithmetic circuit that computes a function
-/// ```text
-///   digitex: Z/2^eZ -> (Z/2^eZ)^log(e)
-/// ```
-/// that satisfies `digitex(x)[i] = (x mod 2) mod 2^(2^i)`.
-/// `e` must be a power of two.
-/// 
-/// Uses a lookup-table, consisting mainly of the values from <https://ia.cr/2022/1364>, except for
-/// `e > 8`, where there seemed to be a mistake in the paper.
-/// 
-pub fn precomputed_p_2(e: usize) -> PlaintextCircuit<StaticRingBase<i64>> {
-    assert!(e <= 23, "no precomputed tables are available for t > 2^23");
-    let log2_e_ceil = ZZi64.abs_log2_ceil(&(e as i64)).unwrap();
-    
-    let id = || PlaintextCircuit::linear_transform_ring(&[1], ZZi64);
-    let f0 = id().clone(ZZi64);
-    if log2_e_ceil == 0 {
-        return f0;
-    }
-
-    let f1 = id().tensor(PlaintextCircuit::square(ZZi64), ZZi64).compose(PlaintextCircuit::select(1, &[0, 0], ZZi64).compose(f0, ZZi64), ZZi64);
-    if log2_e_ceil == 1 {
-        return f1;
-    }
-
-    let f2 = id().tensor(id(), ZZi64).tensor(PlaintextCircuit::square(ZZi64), ZZi64).compose(PlaintextCircuit::select(2, &[0, 1, 1], ZZi64).compose(f1, ZZi64), ZZi64);
-    if log2_e_ceil == 2 {
-        return f2;
-    }
-    
-    let f3_comp = PlaintextCircuit::add(ZZi64).compose(
-        PlaintextCircuit::linear_transform_ring(&[112], ZZi64).tensor(PlaintextCircuit::square(ZZi64).compose(
-            PlaintextCircuit::linear_transform_ring(&[94, 121], ZZi64), ZZi64
-        ), ZZi64), ZZi64
-    ).compose(
-        PlaintextCircuit::select(2, &[0, 0, 1], ZZi64), ZZi64
-    );
-    let f3 = id().tensor(id(), ZZi64).tensor(id(), ZZi64).tensor(f3_comp, ZZi64).compose(
-        PlaintextCircuit::select(3, &[0, 1, 2, 1, 2], ZZi64), ZZi64
-    ).compose(f2, ZZi64);
-    if log2_e_ceil == 3 {
-        return f3;
-    }
-
-    let f4_comp = PlaintextCircuit::add(ZZi64).compose(
-        PlaintextCircuit::linear_transform_ring(&[1984, 528, 22620], ZZi64).tensor(PlaintextCircuit::mul(ZZi64).compose(
-            PlaintextCircuit::linear_transform_ring(&[226, 113], ZZi64).tensor(PlaintextCircuit::linear_transform_ring(&[8, 2, 301], ZZi64), ZZi64), ZZi64
-        ), ZZi64), ZZi64
-    ).compose(
-        PlaintextCircuit::select(3, &[0, 1, 2, 1, 2, 0, 1, 2], ZZi64), ZZi64
-    );
-    let f4 = id().tensor(id(), ZZi64).tensor(id(), ZZi64).tensor(id(), ZZi64).tensor(f4_comp, ZZi64).compose(
-        PlaintextCircuit::select(4, &[0, 1, 2, 3, 1, 2, 3], ZZi64), ZZi64
-    ).compose(f3, ZZi64);
-    if log2_e_ceil == 4 {
-        return f4;
-    }
-
-    let f5_comp = PlaintextCircuit::add(ZZi64).compose(
-        PlaintextCircuit::linear_transform_ring(&[4849408, 3564625, 2737008, 6563608], ZZi64).tensor(PlaintextCircuit::mul(ZZi64).compose(
-            PlaintextCircuit::linear_transform_ring(&[997183, 8295548, 419894, 879825], ZZi64).tensor(PlaintextCircuit::linear_transform_ring(&[443729, 555132, 491350, 758385], ZZi64), ZZi64), ZZi64
-        ), ZZi64), ZZi64
-    ).compose(
-        PlaintextCircuit::select(4, &[0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3], ZZi64), ZZi64
-    );
-    let f5 = id().tensor(id(), ZZi64).tensor(id(), ZZi64).tensor(id(), ZZi64).tensor(id(), ZZi64).tensor(f5_comp, ZZi64).compose(
-        PlaintextCircuit::select(5, &[0, 1, 2, 3, 4, 1, 2, 3, 4], ZZi64), ZZi64
-    ).compose(f4, ZZi64);
-    if log2_e_ceil == 5 {
-        return f5;
-    }
-    unreachable!()
-}
 
 ///
 /// Heuristically chooses a low-depth, low-complexity circuit that
@@ -114,6 +38,12 @@ pub fn poly_to_circuit<P>(poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<<<P
     )
 }
 
+///
+/// Detects common kinds of structure in the given polynomial that can be exploited
+/// for more efficient evaluation.
+/// 
+/// Currently, this is only a check if the polynomial is even or odd.
+/// 
 #[instrument(skip_all)]
 pub fn heuristic_decomposition<R, F>(poly_ring: R, to_evaluate: Vec<El<R>>, mut factors_to_circuit: F) -> PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>
     where R: RingStore + Copy,
@@ -238,7 +168,7 @@ pub fn heuristic_decomposition<R, F>(poly_ring: R, to_evaluate: Vec<El<R>>, mut 
 }
 
 ///
-/// Computes the cost of the circuit [`low_depth_paterson_stockmeyer()`] would return, without
+/// Computes the cost of the circuit [`low_depth_bsgs_circuit()`] would return, without
 /// actually building the circuit.
 /// 
 pub fn low_depth_bsgs_cost<V>(degrees: V, baby_steps: usize) -> (/* mul depths */ impl VectorFn<usize>, /* mul count */ usize)
