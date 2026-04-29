@@ -85,7 +85,6 @@ fn hensel_lift_root_of_unity<R1, R2>(S: R1, Fp: R2, root_of_unity: El<R2>, m: us
     return result;
 }
 
-
 type FpPolyRing<R> = DensePolyRing<
     AsField<RingValue<BaseRing<R>>>, 
     Global, 
@@ -103,6 +102,10 @@ type TmpSlotRingOf<'a, R> = AsLocalPIR<FreeAlgebraImpl<
     DynConvolutionAlgorithmConvolution<AsLocalPIRBase<RingRef<'a, BaseRing<R>>>, Arc<dyn DynConvolutionAlgorithm<AsLocalPIRBase<RingRef<'a, BaseRing<R>>>>>>
 >>;
 
+///
+/// Type of Galois ring over the given base ring that is used to represent
+/// the slot ring.
+/// 
 pub type SlotRingOver<R> = AsLocalPIR<FreeAlgebraImpl<R, Vec<El<R>>, Global, DynConvolutionAlgorithmConvolution<<R as RingStore>::Type, Arc<dyn DynConvolutionAlgorithm<<R as RingStore>::Type>>>>>;
 
 ///
@@ -450,7 +453,7 @@ impl<R> HypercubeIsomorphism<R>
             R: Clone
     {
         let (p, _) = is_prime_power(&ZZbig, &ring.characteristic(&ZZbig).unwrap()).unwrap();
-        let Fp = RingValue::from(<<<R::Type as RingExtension>::BaseRing as RingStore>::Type as FromModulusCreateableZnRing>::from_modulus::<_, !>(|ZZ| 
+        let Fp = RingValue::from(<BaseRing<R> as FromModulusCreateableZnRing>::from_modulus::<_, !>(|ZZ| 
             Ok(int_cast(ZZbig.clone_el(&p), RingRef::new(ZZ), ZZbig))
         ).unwrap_or_else(no_error)).as_field().ok().unwrap();
         let convolution = create_convolution(ring.rank(), Fp.integer_ring().abs_log2_ceil(Fp.modulus()).unwrap());
@@ -477,7 +480,7 @@ impl<R> HypercubeIsomorphism<R>
         let d = hypercube_structure.d();
         let (p, _) = is_prime_power(ring.base_ring().integer_ring(), &ring.base_ring().modulus()).unwrap();
         let p = int_cast(p, ZZbig, ring.base_ring().integer_ring());
-        let Fp = RingValue::from(<<<R::Type as RingExtension>::BaseRing as RingStore>::Type as FromModulusCreateableZnRing>::from_modulus::<_, !>(|ZZ| 
+        let Fp = RingValue::from(<BaseRing<R> as FromModulusCreateableZnRing>::from_modulus::<_, !>(|ZZ| 
             Ok(int_cast(ZZbig.clone_el(&p), RingRef::new(ZZ), ZZbig))
         ).unwrap_or_else(no_error)).as_field().ok().unwrap();
         let convolution = create_convolution(ring.rank(), Fp.integer_ring().abs_log2_ceil(Fp.modulus()).unwrap());
@@ -560,7 +563,7 @@ impl<R> HypercubeIsomorphism<R>
 
         let d = hypercube_structure.d();
         let (p, _) = is_prime_power(&ZZbig, &ring.characteristic(&ZZbig).unwrap()).unwrap();
-        let Fp = RingValue::from(<<<R::Type as RingExtension>::BaseRing as RingStore>::Type as FromModulusCreateableZnRing>::from_modulus::<_, !>(|ZZ| 
+        let Fp = RingValue::from(<BaseRing<R> as FromModulusCreateableZnRing>::from_modulus::<_, !>(|ZZ| 
             Ok(int_cast(ZZbig.clone_el(&p), RingRef::new(ZZ), ZZbig))
         ).unwrap_or_else(no_error)).as_field().ok().unwrap();
         let convolution = create_convolution(d, Fp.integer_ring().abs_log2_ceil(Fp.modulus()).unwrap());

@@ -12,9 +12,12 @@ use feanor_math::ring::*;
 use feanor_math::rings::zn::*;
 use feanor_math::serialization::SerializableElementRing;
 use tracing::instrument;
+use fhe_ir::Program;
 
+use crate::circuit::ir::*;
 use crate::cache::*;
 use crate::number_ring::galois::*;
+use crate::number_ring::hypercube::isomorphism::BaseRing;
 use crate::number_ring::*;
 
 ///
@@ -288,10 +291,11 @@ impl<R: ?Sized + RingBase> PlaintextCircuitGate<R> {
         }
     }
     
-    fn eq<S: RingStore<Type = R> + Copy>(&self, other: &Self, ring: S) -> bool {
+    fn eq<S: RingStore<Type = R> + Copy>(&self, other: &Self, ring: S, galois_group: Option<&Subgroup<CyclotomicGaloisGroup>>) -> bool {
         match (self, other) {
             (PlaintextCircuitGate::Mul(self_lhs, self_rhs), PlaintextCircuitGate::Mul(other_lhs, other_rhs)) => self_lhs.eq(other_lhs, ring) && self_rhs.eq(other_rhs, ring),
             (PlaintextCircuitGate::Square(self_t), PlaintextCircuitGate::Square(other_t)) => self_t.eq(other_t, ring),
+            (PlaintextCircuitGate::Gal(self_gs, self_t), PlaintextCircuitGate::Gal(other_gs, other_t)) => self_gs.len() == other_gs.len() && self_gs.iter().zip(other_gs).all(|(l, r)| galois_group.expect("a galois group must be given when comparing circuits that contain galois gates").eq_el(l, r)) && self_t.eq(other_t, ring),
             _ => false
         }
     }
@@ -361,10 +365,10 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
         }
     }
 
-    pub fn eq<S: RingStore<Type = R> + Copy>(&self, other: &Self, ring: S) -> bool {
+    pub fn eq<S: RingStore<Type = R> + Copy>(&self, other: &Self, ring: S, galois_group: Option<&Subgroup<CyclotomicGaloisGroup>>) -> bool {
         self.input_count == other.input_count && 
         self.gates.len() == other.gates.len() && 
-        self.gates.iter().zip(other.gates.iter()).all(|(l, r)| l.eq(r, ring)) && 
+        self.gates.iter().zip(other.gates.iter()).all(|(l, r)| l.eq(r, ring, galois_group)) && 
         self.output_transforms.len() == other.output_transforms.len() &&
         self.output_transforms.iter().zip(other.output_transforms.iter()).all(|(l, r)| l.eq(r, ring))
     }
@@ -990,6 +994,18 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
         self.output_transforms.len()
     }
     
+    pub fn to_ir<S: RingStore<Type = R> + Copy>(&self, ring: S, galois_group: Option<&Subgroup<CyclotomicGaloisGroup>>) -> Program<<R as ElToIRRing>::ElRepr>
+        where R: ElToIRRing
+    {
+        circuit_to_ir(ring, galois_group, self)
+    }
+
+    pub fn from_ir<S: RingStore<Type = R> + Copy>(ring: S, galois_group: Option<&Subgroup<CyclotomicGaloisGroup>>, program: &Program<<R as ElToIRRing>::ElRepr>) -> Self
+        where R: ElToIRRing
+    {
+        ir_to_circuit(ring, galois_group, program)
+    }
+    
     ///
     /// Evaluates the circuit on inputs of type `T`, which in some sense encrypt/encode/represent
     /// elements of a ring, into which we can also embed the circuit constants.
@@ -1183,10 +1199,28 @@ impl<'a, R> SerializeDeserializeWith<(R, &'a Subgroup<CyclotomicGaloisGroup>)> f
     }
 }
 
+impl<R> SerializeDeserializeWith<(R, )> for PlaintextCircuit<R::Type>
+    where R: RingStore + Copy,
+        R::Type: SerializableElementRing
+{
+    type SerializeWithData<'b> = SerializablePlaintextCircuit<'b, R>
+        where Self: 'b, R: 'b;
+    type DeserializeWithData<'b> = DeserializeSeedPlaintextCircuit<'b, R>
+        where Self: 'b, R: 'b;
+
+    fn deserialize_with<'b>(data: &'b (R, )) -> Self::DeserializeWithData<'b> {
+        DeserializeSeedPlaintextCircuit::new_no_galois(data.0)
+    }
+
+    fn serialize_with<'b>(&'b self, data: &'b (R, )) -> Self::SerializeWithData<'b> {
+        SerializablePlaintextCircuit::new_no_galois(data.0, self)
+    }
+}
+
 pub fn create_circuit_cached<R, F, const LOG: bool>(ring: R, keys: &[CachedDataKey], cache_dir: Option<&str>, create: F) -> PlaintextCircuit<R::Type>
     where R: RingStore + Copy,
         R::Type: NumberRingQuotient + SerializableElementRing,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing,
+        BaseRing<R>: ZnRing,
         F: FnOnce() -> PlaintextCircuit<R::Type>
 {
     create_cached::<_, _, _, LOG>(&(ring, ring.acting_galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysJson })
@@ -1232,7 +1266,7 @@ fn test_circuit_tensor_compose() {
             constant: Coefficient::Zero,
             factors: vec![Coefficient::Zero, Coefficient::One]
         }]
-    }.eq(&x_sqr, ring));
+    }.eq(&x_sqr, ring, None));
 
     let x = PlaintextCircuit::identity(1, ring);
     let y = PlaintextCircuit::identity(1, ring);
@@ -1330,13 +1364,13 @@ fn test_serialization() {
     let tokens = SerializablePlaintextCircuit::new_no_galois(&ring, &circuit).serialize(&serializer).unwrap();
     let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(true).build();
     let deserialized_circuit = DeserializeSeedPlaintextCircuit::new_no_galois(&ring).deserialize(&mut deserializer).unwrap();
-    assert!(deserialized_circuit.eq(&circuit, ring));
+    assert!(deserialized_circuit.eq(&circuit, ring, None));
 
     let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
     let tokens = SerializablePlaintextCircuit::new_no_galois(&ring, &circuit).serialize(&serializer).unwrap();
     let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(false).build();
     let deserialized_circuit = DeserializeSeedPlaintextCircuit::new_no_galois(&ring).deserialize(&mut deserializer).unwrap();
-    assert!(deserialized_circuit.eq(&circuit, ring));
+    assert!(deserialized_circuit.eq(&circuit, ring, None));
 }
 
 #[test]
@@ -1344,7 +1378,7 @@ fn test_identity_galois() {
     let Gal = CyclotomicGaloisGroupBase::new(5).into().full_subgroup();
     let ring = StaticRing::<i64>::RING;
     let circuit = PlaintextCircuit::gal(Gal.identity(), &Gal, ring);
-    assert!(circuit.eq(&PlaintextCircuit::identity(1, ring), &ring));
+    assert!(circuit.eq(&PlaintextCircuit::identity(1, ring), &ring, None));
 }
 
 #[test]
@@ -1359,4 +1393,59 @@ fn test_evaluate() {
     for x in -10..=10 {
         assert_eq!(vec![(2 - x * x) * (2 - x * x)], circuit.evaluate_generic(&[x], HomEvaluator::new(ZZi64.identity())));
     }
+}
+
+#[test]
+#[ignore]
+fn generate_slots_to_coeffs() {
+    use feanor_math::integer::int_cast;
+    use crate::ZZbig;
+    use crate::filename_keys;
+
+    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer, tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
+    
+    use std::cell::LazyCell;
+    use std::fs::File;
+    use std::io::{BufWriter, Write};
+    use crate::lin_transform::pow2;
+    use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
+    use crate::number_ring::hypercube::structure::HypercubeStructure;
+    use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+    use crate::number_ring::NumberRingQuotientStore;
+    use crate::circuit::create_circuit_cached;
+
+    let m = 1 << 14;
+    let e = 1;
+
+    let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)));
+    let H = LazyCell::new(|| {
+        let hypercube = HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
+        HypercubeIsomorphism::new::<true>(&&P, &hypercube, Some("."))
+    });
+    let coeffs_to_slots = create_circuit_cached::<_, _, true>(
+        &P, 
+        &filename_keys![coeffs2slots, m: m, p: 65537, e: e + 1, levels: 4], 
+        Some("."), 
+        || pow2::coeffs_to_slots_thin(&H, 4)
+    );
+    let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));
+    write!(BufWriter::new(File::create(format!("./coeffs_to_slots_m{}_p65537_e{}_levels4.fheir", m, e + 1).as_str()).unwrap()), "{}", program).unwrap();
+    let a = serde_json::to_string_pretty(&coeffs_to_slots.serialize_with(&(&P, P.acting_galois_group()))).unwrap();
+    let b = serde_json::to_string_pretty(&PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program).serialize_with(&(&P, P.acting_galois_group()))).unwrap();
+    println!("{}", a == b);
+    assert!(coeffs_to_slots.eq(&PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program), &P, Some(P.acting_galois_group())));
+
+    let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e)));
+    let H = LazyCell::new(|| H.change_modulus(&P));
+    let slots_to_coeffs = create_circuit_cached::<_, _, true>(
+        &P, 
+        &filename_keys![slots2coeffs, m: m, p: 65537, e: e, levels: 4], 
+        Some("."), 
+        || pow2::slots_to_coeffs_thin(&H, 4)
+    );
+    let program = slots_to_coeffs.to_ir(&P, Some(P.acting_galois_group()));
+    write!(BufWriter::new(File::create(format!("./slots_to_coeffs_m{}_p65537_e{}_levels4.fheir", m, e).as_str()).unwrap()), "{}", program).unwrap();
+    assert!(slots_to_coeffs.eq(&PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program), &P, Some(P.acting_galois_group())));
 }

@@ -10,6 +10,7 @@ use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use tracing::{Level, event, instrument};
 
 use crate::circuit::PlaintextCircuit;
+use crate::number_ring::hypercube::isomorphism::BaseRing;
 use crate::*;
 
 fn addition_chain_lengths(k: usize, available: &[usize]) -> (Vec<usize>, Vec<usize>) {
@@ -202,7 +203,7 @@ fn plan_paterson_stockmeyer_circuit(ds: &[usize]) -> PatersonStockmeyerPlan {
 enum PatersonStockmeyerSplit<R>
     where R: RingStore,
         R::Type: PolyRing,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: DivisibilityRing
+        BaseRing<R>: DivisibilityRing
 {
     Precomputed {
         f: El<R>
@@ -219,7 +220,7 @@ enum PatersonStockmeyerSplit<R>
 impl<R> PatersonStockmeyerSplit<R>
     where R: RingStore + Copy,
         R::Type: PolyRing,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: DivisibilityRing
+        BaseRing<R>: DivisibilityRing
 {
     fn create_recursive(poly_ring: R, mut f: El<R>, plan: &PatersonStockmeyerPlan, rec_depth: usize) -> Result<Self, ()> {
         const MAX_ATTEMPTS: usize = 3;
@@ -272,7 +273,7 @@ impl<R> PatersonStockmeyerSplit<R>
         }
     }
 
-    fn to_circuit_recursive(self, poly_ring: R, input_powers: &[usize], rec_depth: usize) -> (El<R>, PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>) {
+    fn to_circuit_recursive(self, poly_ring: R, input_powers: &[usize], rec_depth: usize) -> (El<R>, PlaintextCircuit<BaseRing<R>>) {
         let base_ring = poly_ring.base_ring();
         let get_power_idx = |power: usize| input_powers.iter().enumerate().filter(|(_, val)| **val == power).next().unwrap().0;
         match self {
@@ -323,19 +324,19 @@ impl<R> PatersonStockmeyerSplit<R>
 /// Note that Paterson-Stockmeyer requires certain intermediate polynomials to have
 /// invertible coefficients.
 /// 
-pub fn paterson_stockmeyer_circuit<R>(poly_ring: R, polynomials: &[El<R>]) -> Result<PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>, ()>
+pub fn paterson_stockmeyer_circuit<R>(poly_ring: R, polynomials: &[El<R>]) -> Result<PlaintextCircuit<BaseRing<R>>, ()>
     where R: RingStore,
         R::Type: PolyRing,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: DivisibilityRing + FiniteRing
+        BaseRing<R>: DivisibilityRing + FiniteRing
 {
     let degrees = polynomials.iter().map(|f| poly_ring.degree(f).expect("all polynomials must be nonzero")).collect::<Vec<_>>();
     let plan = plan_paterson_stockmeyer_circuit(&degrees);
     assert!(plan.k >= 1);
 
-    fn precomputed_power_circuit<R>(poly_ring: R, precomputed_powers: &[usize]) -> PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>
+    fn precomputed_power_circuit<R>(poly_ring: R, precomputed_powers: &[usize]) -> PlaintextCircuit<BaseRing<R>>
         where R: RingStore,
             R::Type: PolyRing,
-            <<R::Type as RingExtension>::BaseRing as RingStore>::Type: DivisibilityRing + FiniteRing
+            BaseRing<R>: DivisibilityRing + FiniteRing
     {
         assert!(precomputed_powers.is_sorted());
         let base_ring = poly_ring.base_ring();
@@ -428,12 +429,12 @@ fn test_heuristic_decomposition() {
     let Fp = FpX.base_ring();
 
     let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(4)]);
-    let actual = heuristic_decomposition(&FpX, vec![f], |_, _| unreachable!());
+    let actual = heuristic_decomposition(&FpX, vec![f], |_, _, _| unreachable!(), Fp.identity());
     let expected = PlaintextCircuit::square(Fp).compose(PlaintextCircuit::square(Fp), Fp);
-    assert!(expected.eq(&actual, Fp));
+    assert!(expected.eq(&actual, Fp, None));
 
     let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5)]);
-    let actual = heuristic_decomposition(&FpX, vec![f], |_, _| unreachable!());
+    let actual = heuristic_decomposition(&FpX, vec![f], |_, _, _| unreachable!(), Fp.identity());
     let expected = PlaintextCircuit::mul(Fp).compose(
         PlaintextCircuit::identity(1, Fp).tensor(
             PlaintextCircuit::square(Fp).compose(PlaintextCircuit::square(Fp), Fp), 
@@ -444,17 +445,17 @@ fn test_heuristic_decomposition() {
         PlaintextCircuit::identity(1, Fp).output_twice(Fp), 
         Fp
     );
-    assert!(expected.eq(&actual, Fp));
+    assert!(expected.eq(&actual, Fp, None));
 
     let [f, g] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + 2 * X.pow_ref(3) - X, X.pow_ref(2) + 2 * X - 1]);
     let mut dense_part_mults = 0;
-    let actual = heuristic_decomposition(&FpX, vec![FpX.clone_el(&f)], |FpX, polys| {
+    let actual = heuristic_decomposition(&FpX, vec![FpX.clone_el(&f)], |FpX, polys, _| {
         assert_eq!(1, polys.len());
         assert_el_eq!(FpX, g, &polys[0]);
         let result = poly_to_circuit(FpX, &polys);
         dense_part_mults = result.multiplication_gate_count();
         return result;
-    });
+    }, Fp.identity());
     assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
     for x in -10..10 {
         let x = Fp.coerce(&ZZi64, x);
@@ -536,6 +537,7 @@ fn circuit_for_65537() {
     use crate::poly_eval::digit_extract::{centered_digit_extract_poly, cmod};
 
     let Zp2X = DensePolyRing::new(Zn::new(65537 * 65537), "X");
+    let Zp2 = Zp2X.base_ring();
     let poly = create_cached::<_, _, _, true>(
         &Zp2X,
         || RingElSerializeDeserializeWithRing::from(centered_digit_extract_poly(&Zp2X, 2)), 
@@ -545,7 +547,7 @@ fn circuit_for_65537() {
     ).into();
     let circuit: PlaintextCircuit<feanor_math::rings::zn::zn_64::ZnBase> = create_cached::<_, _, _, true>(
         &(Zp2X.base_ring(), &CyclotomicGaloisGroupBase::new(2).into().full_subgroup()),
-        || heuristic_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], |Zp2X, polys| paterson_stockmeyer_circuit(&Zp2X, &polys).unwrap()),
+        || heuristic_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], |Zp2X, polys, _| paterson_stockmeyer_circuit(&Zp2X, &polys).unwrap(), Zp2.identity()),
         &filename_keys!(digit_extract, p: 65537, e: 2),
         Some("."),
         StoreAs::AlwaysJson
@@ -559,6 +561,6 @@ fn circuit_for_65537() {
         }
     }
 
-    let circuit = heuristic_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], |Zp2X, polys| poly_to_circuit(&Zp2X, &polys));
+    let circuit = heuristic_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], |Zp2X, polys, _| poly_to_circuit(&Zp2X, &polys), Zp2.identity());
     println!("bsgs mults {}", circuit.multiplication_gate_count());
 }

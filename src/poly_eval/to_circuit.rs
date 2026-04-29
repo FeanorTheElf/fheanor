@@ -1,4 +1,3 @@
-use std::slice::from_ref;
 use std::cmp::min;
 
 use feanor_math::rings::finite::FiniteRing;
@@ -9,7 +8,12 @@ use feanor_math::seq::*;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use tracing::instrument;
 
+use crate::circuit::Coefficient;
 use crate::circuit::PlaintextCircuit;
+use crate::number_ring::NumberRingQuotient;
+use crate::number_ring::hypercube::isomorphism::BaseRing;
+use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
+use crate::number_ring::hypercube::isomorphism::SlotRingOf;
 use crate::poly_eval::paterson_stockmeyer::paterson_stockmeyer_circuit;
 use crate::*;
 
@@ -18,15 +22,15 @@ use crate::*;
 /// evaluates all the given univariate polynomials.
 /// 
 #[instrument(skip_all)]
-pub fn poly_to_circuit<P>(poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<<<P::Type as RingExtension>::BaseRing as RingStore>::Type>
+pub fn poly_to_circuit<P>(poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<BaseRing<P>>
     where P: RingStore,
         P::Type: PolyRing,
-        <<P::Type as RingExtension>::BaseRing as RingStore>::Type: FiniteRing + DivisibilityRing
+        BaseRing<P>: FiniteRing + DivisibilityRing,
 {
     heuristic_decomposition(
         &poly_ring, 
         polys.iter().map(|f| poly_ring.clone_el(f)).collect(), 
-        |poly_ring, polys| {
+        |poly_ring, polys, _| {
             let bsgs_option = low_depth_bsgs_circuit(&poly_ring, &polys);
             let paterson_stockmeyer_option = paterson_stockmeyer_circuit(&poly_ring, &polys);
             match paterson_stockmeyer_option {
@@ -34,7 +38,8 @@ pub fn poly_to_circuit<P>(poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<<<P
                 Ok(circuit) if circuit.multiplication_gate_count() > bsgs_option.multiplication_gate_count() => bsgs_option,
                 Ok(circuit) => circuit
             }
-        }
+        },
+        &poly_ring.base_ring().identity()
     )
 }
 
@@ -45,16 +50,19 @@ pub fn poly_to_circuit<P>(poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<<<P
 /// Currently, this is only a check if the polynomial is even or odd.
 /// 
 #[instrument(skip_all)]
-pub fn heuristic_decomposition<R, F>(poly_ring: R, to_evaluate: Vec<El<R>>, mut factors_to_circuit: F) -> PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>
-    where R: RingStore + Copy,
-        R::Type: PolyRing,
-        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: DivisibilityRing,
-        F: FnMut(R, Vec<El<R>>) -> PlaintextCircuit<<<R::Type as RingExtension>::BaseRing as RingStore>::Type>
+pub fn heuristic_decomposition<P, R, H, F>(poly_ring: P, to_evaluate: Vec<El<P>>, mut factors_to_circuit: F, hom: H) -> PlaintextCircuit<R>
+    where P: RingStore + Copy,
+        P::Type: PolyRing,
+        BaseRing<P>: DivisibilityRing,
+        F: FnMut(P, Vec<El<P>>, H) -> PlaintextCircuit<R>,
+        R: ?Sized + RingBase,
+        H: Copy + Homomorphism<BaseRing<P>, R>
 {
+    assert!(hom.domain().get_ring() == poly_ring.base_ring().get_ring());
     if to_evaluate.len() == 0 {
         return PlaintextCircuit::empty();
     }
-    let base_ring = poly_ring.base_ring();
+    let circuit_ring = hom.codomain();
 
     let mut nontrivial_operation = false;
     let mut precompute_square = false;
@@ -67,40 +75,40 @@ pub fn heuristic_decomposition<R, F>(poly_ring: R, to_evaluate: Vec<El<R>>, mut 
         let current_output_idx = polynomials.len() + 1;
         if d == 0 {
             nontrivial_operation = true;
-            post_circuits.push(PlaintextCircuit::constant(base_ring.clone_el(poly_ring.coefficient_at(&f, 0)), base_ring));
+            post_circuits.push(PlaintextCircuit::constant(hom.map_ref(poly_ring.coefficient_at(&f, 0)), circuit_ring));
         } else if d == 1 {
             nontrivial_operation = true;
-            post_circuits.push(PlaintextCircuit::add(base_ring).compose(
-                PlaintextCircuit::constant(base_ring.clone_el(poly_ring.coefficient_at(&f, 0)), base_ring).tensor(
-                    PlaintextCircuit::linear_transform_ring(from_ref(poly_ring.coefficient_at(&f, 1)), base_ring), 
-                    base_ring
+            post_circuits.push(PlaintextCircuit::add(circuit_ring).compose(
+                PlaintextCircuit::constant(hom.map_ref(poly_ring.coefficient_at(&f, 0)), circuit_ring).tensor(
+                    PlaintextCircuit::linear_transform_ring(&[hom.map_ref(poly_ring.coefficient_at(&f, 1))], circuit_ring), 
+                    circuit_ring
                 ),
-                base_ring
+                circuit_ring
             ));
-        } else if (1..=d).step_by(2).all(|i| base_ring.is_zero(poly_ring.coefficient_at(&f, i))) {
+        } else if (1..=d).step_by(2).all(|i| poly_ring.base_ring().is_zero(poly_ring.coefficient_at(&f, i))) {
             nontrivial_operation = true;
             precompute_square = true;
-            let factored_poly = poly_ring.from_terms(poly_ring.terms(&f).map(|(c, i)| (base_ring.clone_el(c), i.checked_div(2).unwrap())));
+            let factored_poly = poly_ring.from_terms(poly_ring.terms(&f).map(|(c, i)| (poly_ring.base_ring().clone_el(c), i.checked_div(2).unwrap())));
             polynomials.push(factored_poly);
-            pre_circuits.push(PlaintextCircuit::select(2, &[1], base_ring));
-            post_circuits.push(PlaintextCircuit::select(current_output_idx + 1, &[current_output_idx], base_ring))
-        } else if (0..=d).step_by(2).all(|i| base_ring.is_zero(poly_ring.coefficient_at(&f, i))) {
+            pre_circuits.push(PlaintextCircuit::select(2, &[1], circuit_ring));
+            post_circuits.push(PlaintextCircuit::select(current_output_idx + 1, &[current_output_idx], circuit_ring))
+        } else if (0..=d).step_by(2).all(|i| poly_ring.base_ring().is_zero(poly_ring.coefficient_at(&f, i))) {
             nontrivial_operation = true;
             precompute_square = true;
-            let factored_poly = poly_ring.from_terms(poly_ring.terms(&f).map(|(c, i)| (base_ring.clone_el(c), i.checked_sub(1).unwrap().checked_div(2).unwrap())));
+            let factored_poly = poly_ring.from_terms(poly_ring.terms(&f).map(|(c, i)| (poly_ring.base_ring().clone_el(c), i.checked_sub(1).unwrap().checked_div(2).unwrap())));
             polynomials.push(factored_poly);
-            pre_circuits.push(PlaintextCircuit::select(2, &[1], base_ring));
-            post_circuits.push(PlaintextCircuit::mul(base_ring).compose(PlaintextCircuit::select(current_output_idx + 1, &[0, current_output_idx], base_ring), base_ring));
+            pre_circuits.push(PlaintextCircuit::select(2, &[1], circuit_ring));
+            post_circuits.push(PlaintextCircuit::mul(circuit_ring).compose(PlaintextCircuit::select(current_output_idx + 1, &[0, current_output_idx], circuit_ring), circuit_ring));
         } else {
             polynomials.push(f);
-            pre_circuits.push(PlaintextCircuit::select(1, &[0], base_ring));
-            post_circuits.push(PlaintextCircuit::select(current_output_idx + 1, &[current_output_idx], base_ring));
+            pre_circuits.push(PlaintextCircuit::select(1, &[0], circuit_ring));
+            post_circuits.push(PlaintextCircuit::select(current_output_idx + 1, &[current_output_idx], circuit_ring));
         }
     }
 
     if nontrivial_operation {
         let polynomials_len = polynomials.len();
-        let main_circuit = heuristic_decomposition(poly_ring, polynomials, factors_to_circuit);
+        let main_circuit = heuristic_decomposition::<P, R, H, F>(poly_ring, polynomials, factors_to_circuit, hom);
         assert_eq!(main_circuit.output_count(), polynomials_len);
 
         let pre_stage_inputs = if precompute_square { 2 } else { 1 };
@@ -111,25 +119,25 @@ pub fn heuristic_decomposition<R, F>(poly_ring: R, to_evaluate: Vec<El<R>>, mut 
                 current.tensor(
                     pre_circuit.tensor(
                         PlaintextCircuit::drop(pad_count),
-                        base_ring
+                        circuit_ring
                     ),
-                    base_ring
+                    circuit_ring
                 ).compose(
-                    PlaintextCircuit::identity(pre_stage_inputs, base_ring).output_twice(base_ring),
-                    base_ring
+                    PlaintextCircuit::identity(pre_stage_inputs, circuit_ring).output_twice(circuit_ring),
+                    circuit_ring
                 )
             }
         );
         if precompute_square {
             pre_circuit = pre_circuit.compose(
-                PlaintextCircuit::identity(1, base_ring).tensor(
-                    PlaintextCircuit::square(base_ring), 
-                    base_ring
+                PlaintextCircuit::identity(1, circuit_ring).tensor(
+                    PlaintextCircuit::square(circuit_ring), 
+                    circuit_ring
                 ).compose(
-                    PlaintextCircuit::identity(1, base_ring).output_times(pre_stage_inputs, base_ring), 
-                    base_ring
+                    PlaintextCircuit::identity(1, circuit_ring).output_times(pre_stage_inputs, circuit_ring), 
+                    circuit_ring
                 ), 
-                base_ring
+                circuit_ring
             );
         }
         assert_eq!(1, pre_circuit.input_count());
@@ -143,27 +151,27 @@ pub fn heuristic_decomposition<R, F>(poly_ring: R, to_evaluate: Vec<El<R>>, mut 
                 current.tensor(
                     post_circuit.tensor(
                         PlaintextCircuit::drop(pad_count),
-                        base_ring
+                        circuit_ring
                     ),
-                    base_ring
+                    circuit_ring
                 ).compose(
-                    PlaintextCircuit::identity(main_stage_outputs, base_ring).output_twice(base_ring),
-                    base_ring
+                    PlaintextCircuit::identity(main_stage_outputs, circuit_ring).output_twice(circuit_ring),
+                    circuit_ring
                 )
             }
         );
         return post_circuit.compose(
-            PlaintextCircuit::identity(1, base_ring).tensor(
-                main_circuit.compose(pre_circuit, base_ring), 
-                base_ring
+            PlaintextCircuit::identity(1, circuit_ring).tensor(
+                main_circuit.compose(pre_circuit, circuit_ring), 
+                circuit_ring
             ).compose(
-                PlaintextCircuit::identity(1, base_ring).output_twice(base_ring), 
-                base_ring
+                PlaintextCircuit::identity(1, circuit_ring).output_twice(circuit_ring), 
+                circuit_ring
             ),
-            base_ring
+            circuit_ring
         );
     } else {
-        return factors_to_circuit(poly_ring, polynomials);
+        return factors_to_circuit(poly_ring, polynomials, hom);
     }
 }
 
@@ -344,6 +352,28 @@ pub fn low_depth_bsgs_circuit_with_baby_steps<P>(poly_ring: P, polys: &[El<P>], 
     assert_eq!(expected_mul_count, result.multiplication_gate_count());
     return result;
 }
+
+#[instrument(skip_all)]
+pub fn poly_to_circuit_with_galois<P, R, H>(hypercube_iso: &HypercubeIsomorphism<R>, poly_ring: P, polys: &[El<P>], hom: H) -> PlaintextCircuit<R::Type>
+    where P: RingStore,
+        P::Type: PolyRing,
+        BaseRing<P>: FiniteRing + DivisibilityRing,
+        R: RingStore,
+        R::Type: NumberRingQuotient,
+        BaseRing<R>: NiceZn,
+        H: Homomorphism<BaseRing<P>, <SlotRingOf<R> as RingStore>::Type>
+{
+    heuristic_decomposition(&poly_ring, polys.iter().map(|f| poly_ring.clone_el(f)).collect(), |poly_ring, factors, hom| {
+        unimplemented!()
+    }, &hom).change_ring_uniform(|x| match x {
+        Coefficient::One => Coefficient::One,
+        Coefficient::NegOne => Coefficient::NegOne,
+        Coefficient::Zero => Coefficient::Zero,
+        Coefficient::Integer(x) => Coefficient::Integer(x),
+        Coefficient::Other(x) => Coefficient::Other(hypercube_iso.from_slot_values((0..hypercube_iso.slot_count()).map(|_| hypercube_iso.slot_ring().clone_el(&x))))
+    })
+}
+
 
 #[cfg(test)]
 use feanor_math::rings::zn::zn_64::Zn;
