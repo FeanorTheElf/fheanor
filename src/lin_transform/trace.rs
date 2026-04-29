@@ -16,8 +16,52 @@ use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::SlotRingOver;
 use crate::{NiceZn, ZZbig, ZZi64};
 
+fn cyclic_trace_norm_circuit<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>, generator: &GaloisGroupEl, l: usize, combiner: PlaintextCircuit<R::Type>) -> PlaintextCircuit<R::Type>
+    where R: RingStore + Copy
+{
+    let mut circuit = PlaintextCircuit::identity(1, ring);
+    let extend_circuit = RefCell::new(|l_idx: usize, r_idx: usize, l_num: i64| {
+        take_mut::take(&mut circuit, |circuit| PlaintextCircuit::identity(circuit.output_count(), ring).tensor(combiner.clone(ring).compose(
+            PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::gal(galois_group.pow(generator, &int_cast(l_num, ZZbig, ZZi64)), galois_group, ring), ring), ring
+        ), ring).compose(
+            PlaintextCircuit::select(circuit.output_count(), &(0..circuit.output_count()).chain([l_idx, r_idx].into_iter()).collect::<Vec<_>>(), ring), ring
+        ).compose(
+            circuit, ring
+        ));
+        return circuit.output_count() - 1;
+    });
+    let result_idx = generic_pow_shortest_chain_table(
+        (Some(0), 1),
+        &(l as i64),
+        StaticRing::<i64>::RING,
+        |(idx, num)| {
+            if let Some(idx) = idx {
+                let result = extend_circuit.borrow_mut()(*idx, *idx, *num);
+                Ok((Some(result), num + num))
+            } else {
+                Ok((None, 0))
+            }
+        },
+        |(l_idx, l_num), (r_idx, r_num)| {
+            if let Some(l_idx) = l_idx {
+                if let Some(r_idx) = r_idx {
+                    let result = extend_circuit.borrow_mut()(*l_idx, *r_idx, *l_num);
+                    Ok((Some(result), l_num + r_num))
+                } else {
+                    Ok((Some(*l_idx), *l_num))
+                }
+            } else {
+                Ok((*r_idx, *r_num))
+            }
+        },
+        |x| *x,
+        (None, 0)
+    ).unwrap_or_else(no_error).0.unwrap();
+    return PlaintextCircuit::select(circuit.output_count(), &[result_idx], ring).compose(circuit, ring);
+}
+
 ///
-/// Generates a circuit that computes a relative trace between two rings
+/// Generates a circuit that computes a relative field trace between two rings
 /// with the given relative galois group.
 /// 
 /// More concretely, this creates a circuit that computes
@@ -29,56 +73,29 @@ use crate::{NiceZn, ZZbig, ZZi64};
 pub fn trace_circuit<R>(ring: R, relative_galois_group: &Subgroup<CyclotomicGaloisGroup>) -> PlaintextCircuit<R::Type>
     where R: RingStore + Copy
 {
-    fn cyclic_trace_circuit<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>, generator: &GaloisGroupEl, l: usize) -> PlaintextCircuit<R::Type>
-        where R: RingStore + Copy
-    {
-        let mut circuit = PlaintextCircuit::identity(1, ring);
-        let extend_circuit = RefCell::new(|l_idx: usize, r_idx: usize, l_num: i64| {
-            take_mut::take(&mut circuit, |circuit| PlaintextCircuit::identity(circuit.output_count(), ring).tensor(PlaintextCircuit::add(ring).compose(
-                PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::gal(galois_group.pow(generator, &int_cast(l_num, ZZbig, ZZi64)), galois_group, ring), ring), ring
-            ), ring).compose(
-                PlaintextCircuit::select(circuit.output_count(), &(0..circuit.output_count()).chain([l_idx, r_idx].into_iter()).collect::<Vec<_>>(), ring), ring
-            ).compose(
-                circuit, ring
-            ));
-            return circuit.output_count() - 1;
-        });
-
-        let result_idx = generic_pow_shortest_chain_table(
-            (Some(0), 1),
-            &(l as i64),
-            StaticRing::<i64>::RING,
-            |(idx, num)| {
-                if let Some(idx) = idx {
-                    let result = extend_circuit.borrow_mut()(*idx, *idx, *num);
-                    Ok((Some(result), num + num))
-                } else {
-                    Ok((None, 0))
-                }
-            },
-            |(l_idx, l_num), (r_idx, r_num)| {
-                if let Some(l_idx) = l_idx {
-                    if let Some(r_idx) = r_idx {
-                        let result = extend_circuit.borrow_mut()(*l_idx, *r_idx, *l_num);
-                        Ok((Some(result), l_num + r_num))
-                    } else {
-                        Ok((Some(*l_idx), *l_num))
-                    }
-                } else {
-                    Ok((*r_idx, *r_num))
-                }
-            },
-            |x| *x,
-            (None, 0)
-        ).unwrap_or_else(no_error).0.unwrap();
-
-        return PlaintextCircuit::select(circuit.output_count(), &[result_idx], ring).compose(circuit, ring);
-    }
-
     relative_galois_group.get_group().rectangular_form().into_iter()
-        .map(|(g, l)| cyclic_trace_circuit(ring, &relative_galois_group, &g, l))
+        .map(|(g, l)| cyclic_trace_norm_circuit(ring, &relative_galois_group, &g, l, PlaintextCircuit::add(ring)))
         .fold(PlaintextCircuit::identity(1, ring), |current, next| current.compose(next, ring))
 }
+
+///
+/// Generates a circuit that computes a relative field norm between two rings
+/// with the given relative galois group.
+/// 
+/// More concretely, this creates a circuit that computes
+/// ```text
+///   x -> prod_σ σ(x)
+/// ```
+/// where `σ` ranges through `relative_galois_group`.
+/// 
+pub fn norm_circuit<R>(ring: R, relative_galois_group: &Subgroup<CyclotomicGaloisGroup>) -> PlaintextCircuit<R::Type>
+    where R: RingStore + Copy
+{
+    relative_galois_group.get_group().rectangular_form().into_iter()
+        .map(|(g, l)| cyclic_trace_norm_circuit(ring, &relative_galois_group, &g, l, PlaintextCircuit::mul(ring)))
+        .fold(PlaintextCircuit::identity(1, ring), |current, next| current.compose(next, ring))
+}
+
 
 ///
 /// Computes `a` such that `y -> Tr(ay)` is the given `Fp`-linear map `GR(p, e, d) -> Z/p^eZ`.

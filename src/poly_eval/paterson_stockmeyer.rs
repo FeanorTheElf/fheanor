@@ -1,5 +1,5 @@
 use std::cmp::{min, max};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::ops::RangeInclusive;
 
 use feanor_math::divisibility::{DivisibilityRing, DivisibilityRingStore};
@@ -11,52 +11,9 @@ use tracing::{Level, event, instrument};
 
 use crate::circuit::PlaintextCircuit;
 use crate::number_ring::hypercube::isomorphism::BaseRing;
+use crate::poly_eval::addition_chains::addition_chain_lengths;
+use crate::poly_eval::to_circuit::compute_powers_circuit;
 use crate::*;
-
-fn addition_chain_lengths(k: usize, available: &[usize]) -> (Vec<usize>, Vec<usize>) {
-    debug_assert!(available.is_sorted());
-    let mut costs = vec![0, 0];
-    let mut next = vec![0, 1];
-    let mut available_i = 0;
-    while available_i < available.len() && available[available_i] < 2 {
-        available_i += 1;
-    }
-    for i in 2..=k {
-        if available_i < available.len() && i == available[available_i] {
-            costs.push(0);
-            next.push(i);
-            available_i += 1;
-        } else {
-            let next_power_two = 1 << ZZi64.abs_log2_ceil(&(i as i64)).unwrap();
-            let potential_steps = (i - next_power_two / 2)..=(next_power_two / 2);
-            let j = potential_steps.min_by_key(|j| costs[*j] + costs[i - j] + 1).unwrap();
-            costs.push(costs[j] + costs[i - j] + 1);
-            next.push(j);
-        }
-    }
-    return (costs, next);
-}
-
-fn addition_chain_for(target: usize, shortest_addition_chain_list: &[usize]) -> Vec<(usize, (usize, usize))> {
-    let mut open = vec![target];
-    let mut closed = BTreeMap::new();
-    while let Some(value) = open.pop() {
-        if shortest_addition_chain_list[value] == value {
-            continue;
-        } else {
-            let left = shortest_addition_chain_list[value];
-            let right = value - left;
-            closed.insert(value, (left, right));
-            if !closed.contains_key(&left) {
-                open.push(left);
-            }
-            if !closed.contains_key(&right) {
-                open.push(right)
-            }
-        }
-    }
-    return closed.into_iter().collect();
-}
 
 fn minimum_somewhat_continuous_function<F>(range: RangeInclusive<usize>, mut f: F, steps: usize) -> usize
     where F: FnMut(usize) -> i64
@@ -246,10 +203,8 @@ impl<R> PatersonStockmeyerSplit<R>
                     _ => {}
                 }
             }
-            // println!("{}[{}] fails", "  ".repeat(rec_depth), d);
             return Err(());
         } else {
-            // println!("{}[{}] fails", "  ".repeat(rec_depth), d);
             return Err(());
         }
     }
@@ -333,38 +288,6 @@ pub fn paterson_stockmeyer_circuit<R>(poly_ring: R, polynomials: &[El<R>]) -> Re
     let plan = plan_paterson_stockmeyer_circuit(&degrees);
     assert!(plan.k >= 1);
 
-    fn precomputed_power_circuit<R>(poly_ring: R, precomputed_powers: &[usize]) -> PlaintextCircuit<BaseRing<R>>
-        where R: RingStore,
-            R::Type: PolyRing,
-            BaseRing<R>: DivisibilityRing + FiniteRing
-    {
-        assert!(precomputed_powers.is_sorted());
-        let base_ring = poly_ring.base_ring();
-        let mut current = PlaintextCircuit::identity(1, base_ring);
-        let mut current_powers = vec![1];
-        debug_assert_eq!(1, current.input_count());
-        debug_assert_eq!(current_powers.len(), current.output_count());
-        let get_idx = |pow: usize, current_powers: &[usize]| current_powers.binary_search(&pow).unwrap();
-        for power in precomputed_powers {
-            let (_, addition_chain_list) = addition_chain_lengths(*power, &current_powers);
-            let chain = addition_chain_for(*power, &addition_chain_list);
-            for (to_compute, (from_left, from_right)) in chain {
-                current = PlaintextCircuit::identity(current_powers.len(), base_ring).tensor(
-                    PlaintextCircuit::mul(base_ring).compose(PlaintextCircuit::select(current_powers.len(), &[get_idx(from_left, &current_powers), get_idx(from_right, &current_powers)], base_ring), base_ring),
-                    base_ring
-                ).compose(current.output_twice(base_ring), base_ring);
-                current_powers.push(to_compute);
-                debug_assert_eq!(1, current.input_count());
-                debug_assert_eq!(current_powers.len(), current.output_count());
-            }
-        }
-        return PlaintextCircuit::select(
-            current_powers.len(), 
-            &precomputed_powers.iter().map(|pow| get_idx(*pow, &current_powers)).collect::<Vec<_>>(), 
-            base_ring
-        ).compose(current, base_ring);
-    }
-
     let mut rng = oorandom::Rand64::new(0);
     for _ in 0..10 {
         let random_value = poly_ring.base_ring().random_element(|| rng.rand_u64());
@@ -394,8 +317,7 @@ pub fn paterson_stockmeyer_circuit<R>(poly_ring: R, polynomials: &[El<R>]) -> Re
             debug_assert_eq!(precomputed_powers.len(), main_circuit.input_count());
             debug_assert_eq!(polynomials.len(), main_circuit.output_count());
             
-            let precompute_powers_circuit = precomputed_power_circuit(&poly_ring, &precomputed_powers);
-            // println!("{}", serde_json::to_string_pretty(&SerializablePlaintextCircuit::new_no_galois(poly_ring.base_ring(), &precompute_powers_circuit)).unwrap());
+            let precompute_powers_circuit = compute_powers_circuit(poly_ring.base_ring(), &[1], &precomputed_powers);
 
             let de_randomize_circuit = PlaintextCircuit::add(poly_ring.base_ring()).compose(
                 PlaintextCircuit::identity(1, poly_ring.base_ring()).tensor(

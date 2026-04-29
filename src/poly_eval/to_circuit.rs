@@ -4,16 +4,16 @@ use feanor_math::rings::finite::FiniteRing;
 use feanor_math::divisibility::*;
 use feanor_math::integer::*;
 use feanor_math::ring::*;
-use feanor_math::seq::*;
+use feanor_math::rings::zn::ZnReductionMap;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use tracing::instrument;
 
-use crate::circuit::Coefficient;
 use crate::circuit::PlaintextCircuit;
 use crate::number_ring::NumberRingQuotient;
 use crate::number_ring::hypercube::isomorphism::BaseRing;
 use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
-use crate::number_ring::hypercube::isomorphism::SlotRingOf;
+use crate::poly_eval::addition_chains::addition_chain_for;
+use crate::poly_eval::addition_chains::addition_chain_lengths;
 use crate::poly_eval::paterson_stockmeyer::paterson_stockmeyer_circuit;
 use crate::*;
 
@@ -41,6 +41,40 @@ pub fn poly_to_circuit<P>(poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<Bas
         },
         &poly_ring.base_ring().identity()
     )
+}
+
+///
+/// Creates a circuit that takes as input the values `x^i` for `i` in `input_powers` and outputs
+/// `x^i` for `i` in `output_powers`.
+/// 
+#[instrument(skip_all)]
+pub fn compute_powers_circuit<R>(ring: R, input_powers: &[usize], output_powers: &[usize]) -> PlaintextCircuit<R::Type>
+    where R: RingStore + Copy
+{
+    let mut current = input_powers.to_vec();
+    assert!(current.is_sorted());
+    assert!(current.array_windows::<2>().all(|[x, y]| x != y));
+    assert!(current.get(0) == Some(&1) || current.get(1) == Some(&1));
+    let mut circuit = PlaintextCircuit::identity(current.len(), ring);
+    if current.get(0) == Some(&1) {
+        current.insert(0, 0);
+        circuit = PlaintextCircuit::constant_i32(1, ring).tensor(circuit, ring);
+    }
+    let get_idx = |k: usize, values: &[usize]| values.iter().enumerate().filter(|(_, v)| **v == k).next().unwrap().0;
+
+    for k in output_powers {
+        debug_assert_eq!(input_powers.len(), circuit.input_count());
+        debug_assert_eq!(current.len(), circuit.output_count());
+        let (_chain_lengths, chain_description) = addition_chain_lengths(k + 1, &current);
+        let chain = addition_chain_for(*k, &chain_description);
+        for (val, (left, right)) in chain {
+            circuit = PlaintextCircuit::identity(current.len(), ring).tensor(
+                PlaintextCircuit::mul(ring).compose(PlaintextCircuit::select(current.len(), &[get_idx(left, &current), get_idx(right, &current)], ring), ring), ring
+            ).compose(circuit.output_twice(ring), ring);
+            current.push(val);
+        }
+    }
+    return PlaintextCircuit::select(current.len(), &output_powers.iter().map(|k| get_idx(*k, &current)).collect::<Vec<_>>(), ring).compose(circuit, ring);
 }
 
 ///
@@ -239,31 +273,6 @@ fn low_depth_bsgs_circuit<P>(poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<
     low_depth_bsgs_circuit_with_baby_steps(poly_ring, polys, baby_steps)
 }
 
-fn compute_power_circuit<R>(ring: R, deg_exclusive: usize) -> PlaintextCircuit<R::Type>
-    where R: RingStore + Copy
-{
-    let mut result = PlaintextCircuit::constant(ring.one(), ring).tensor(PlaintextCircuit::identity(1, ring), ring);
-    while result.output_count() < deg_exclusive {
-        let l = result.output_count();
-        if l % 2 == 0 {
-            result = PlaintextCircuit::identity(l, ring).tensor(
-                PlaintextCircuit::square(ring).compose(PlaintextCircuit::select(l, &[l / 2], ring), ring), ring
-            ).compose(
-                result.output_twice(ring), ring
-            );
-        } else {
-            result = PlaintextCircuit::identity(l, ring).tensor(
-                PlaintextCircuit::mul(ring).compose(PlaintextCircuit::select(l, &[l / 2, l - (l / 2)], ring), ring), ring
-            ).compose(
-                result.output_twice(ring), ring
-            );
-        }
-        assert_eq!(l + 1, result.output_count());
-    }
-    assert!(result.output_count() == deg_exclusive);
-    return result;
-}
-
 #[instrument(skip_all)]
 pub fn low_depth_bsgs_circuit_with_baby_steps<P>(poly_ring: P, polys: &[El<P>], baby_steps: usize) -> PlaintextCircuit<<<P::Type as RingExtension>::BaseRing as RingStore>::Type>
     where P: RingStore,
@@ -279,13 +288,13 @@ pub fn low_depth_bsgs_circuit_with_baby_steps<P>(poly_ring: P, polys: &[El<P>], 
     assert!((giant_steps - 1) * baby_steps <= max_deg);
 
     // now baby_step_circuit computes (1, x, x^2, ..., x^baby_steps)
-    let baby_step_circuit = compute_power_circuit(ring, baby_steps + 1);
+    let baby_step_circuit = compute_powers_circuit(ring, &[1], &(0..=baby_steps).collect::<Vec<_>>());
     assert_eq!(baby_steps - 1, baby_step_circuit.multiplication_gate_count());
     assert_eq!(ZZi64.abs_log2_ceil(&(baby_steps as i64)).unwrap() as usize, baby_step_circuit.max_mul_depth());
     let baby_step_circuit_mul_depth = baby_step_circuit.max_mul_depth();
 
     // giant_step_circuit computes (1, x, ..., x^(baby_steps - 1), 1, x^baby_steps, x^(2 baby_steps), ..., x^(floor(giant_steps / 2) * baby_steps - baby_steps))
-    let giant_step_circuit = PlaintextCircuit::identity(baby_steps, ring).tensor(compute_power_circuit(ring, giant_steps_half), ring).compose(baby_step_circuit, ring);
+    let giant_step_circuit = PlaintextCircuit::identity(baby_steps, ring).tensor(compute_powers_circuit(ring, &[1], &(0..giant_steps_half).collect::<Vec<_>>()), ring).compose(baby_step_circuit, ring);
     assert_eq!(baby_steps - 1 + giant_steps_half - 2, giant_step_circuit.multiplication_gate_count());
     assert_eq!(ZZi64.abs_log2_ceil(&(giant_steps_half as i64 - 1)).unwrap() as usize, giant_step_circuit.max_mul_depth() - baby_step_circuit_mul_depth);
     assert_eq!(giant_step_circuit.input_count(), 1);
@@ -354,35 +363,59 @@ pub fn low_depth_bsgs_circuit_with_baby_steps<P>(poly_ring: P, polys: &[El<P>], 
 }
 
 #[instrument(skip_all)]
-pub fn poly_to_circuit_with_galois<P, R, H>(hypercube_iso: &HypercubeIsomorphism<R>, poly_ring: P, polys: &[El<P>], hom: H) -> PlaintextCircuit<R::Type>
+pub fn poly_to_circuit_with_galois<P, R>(hypercube_iso: &HypercubeIsomorphism<R>, poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<R::Type>
     where P: RingStore,
         P::Type: PolyRing,
-        BaseRing<P>: FiniteRing + DivisibilityRing,
+        BaseRing<P>: ZnRing + DivisibilityRing,
         R: RingStore,
         R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        H: Homomorphism<BaseRing<P>, <SlotRingOf<R> as RingStore>::Type>
+        BaseRing<R>: NiceZn
 {
     heuristic_decomposition(&poly_ring, polys.iter().map(|f| poly_ring.clone_el(f)).collect(), |poly_ring, factors, hom| {
         unimplemented!()
-    }, &hom).change_ring_uniform(|x| match x {
-        Coefficient::One => Coefficient::One,
-        Coefficient::NegOne => Coefficient::NegOne,
-        Coefficient::Zero => Coefficient::Zero,
-        Coefficient::Integer(x) => Coefficient::Integer(x),
-        Coefficient::Other(x) => Coefficient::Other(hypercube_iso.from_slot_values((0..hypercube_iso.slot_count()).map(|_| hypercube_iso.slot_ring().clone_el(&x))))
-    })
+    }, &hypercube_iso.ring().inclusion().compose(ZnReductionMap::new(poly_ring.base_ring(), hypercube_iso.ring().base_ring()).unwrap()))
 }
-
 
 #[cfg(test)]
 use feanor_math::rings::zn::zn_64::Zn;
 #[cfg(test)]
+use feanor_math::rings::poly::dense_poly::DensePolyRing;
+#[cfg(test)]
+use feanor_math::seq::VectorFn;
+#[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
-use feanor_math::rings::finite::FiniteRingStore;
+use crate::feanor_math::rings::finite::FiniteRingStore;
 #[cfg(test)]
-use feanor_math::rings::poly::dense_poly::DensePolyRing;
+use crate::feanor_math::seq::VectorView;
+
+#[test]
+fn test_compute_powers_circuit() {
+    let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[1]);
+    println!("{}", circuit.to_ir(ZZi64, None));
+    assert!(circuit.eq(&PlaintextCircuit::select(3, &[1], ZZi64), ZZi64, None));
+
+    let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[3]);
+    assert!(circuit.eq(&PlaintextCircuit::mul(ZZi64).compose(PlaintextCircuit::select(3, &[1, 2], ZZi64), ZZi64), ZZi64, None));
+
+    let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[5, 7]);
+    assert_eq!(2, circuit.output_count());
+    assert_eq!(2, circuit.mul_depth(0));
+    assert_eq!(2, circuit.mul_depth(1));
+    for x in -20..=20 {
+        assert_eq!(vec![ZZi64.pow(x, 5), ZZi64.pow(x, 7)], circuit.evaluate_no_galois(&[1, x, x * x], ZZi64.identity()));
+    }
+    
+    let circuit = compute_powers_circuit(ZZi64, &[1], &[0, 1, 2, 3]);
+    assert_eq!(4, circuit.output_count());
+    assert_eq!(0, circuit.mul_depth(0));
+    assert_eq!(0, circuit.mul_depth(1));
+    assert_eq!(1, circuit.mul_depth(2));
+    assert_eq!(2, circuit.mul_depth(3));
+    for x in -20..=20 {
+        assert_eq!(vec![1, x, x * x, x * x * x], circuit.evaluate_no_galois(&[x], ZZi64.identity()));
+    }
+}
 
 #[test]
 fn test_bsgs() {
