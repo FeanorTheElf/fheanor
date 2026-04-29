@@ -12,6 +12,8 @@ coeffs2slots_*.pcd
 slots2coeffs_*.pcd
 digit_extract_*.json
 digit_extract_*.pcd
+digit_retain_poly_*.json
+digit_retain_poly_*.pcd
 *.fheir
 bgv_memtrace
 .vscode

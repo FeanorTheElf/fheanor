@@ -531,6 +531,9 @@ fn test_evaluation_circuit_multiple() {
 #[test]
 #[ignore]
 fn circuit_for_65537() {
+    use std::fs::File;
+    use std::io::BufWriter;
+    use std::io::Write;
     use feanor_math::rings::zn::zn_64::Zn;
     use crate::cache::*;
     use crate::number_ring::galois::*;
@@ -553,6 +556,7 @@ fn circuit_for_65537() {
         StoreAs::AlwaysJson
     );
     println!("p-s mults  {}", circuit.multiplication_gate_count());
+    write!(BufWriter::new(File::create("./digit_extract_p65537_e2.fheir").unwrap()), "{}", circuit.to_ir(Zp2, None)).unwrap();
 
     for x in 0..(65537 * 65537) {
         assert_el_eq!(Zp2X.base_ring(), Zp2X.base_ring().coerce(&ZZi64, cmod(x, 65537)), circuit.evaluate_no_galois(&[Zp2X.base_ring().coerce(&ZZi64, x)], Zp2X.base_ring().identity()).pop().unwrap());
