@@ -223,19 +223,19 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
             println!("Using e = r + v = {} + {}", r, v);
         }
 
-        let plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
-        let original_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        let intermediate_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
+        let base_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        let plaintext_ring_hierarchy = ((r + 1)..e).map(|k| instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect::<Vec<_>>();
+        let all_plaintext_rings = [&base_plaintext_ring].into_iter().chain(plaintext_ring_hierarchy.iter()).chain([&intermediate_plaintext_ring]).collect::<Vec<_>>();
 
-        let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::default_pow2_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
-            HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, &hypercube, cache_dir)
-        });
-        let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
+        let hypercube = HypercubeStructure::default_pow2_hypercube(intermediate_plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
+        let H = LazyCell::new(|| HypercubeIsomorphism::new::<LOG>(&intermediate_plaintext_ring, &hypercube, cache_dir));
+        let base_H = LazyCell::new(|| H.change_modulus(&base_plaintext_ring));
 
-        let m = plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || pow2::slots_to_coeffs_thin(&original_H, lin_transform_max_levels));
-        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || pow2::coeffs_to_slots_thin(&H, lin_transform_max_levels));
-        let digit_extract = DigitExtract::new_default::<_, _, LOG>(&H, r, digit_extract_error_bound, cache_dir);
+        let m = intermediate_plaintext_ring.number_ring().galois_group().m();
+        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&base_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || pow2::slots_to_coeffs_thin(&base_H, lin_transform_max_levels));
+        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&intermediate_plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || pow2::coeffs_to_slots_thin(&H, lin_transform_max_levels));
+        let digit_extract = DigitExtract::new_default::<_, _, LOG>(&all_plaintext_rings, &H, digit_extract_error_bound, cache_dir);
 
         // we estimate the noise growth of the slots-to-coeffs transform as `log2(|Gal|)` multiplications by
         // ring elements of size at most `t`
@@ -248,8 +248,8 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
 
         return Self::create(
             instantiation, 
-            original_plaintext_ring,
-            plaintext_ring,
+            base_plaintext_ring,
+            intermediate_plaintext_ring,
             C.clone(),
             slots_to_coeffs, 
             coeffs_to_slots,
@@ -311,17 +311,19 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
             println!("Using e = r + v = {} + {}", r, v);
         }
 
-        let plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
-        let original_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        let intermediate_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
+        let base_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        let plaintext_ring_hierarchy = ((r + 1)..e).map(|k| instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect::<Vec<_>>();
+        let all_plaintext_rings = [&base_plaintext_ring].into_iter().chain(plaintext_ring_hierarchy.iter()).chain([&intermediate_plaintext_ring]).collect::<Vec<_>>();
 
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
-        let H = LazyCell::new(|| HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, &hypercube, cache_dir));
-        let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(intermediate_plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
+        let H = LazyCell::new(|| HypercubeIsomorphism::new::<LOG>(&intermediate_plaintext_ring, &hypercube, cache_dir));
+        let base_H = LazyCell::new(|| H.change_modulus(&base_plaintext_ring));
 
-        let m = plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || composite::slots_to_powcoeffs_thin(&original_H, lin_transform_max_levels));
-        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || composite::powcoeffs_to_slots_thin(&H, lin_transform_max_levels));
-        let digit_extract = DigitExtract::new_default::<_, _, LOG>(&H, r, digit_extract_error_bound, cache_dir);
+        let m = intermediate_plaintext_ring.number_ring().galois_group().m();
+        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&base_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || composite::slots_to_powcoeffs_thin(&base_H, lin_transform_max_levels));
+        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&intermediate_plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || composite::powcoeffs_to_slots_thin(&H, lin_transform_max_levels));
+        let digit_extract = DigitExtract::new_default::<_, _, LOG>(&all_plaintext_rings, &H, digit_extract_error_bound, cache_dir);
 
         // we estimate the noise growth of the slots-to-coeffs transform as `log2(m)` multiplications by
         // ring elements of size at most `t`
@@ -334,8 +336,8 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
 
         return Self::create(
             instantiation, 
-            original_plaintext_ring,
-            plaintext_ring,
+            base_plaintext_ring,
+            intermediate_plaintext_ring,
             C.clone(),
             slots_to_coeffs, 
             coeffs_to_slots,
@@ -532,7 +534,8 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
             }
 
             let result = log_time::<_, _, LOG, _>("4. Performing digit extraction", |[]| {
-                self.digit_extract.evaluate_bfv::<_, Params>(P_main, P_base, &self.plaintext_ring_hierarchy, P_main, C, C_mul, noisy_decryption_in_slots, rk, debug_sk).0
+                let plaintext_rings = [P_base].into_iter().chain(self.plaintext_ring_hierarchy.iter()).chain([P_main]).collect::<Vec<_>>();
+                self.digit_extract.evaluate_bfv::<_, Params>(&plaintext_rings, &plaintext_rings, C, C_mul, noisy_decryption_in_slots, rk, debug_sk).0
             });
             return result;
         })
@@ -608,10 +611,8 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
     /// [`DigitExtract`] and [`DigitExtract::evaluate_generic()`].
     /// 
     pub fn evaluate_bfv<S, Params>(&self, 
-        ring: S,
-        P_base: &PlaintextRing<Params>, 
-        P_intermediate: &[PlaintextRing<Params>], 
-        P_main: &PlaintextRing<Params>,
+        rings: &[S],
+        P: &[&PlaintextRing<Params>],
         C: &CiphertextRing<Params>, 
         C_mul: &CiphertextRing<Params>, 
         input: Ciphertext<Params>, 
@@ -622,27 +623,22 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
             R: AsBFVPlaintext<Params>,
             S: RingStore<Type = R> + Copy
     {
-        let ZZ = P_base.base_ring().integer_ring();
-        let (p, actual_r) = is_prime_power(ZZ, P_base.base_ring().modulus()).unwrap();
+        let ZZ = P[0].base_ring().integer_ring();
+        let (p, actual_r) = is_prime_power(ZZ, P[0].base_ring().modulus()).unwrap();
         assert!(actual_r >= self.r());
-        assert_eq!(self.e() - self.r() - 1, P_intermediate.len());
+        assert_eq!(self.v() + 1, P.len());
+        assert_eq!(self.v() + 1, rings.len());
         assert_el_eq!(ZZbig, self.p(), int_cast(ZZ.clone_el(&p), ZZbig, ZZ));
-        for i in 0..(self.e() - self.r() - 1) {
-            assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), actual_r + i + 1), int_cast(ZZ.clone_el(P_intermediate[i].base_ring().modulus()), ZZbig, ZZ));
+        for i in 0..=self.v() {
+            assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), actual_r + i), int_cast(ZZ.clone_el(P[i].base_ring().modulus()), ZZbig, ZZ));
         }
-        let get_P = |exp: usize| if exp == self.r() {
-            P_base
-        } else if exp == self.e() {
-            P_main
-        } else {
-            &P_intermediate[exp - self.r() - 1]
-        };
+
         let result = self.evaluate_generic(
             input,
             |exp, params, circuit| {
                 circuit.evaluate_bfv::<Params, _>(
-                    ring,
-                    get_P(exp),
+                    &rings[exp - self.r()],
+                    P[exp - self.r()],
                     C,
                     Some(C_mul),
                     params,
@@ -653,7 +649,7 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
             },
             |exp_from, _, x| {
                 if let Some(sk) = debug_sk {
-                    Params::dec_println_slots(get_P(exp_from), C, &x, sk, Some("."));
+                    Params::dec_println_slots(P[exp_from - self.r()], C, &x, sk, Some("."));
                 }
                 return x;
             }
@@ -818,8 +814,8 @@ fn test_digit_extract_homomorphic() {
     let m = P2.int_hom().map(17 * 17 + 2 * 17 + 5);
     let ct = Pow2BFV::enc_sym(&P2, &C, &mut rng, &m, &sk, 3.2);
 
-    let digitextract = DigitExtract::new_digit_retain_based(int_cast(17, ZZbig, ZZi64), 2, 1);
-    let (ct_high, ct_low) = digitextract.evaluate_bfv::<_, Pow2BFV>(ZZbig, &P1, &[], &P2, &C, &C_mul, ct, &rk, Some(&sk));
+    let digitextract = DigitExtract::new_digit_retain_based(&[P1.base_ring(), P2.base_ring()]);
+    let (ct_high, ct_low) = digitextract.evaluate_bfv::<_, Pow2BFV>(&[P1.base_ring(), P2.base_ring()], &[&P1, &P2], &C, &C_mul, ct, &rk, Some(&sk));
     let m_high = Pow2BFV::dec(&P1, &C, Pow2BFV::clone_ct(&C, &ct_high), &sk);
     assert!(P1.wrt_canonical_basis(&m_high).iter().skip(1).all(|x| P1.base_ring().is_zero(&x)));
     let m_high = P1.base_ring().smallest_positive_lift(P1.wrt_canonical_basis(&m_high).at(0));

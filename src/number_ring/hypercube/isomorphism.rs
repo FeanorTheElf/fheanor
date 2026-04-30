@@ -1,5 +1,13 @@
 use std::alloc::*;
+use std::marker::PhantomData;
 use std::sync::Arc;
+
+use feanor_serde::dependent_tuple::DeserializeSeedDependentTuple;
+use feanor_serde::impl_deserialize_seed_for_dependent_struct;
+use feanor_serde::newtype_struct::{DeserializeSeedNewtypeStruct, SerializableNewtypeStruct};
+use feanor_serde::seq::DeserializeSeedSeq;
+use serde::{Deserialize, Serialize};
+use serde::de::DeserializeSeed;
 
 use feanor_math::algorithms::convolution::fft::{FFTConvolution, FFTConvolutionZn};
 use feanor_math::algorithms::convolution::rns::{RNSConvolution, RNSConvolutionZn};
@@ -28,20 +36,16 @@ use feanor_math::rings::zn::*;
 use feanor_math::seq::sparse::SparseMapVector;
 use feanor_math::seq::*;
 use feanor_math::assert_el_eq;
-use feanor_math::serialization::SerializableElementRing;
+use feanor_math::serialization::{DeserializeWithRing, SerializableElementRing, SerializeOwnedWithRing};
 use tracing::instrument;
 
-use crate::cache::{create_cached, SerializeDeserializeWith, StoreAs};
+use crate::cache::{DeserializeSeedDeserializableWithData, SerializeDeserializeWith, SerializeSerializableWithData, StoreAs, create_cached};
 use crate::number_ring::galois::*;
-#[cfg(test)]
-use crate::number_ring::quotient_by_ideal::NumberRingQuotientByIdeal;
 use crate::number_ring::*;
 use crate::*;
 use crate::ntt::dyn_convolution::*;
 use crate::number_ring::hypercube::interpolate::FastPolyInterpolation;
 use crate::number_ring::hypercube::structure::*;
-
-pub use crate::number_ring::hypercube::serialization::{DeserializeSeedHypercubeIsomorphismWithoutRing, SerializableHypercubeIsomorphismWithoutRing};
 
 #[instrument(skip_all)]
 pub(super) fn create_convolution<R>(d: usize, log2_input_size: usize) -> DynConvolutionAlgorithmConvolution<R, Arc<dyn DynConvolutionAlgorithm<R>>>
@@ -220,9 +224,10 @@ impl<R> HypercubeIsomorphism<R>
             RNew::Type: NumberRingQuotient,
             BaseRing<RNew>: NiceZn
     {
+        assert!(self.galois_group().get_group() == new_ring.acting_galois_group().get_group(), "both rings must have the same galois structure");
         let (p, e) = is_prime_power(&ZZbig, &new_ring.characteristic(&ZZbig).unwrap()).unwrap();
         let d = self.hypercube().d();
-        let red_map = ZnReductionMap::new(self.ring().base_ring(), new_ring.base_ring()).unwrap();
+        let red_map = ZnReductionMap::new(self.ring().base_ring(), new_ring.base_ring()).expect("new ring must have modulus dividing current modulus");
         let poly_ring = DensePolyRing::new(new_ring.base_ring(), "X");
         let slot_rings = self.slot_rings.iter().map(|slot_ring| {
             let gen_poly = slot_ring.generating_poly(&poly_ring, &red_map);
@@ -370,7 +375,7 @@ impl<R> HypercubeIsomorphism<R>
     /// in the given directory. If the file does not exist, a new
     /// [`HypercubeIsomorphism`] is created and stored in the file.
     /// 
-    pub fn new<const LOG: bool>(ring: &R, hypercube_structure: &HypercubeStructure, cache_dir: Option<&str>) -> Self
+    pub fn new<const LOG: bool>(ring: R, hypercube_structure: &HypercubeStructure, cache_dir: Option<&str>) -> Self
         where R: Clone,
             BaseRing<R>: SerializableElementRing
     {
@@ -379,22 +384,22 @@ impl<R> HypercubeIsomorphism<R>
         let m = ring.number_ring().galois_group().m();
         let d = hypercube_structure.d();
         let result = create_cached::<_, R, _, LOG>(
-            &ring,
+            ring.clone(),
             || {
                 let (ZpeX, slot_ring_moduli) = if d * d < m as usize {
                     if LOG {
                         println!("[HypercubeIsomorphism] Using algorithm optimized for small slot rings");
                     }
-                    let (S, root) = Self::compute_tmp_slot_ring_and_root::<LOG>(ring, hypercube_structure);
-                    Self::compute_slot_ring_moduli_small_slot_ring::<LOG>(ring, hypercube_structure, S, root)
+                    let (S, root) = Self::compute_tmp_slot_ring_and_root::<LOG>(&ring, hypercube_structure);
+                    Self::compute_slot_ring_moduli_small_slot_ring::<LOG>(&ring, hypercube_structure, S, root)
                 } else {
                     if LOG {
                         println!("[HypercubeIsomorphism] Using algorithm optimized for large slot rings");
                     }
-                    let (FpX, factor) = Self::compute_factor_of_generating_poly_mod_p::<LOG>(ring, hypercube_structure);
-                    Self::compute_slot_ring_moduli_large_slot_ring::<LOG>(ring, hypercube_structure, &FpX, &factor)
+                    let (FpX, factor) = Self::compute_factor_of_generating_poly_mod_p::<LOG>(&ring, hypercube_structure);
+                    Self::compute_slot_ring_moduli_large_slot_ring::<LOG>(&ring, hypercube_structure, &FpX, &factor)
                 };
-                Self::create::<LOG>(ring.clone(), hypercube_structure.clone(), ZpeX, slot_ring_moduli)
+                Self::create::<LOG>(ring, hypercube_structure.clone(), ZpeX, slot_ring_moduli)
             },
             &filename_keys![hypercube, m: m, o: o, p: p, e: e],
             cache_dir,
@@ -405,35 +410,36 @@ impl<R> HypercubeIsomorphism<R>
         return result;
     }
 
-    pub fn new_with_poly_factor<P, const LOG: bool>(ring: &R, poly_ring: P, factor: &El<P>, hypercube_structure: &HypercubeStructure, cache_dir: Option<&str>) -> Self
+    pub fn new_with_poly_factor<P, const LOG: bool>(ring: R, poly_ring: P, factor: &El<P>, hypercube_structure: &HypercubeStructure, cache_dir: Option<&str>) -> Self
         where P: RingStore + Copy,
             P::Type: PolyRing,
             <P::Type as RingExtension>::BaseRing: RingStore<Type = BaseRing<R>>,
             R: Clone
     {
         assert!(ring.base_ring().get_ring() == poly_ring.base_ring().get_ring());
-        assert_eq!(hypercube_structure.d(), poly_ring.degree(factor).unwrap());let (p, e) = is_prime_power(&ZZbig, &ring.characteristic(&ZZbig).unwrap()).unwrap();
+        assert_eq!(hypercube_structure.d(), poly_ring.degree(factor).unwrap());
+        let (p, e) = is_prime_power(&ZZbig, &ring.characteristic(&ZZbig).unwrap()).unwrap();
 
         let o = hypercube_structure.galois_group().subgroup_order();
         let m = ring.number_ring().galois_group().m();
         let d = hypercube_structure.d();
         let result = create_cached::<_, R, _, LOG>(
-            ring,
+            ring.clone(),
             || {
                 let (ZpeX, slot_ring_moduli) = if d * d < m as usize {
                     if LOG {
                         println!("[HypercubeIsomorphism] Using algorithm optimized for small slot rings");
                     }
-                    let (S, root_of_unity) = Self::convert_tmp_slot_ring_and_root(ring, poly_ring, factor);
-                    Self::compute_slot_ring_moduli_small_slot_ring::<LOG>(ring, hypercube_structure, S, root_of_unity)
+                    let (S, root_of_unity) = Self::convert_tmp_slot_ring_and_root(&ring, poly_ring, factor);
+                    Self::compute_slot_ring_moduli_small_slot_ring::<LOG>(&ring, hypercube_structure, S, root_of_unity)
                 } else {
                     if LOG {
                         println!("[HypercubeIsomorphism] Using algorithm optimized for large slot rings");
                     }
-                    let (FpX, factor) = Self::convert_factor_of_generating_poly_mod_p(ring, poly_ring, factor);
-                    Self::compute_slot_ring_moduli_large_slot_ring::<LOG>(ring, hypercube_structure, &FpX, &factor)
+                    let (FpX, factor) = Self::convert_factor_of_generating_poly_mod_p(&ring, poly_ring, factor);
+                    Self::compute_slot_ring_moduli_large_slot_ring::<LOG>(&ring, hypercube_structure, &FpX, &factor)
                 };
-                Self::create::<LOG>(ring.clone(), hypercube_structure.clone(), ZpeX, slot_ring_moduli)
+                Self::create::<LOG>(ring, hypercube_structure.clone(), ZpeX, slot_ring_moduli)
             },
             &filename_keys![hypercube, m: m, o: o, p: p, e: e],
             cache_dir,
@@ -706,21 +712,107 @@ impl<R> HypercubeIsomorphism<R>
 }
 
 impl<R> SerializeDeserializeWith<R> for HypercubeIsomorphism<R>
-    where R: RingStore + Clone,
+    where R: RingStore,
         R::Type: NumberRingQuotient,
         BaseRing<R>: SerializableElementRing,
         BaseRing<R>: NiceZn
 {
-    type SerializeWithData<'a> = SerializableHypercubeIsomorphismWithoutRing<'a, R> where Self: 'a, R: 'a;
-    type DeserializeWithData<'a> = DeserializeSeedHypercubeIsomorphismWithoutRing<R> where Self: 'a, R: 'a;
+    fn deserialize_with_data<'de, D: serde::Deserializer<'de>>(ring: R, deserializer: D) -> Result<Self, D::Error> {
+        struct DeserializeSeedHypercubeIsomorphismData<R>
+            where R: RingStore,
+                R::Type: PolyRing + SerializableElementRing
+        {
+            poly_ring: R
+        }
 
-    fn serialize_with<'a>(&'a self, ring: &'a R) -> Self::SerializeWithData<'a> {
-        assert!(self.ring.get_ring() == ring.get_ring());
-        SerializableHypercubeIsomorphismWithoutRing { hypercube_isomorphism: self }
+        fn derive_multiple_poly_deserializer<'de, 'a, R>(deserializer: &'a DeserializeSeedHypercubeIsomorphismData<R>) -> impl use <'a, 'de, R> + DeserializeSeed<'de, Value = Vec<El<R>>>
+            where R: RingStore,
+                R::Type: PolyRing + SerializableElementRing
+        {
+            DeserializeSeedSeq::new(
+                std::iter::repeat(DeserializeWithRing::new(&deserializer.poly_ring)),
+                Vec::new(),
+                |mut current, next| { current.push(next); current }
+            )
+        }
+
+        impl_deserialize_seed_for_dependent_struct!{
+            <{'de, R}> pub struct HypercubeIsomorphismData<{'de, R}> using DeserializeSeedHypercubeIsomorphismData<R> {
+                characteristic: El<BigIntRing>: |_| DeserializeWithRing::new(ZZbig),
+                hypercube_structure: HypercubeStructure: |_| PhantomData,
+                slot_ring_moduli: Vec<El<R>>: derive_multiple_poly_deserializer
+            } where R: RingStore, R::Type: PolyRing + SerializableElementRing
+        }
+
+        let Zpe = AsLocalPIR::from_zn(RingValue::from(ring.base_ring().get_ring().clone())).unwrap();
+        let convolution = create_convolution(ring.rank(), Zpe.integer_ring().abs_log2_ceil(Zpe.modulus()).unwrap());
+        let ZpeX = DensePolyRing::new_with_convolution(Zpe, "X", Global, convolution);
+        let deserialized = DeserializeSeedHypercubeIsomorphismData { poly_ring: &ZpeX }.deserialize(deserializer)?;
+        assert!(ring.acting_galois_group().get_group() == deserialized.hypercube_structure.galois_group().get_group(), "ring mismatch");
+        assert!(ZZbig.eq_el(&ring.characteristic(ZZbig).unwrap(), &deserialized.characteristic), "ring mismatch");
+
+        let hypercube_structure = deserialized.hypercube_structure;
+        let slot_ring_moduli = deserialized.slot_ring_moduli;
+        let result = HypercubeIsomorphism::create::<false>(
+            ring,
+            hypercube_structure,
+            ZpeX,
+            slot_ring_moduli
+        );
+        return Ok(result);
     }
 
-    fn deserialize_with<'a>(ring: &'a R) -> Self::DeserializeWithData<'a> {
-        DeserializeSeedHypercubeIsomorphismWithoutRing { ring: ring.clone() }
+    fn serialize_with_data<S: serde::Serializer>(&self, _: &R, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        #[serde(rename = "HypercubeIsomorphismData", bound = "")]
+        struct SerializableHypercubeIsomorphismData<'a, R>
+            where R: RingStore,
+                R::Type: PolyRing + SerializableElementRing
+        {
+            characteristic: SerializeOwnedWithRing<BigIntRing>,
+            hypercube_structure: &'a HypercubeStructure,
+            slot_ring_moduli: Vec<SerializeOwnedWithRing<R>>
+        }
+
+        let decorated_base_ring = AsLocalPIR::from_zn(RingValue::from(self.ring().base_ring().get_ring().clone())).unwrap();
+        let ZpeX = DensePolyRing::new(decorated_base_ring, "X");
+        let hom = ZnReductionMap::new(self.slot_ring().base_ring(), ZpeX.base_ring()).unwrap();
+        SerializableHypercubeIsomorphismData {
+            characteristic: SerializeOwnedWithRing::new(self.ring().characteristic(ZZbig).unwrap(), ZZbig),
+            hypercube_structure: self.hypercube(),
+            slot_ring_moduli: (0..self.slot_count()).map(|i| 
+                SerializeOwnedWithRing::new(self.slot_ring_at(i).generating_poly(&ZpeX, &hom), &ZpeX)
+            ).collect()
+        }.serialize(serializer)
+    }
+}
+
+impl<R> Serialize for HypercubeIsomorphism<R>
+    where R: RingStore + Serialize,
+        R::Type: NumberRingQuotient,
+        BaseRing<R>: NiceZn + SerializableElementRing
+{
+    #[instrument(skip_all)]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: serde::Serializer
+    {
+        SerializableNewtypeStruct::new("HypercubeIsomorphism", (self.ring(), SerializeSerializableWithData::new(self.ring(), self))).serialize(serializer)
+    }
+}
+
+impl<'de, R> Deserialize<'de> for HypercubeIsomorphism<R>
+    where R: RingStore + Deserialize<'de>,
+        R::Type: NumberRingQuotient,
+        BaseRing<R>: NiceZn + SerializableElementRing
+{
+    #[instrument(skip_all)]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where D: serde::Deserializer<'de>
+    {
+        DeserializeSeedNewtypeStruct::new("HypercubeIsomorphism", DeserializeSeedDependentTuple::new(
+            PhantomData::<R>,
+            |ring| DeserializeSeedDeserializableWithData::new(ring)
+        )).deserialize(deserializer)
     }
 }
 
@@ -731,13 +823,11 @@ use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 #[cfg(test)]
-use serde::de::DeserializeSeed;
-#[cfg(test)]
-use serde::Serialize;
-#[cfg(test)]
 use crate::number_ring::quotient_by_int::{NumberRingQuotientByInt, NumberRingQuotientByIntBase};
 #[cfg(test)]
 use crate::number_ring::quotient_by_ideal::NumberRingQuotientByIdealBase;
+#[cfg(test)]
+use crate::number_ring::quotient_by_ideal::NumberRingQuotientByIdeal;
 
 #[cfg(test)]
 fn test_ring1() -> (NumberRingQuotientByInt<Pow2CyclotomicNumberRing, zn_64::Zn>, HypercubeStructure) {
@@ -798,7 +888,7 @@ fn test_hypercube_isomorphism_from_to_slot_vector() {
             DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
     {
         let mut rng = oorandom::Rand64::new(1);
-        let isomorphism = HypercubeIsomorphism::new::<true>(&&ring, &hypercube, None);
+        let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
 
         for _ in 0..10 {
             let slot_ring = isomorphism.slot_ring();
@@ -827,7 +917,7 @@ fn test_hypercube_isomorphism_is_isomorphic() {
             DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
     {
         let mut rng = oorandom::Rand64::new(1);
-        let isomorphism = HypercubeIsomorphism::new::<true>(&&ring, &hypercube, None);
+        let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
         for _ in 0..10 {
             let slot_ring = isomorphism.slot_ring();
             let lhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
@@ -860,7 +950,7 @@ fn test_hypercube_isomorphism_rotation() {
             DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
     {
         let mut rng = oorandom::Rand64::new(1);
-        let isomorphism = HypercubeIsomorphism::new::<true>(&&ring, &hypercube, None);
+        let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
         let ring = isomorphism.ring();
         let hypercube = isomorphism.hypercube();
         for _ in 0..10 {
@@ -900,11 +990,11 @@ fn test_serialization() {
             R::Type: NumberRingQuotient,
             BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<zn_64::ZnBase>
     {
-        let hypercube = HypercubeIsomorphism::new::<false>(&&ring, &hypercube_structure, None);
+        let hypercube = HypercubeIsomorphism::new::<false>(&ring, &hypercube_structure, None);
         let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
-        let tokens = hypercube.serialize_with(&&ring).serialize(&serializer).unwrap();
+        let tokens = hypercube.serialize_with_data(&&ring, &serializer).unwrap();
         let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(true).build();
-        let deserialized_hypercube = HypercubeIsomorphism::deserialize_with(&&ring).deserialize(&mut deserializer).unwrap();
+        let deserialized_hypercube = HypercubeIsomorphism::deserialize_with_data(&ring, &mut deserializer).unwrap();
         assert!(hypercube.slot_ring().get_ring() == deserialized_hypercube.slot_ring().get_ring());
         assert_el_eq!(hypercube.ring(), 
             hypercube.from_slot_values((0..hypercube.slot_count()).map(|i| hypercube.slot_ring().int_hom().map(i as i32))), 
@@ -912,9 +1002,9 @@ fn test_serialization() {
         );
 
         let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
-        let tokens = hypercube.serialize_with(&&ring).serialize(&serializer).unwrap();
+        let tokens = hypercube.serialize_with_data(&&ring, &serializer).unwrap();
         let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(false).build();
-        let deserialized_hypercube = HypercubeIsomorphism::deserialize_with(&&ring).deserialize(&mut deserializer).unwrap();
+        let deserialized_hypercube = HypercubeIsomorphism::deserialize_with_data(&ring, &mut deserializer).unwrap();
         assert!(hypercube.slot_ring().get_ring() == deserialized_hypercube.slot_ring().get_ring());
         assert_el_eq!(hypercube.ring(), 
             hypercube.from_slot_values((0..hypercube.slot_count()).map(|i| hypercube.slot_ring().int_hom().map(i as i32))), 

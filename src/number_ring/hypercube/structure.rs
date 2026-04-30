@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::marker::PhantomData;
 
 use feanor_math::algorithms::discrete_log::*;
 use feanor_math::algorithms::eea::{signed_gcd, signed_lcm};
@@ -15,6 +16,11 @@ use feanor_math::pid::*;
 use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_rns;
 use feanor_math::seq::*;
+use feanor_serde::dependent_tuple::DeserializeSeedDependentTuple;
+use feanor_serde::impl_deserialize_seed_for_dependent_struct;
+use feanor_serde::newtype_struct::{DeserializeSeedNewtypeStruct, SerializableNewtypeStruct};
+use feanor_serde::seq::{DeserializeSeedSeq, SerializableSeq};
+use serde::de::DeserializeSeed;
 use serde::{Deserialize, Serialize};
 
 use crate::{euler_phi, ZZbig, ZZi64};
@@ -510,6 +516,78 @@ impl HypercubeStructure {
     /// 
     pub fn element_iter<'b>(&'b self) -> impl ExactSizeIterator<Item = GaloisGroupEl> + use<'b> {
         self.hypercube_iter(|idxs| self.map_usize(idxs))
+    }
+}
+
+impl Serialize for HypercubeStructure {
+
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: serde::Serializer
+    {
+        #[derive(Serialize)]
+        #[serde(rename = "HypercubeStructureData")]
+        struct SerializableHypercubeStructureData<'a, G: Serialize> {
+            frobenius: SerializeWithGroup<'a, &'a CyclotomicGaloisGroup>,
+            d: usize,
+            ls: &'a [usize],
+            gs: G,
+            choice: &'a HypercubeTypeData
+        }
+
+        SerializableNewtypeStruct::new("HypercubeStructure", (&self.galois_group, SerializableHypercubeStructureData {
+            choice: &self.choice,
+            d: self.d,
+            frobenius: SerializeWithGroup::new(self.p(), self.galois_group().parent()),
+            ls: &self.ls,
+            gs: SerializableSeq::new_with_len(self.gs.iter().map(|g| SerializeWithGroup::new(g, self.galois_group().parent())), self.gs.len())
+        })).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for HypercubeStructure {
+
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where D: serde::Deserializer<'de>
+    {
+        struct DeserializeSeedHypercubeStructureData {
+            galois_group: CyclotomicGaloisGroup
+        }
+
+        fn derive_single_galois_group_deserializer<'a>(deserializer: &'a DeserializeSeedHypercubeStructureData) -> DeserializeWithGroup<&'a CyclotomicGaloisGroup> {
+            DeserializeWithGroup::new(&deserializer.galois_group)
+        }
+
+        fn derive_multiple_galois_group_deserializer<'de, 'a>(deserializer: &'a DeserializeSeedHypercubeStructureData) -> impl use<'a, 'de> + DeserializeSeed<'de, Value = Vec<GaloisGroupEl>> {
+            DeserializeSeedSeq::new(
+                std::iter::repeat(DeserializeWithGroup::new(&deserializer.galois_group)),
+                Vec::new(),
+                |mut current, next| { current.push(next); current }
+            )
+        }
+
+        impl_deserialize_seed_for_dependent_struct!{
+            pub struct HypercubeStructureData<'de> using DeserializeSeedHypercubeStructureData {
+                frobenius: GaloisGroupEl: derive_single_galois_group_deserializer,
+                d: usize: |_| PhantomData,
+                ls: Vec<usize>: |_| PhantomData,
+                gs: Vec<GaloisGroupEl>: derive_multiple_galois_group_deserializer,
+                choice: HypercubeTypeData: |_| PhantomData
+            }
+        }
+
+        let mut deserialized_galois_group = None;
+        Ok(DeserializeSeedNewtypeStruct::new("HypercubeStructure", DeserializeSeedDependentTuple::new(
+            PhantomData::<Subgroup<CyclotomicGaloisGroup>>,
+            |galois_group| {
+                let parent = galois_group.parent().clone();
+                deserialized_galois_group = Some(galois_group);
+                DeserializeSeedHypercubeStructureData { galois_group: parent }
+            }
+        )).deserialize(deserializer).map(|data| {
+            let mut result = HypercubeStructure::new(deserialized_galois_group.take().unwrap(), data.frobenius, data.d, data.ls, data.gs);
+            result.choice = data.choice;
+            return result;
+        }).unwrap())
     }
 }
 

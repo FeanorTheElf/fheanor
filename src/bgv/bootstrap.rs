@@ -29,7 +29,7 @@ pub struct ThinBootstrapper<Params, Strategy>
         <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>
 {
     modswitch_strategy: Strategy,
-    digit_extract: DigitExtract,
+    digit_extract: DigitExtract<Params::PlaintextRing>,
     slots_to_coeffs_thin: PlaintextCircuit<<CiphertextRing<Params> as RingStore>::Type>,
     coeffs_to_slots_thin: PlaintextCircuit<<CiphertextRing<Params> as RingStore>::Type>,
     plaintext_ring_hierarchy: Vec<PlaintextRing<Params>>,
@@ -95,7 +95,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         C_master: CiphertextRing<Params>,
         slots_to_coeffs_thin: PlaintextCircuit<Params::PlaintextRing>, 
         coeffs_to_slots_thin: PlaintextCircuit<Params::PlaintextRing>,
-        digit_extract: DigitExtract, 
+        digit_extract: DigitExtract<Params::PlaintextRing>, 
         modswitch_strategy: Strategy,
         slots_to_coeffs_rns_factors: usize
     ) -> Self {
@@ -154,7 +154,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         P: &PlaintextRing<Params>,
         C_master: &CiphertextRing<Params>, 
         v: usize,
-        digit_extract_error_bound: Option<usize>,
+        digit_extract_error_bound: Option<i64>,
         lin_transform_max_levels: usize, 
         _gk_digits: &RNSGadgetVectorDigitIndices, 
         strategy: Strategy,
@@ -174,35 +174,26 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
             println!("Using e = r + v = {} + {}", r, v);
         }
 
-        let plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
-        // we don't use P here, but recreate the plaintext ring through modulus-switching, since we need the
-        // structure of `plaintext_ring` and `original_plaintext_ring` to be compatible. Since we only take
-        // encrypted plaintexts embedded into the ciphertext ring as input, this is fine.
-        let original_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        let intermediate_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
+        let base_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        let plaintext_ring_hierarchy = ((r + 1)..e).map(|k| instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect::<Vec<_>>();
+        let all_plaintext_rings = [&base_plaintext_ring].into_iter().chain(plaintext_ring_hierarchy.iter()).chain([&intermediate_plaintext_ring]).collect::<Vec<_>>();
 
-        let digit_extract = if let Some(B) = digit_extract_error_bound {
-            assert_eq!(1, v, "if `digit_extract_error_bound` is set, `v` must be 1");
-            DigitExtract::new_bounded_error(ZZbig.clone_el(&p), e, B as i64)
-        } else {
-            DigitExtract::new_digit_retain_based(ZZbig.clone_el(&p), e, r)
-        };
+        let hypercube = HypercubeStructure::default_pow2_hypercube(intermediate_plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
+        let H = LazyCell::new(|| HypercubeIsomorphism::new::<LOG>(&intermediate_plaintext_ring, &hypercube, cache_dir));
+        let base_H = LazyCell::new(|| H.change_modulus(&base_plaintext_ring));
 
-        let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::default_pow2_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
-            HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, &hypercube, cache_dir)
-        });
-        let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
+        let m = intermediate_plaintext_ring.number_ring().galois_group().m();
+        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&base_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || pow2::slots_to_coeffs_thin(&base_H, lin_transform_max_levels));
+        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&intermediate_plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || pow2::coeffs_to_slots_thin(&H, lin_transform_max_levels));
+        let digit_extract = DigitExtract::new_default::<_, _, LOG>(&all_plaintext_rings, &H, digit_extract_error_bound, cache_dir);
 
-        let m = plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || pow2::slots_to_coeffs_thin(&original_H, lin_transform_max_levels));
-        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || pow2::coeffs_to_slots_thin(&H, lin_transform_max_levels));
-        
         // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
         // ring elements of size at most `t`
         let min_rns_factor_log2 = C_master.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
         let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * (P.acting_galois_group().group_order() as f64).log2() / min_rns_factor_log2).ceil() as usize; 
 
-        return Self::create(instantiation, original_plaintext_ring, plaintext_ring, C_master.clone(), slots_to_coeffs, coeffs_to_slots, digit_extract, strategy, slots_to_coeffs_rns_factors);
+        return Self::create(instantiation, base_plaintext_ring, intermediate_plaintext_ring, C_master.clone(), slots_to_coeffs, coeffs_to_slots, digit_extract, strategy, slots_to_coeffs_rns_factors);
     }
 
     ///
@@ -239,7 +230,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         P: &PlaintextRing<Params>,
         C_master: &CiphertextRing<Params>, 
         v: usize,
-        digit_extract_error_bound: Option<usize>,
+        digit_extract_error_bound: Option<i64>,
         lin_transform_max_levels: usize,
         _gk_digits: &RNSGadgetVectorDigitIndices,
         strategy: Strategy, 
@@ -258,39 +249,32 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
             println!("Using e = r + v = {} + {}", r, v);
         }
 
-        let plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
-        let original_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        let intermediate_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
+        let base_plaintext_ring = instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        let plaintext_ring_hierarchy = ((r + 1)..e).map(|k| instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect::<Vec<_>>();
+        let all_plaintext_rings = [&base_plaintext_ring].into_iter().chain(plaintext_ring_hierarchy.iter()).chain([&intermediate_plaintext_ring]).collect::<Vec<_>>();
 
-        let p_i64 = int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig);
-        let digit_extract = if p_i64 == 2 && e <= 23 && digit_extract_error_bound.is_none() {
-            DigitExtract::new_precomputed_p_is_2(p_i64, e, r)
-        } else if let Some(B) = digit_extract_error_bound {
-            assert_eq!(1, v, "if `digit_extract_error_bound` is set, `v` must be 1");
-            DigitExtract::new_bounded_error(ZZbig.clone_el(&p), e, B as i64)
-        } else {
-            DigitExtract::new_digit_retain_based(ZZbig.clone_el(&p), e, r)
-        };
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(intermediate_plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
+        let H = LazyCell::new(|| HypercubeIsomorphism::new::<LOG>(&intermediate_plaintext_ring, &hypercube, cache_dir));
+        let base_H = LazyCell::new(|| H.change_modulus(&base_plaintext_ring));
 
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
-        let H = LazyCell::new(|| HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, &hypercube, cache_dir));
-        let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
+        let m = intermediate_plaintext_ring.number_ring().galois_group().m();
+        let slots_to_coeffs =  create_circuit_cached::<_, _, LOG>(&base_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || composite::slots_to_powcoeffs_thin(&base_H, lin_transform_max_levels));
+        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&intermediate_plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || composite::powcoeffs_to_slots_thin(&H, lin_transform_max_levels));
+        let digit_extract = DigitExtract::new_default::<_, _, LOG>(&all_plaintext_rings, &H, digit_extract_error_bound, cache_dir);
 
-        let m = plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs =  create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || composite::slots_to_powcoeffs_thin(&original_H, lin_transform_max_levels));
-        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || composite::powcoeffs_to_slots_thin(&H, lin_transform_max_levels));
-        
         // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
         // ring elements of size at most `t`
         let min_rns_factor_log2 = C_master.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
         let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * (hypercube.dim_count() as f64 + 1.0) / min_rns_factor_log2).ceil() as usize;
         
-        return Self::create(instantiation, original_plaintext_ring, plaintext_ring, C_master.clone(), slots_to_coeffs, coeffs_to_slots, digit_extract, strategy, slots_to_coeffs_rns_factors);
+        return Self::create(instantiation, base_plaintext_ring, intermediate_plaintext_ring, C_master.clone(), slots_to_coeffs, coeffs_to_slots, digit_extract, strategy, slots_to_coeffs_rns_factors);
     }
 
     ///
     /// Replaces the digit extraction object used by this bootstrapper.
     /// 
-    pub fn with_digit_extraction(self, new_digit_extraction: DigitExtract) -> Self {
+    pub fn with_digit_extraction(self, new_digit_extraction: DigitExtract<Params::PlaintextRing>) -> Self {
         assert_el_eq!(ZZbig, self.digit_extract.p(), new_digit_extraction.p());
         assert_eq!(self.digit_extract.r(), new_digit_extraction.r());
         assert_eq!(self.digit_extract.e(), new_digit_extraction.e());
@@ -374,7 +358,8 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         sk_encaps_data: Option<&SparseKeyEncapsulationKey<Params>>,
         debug_sk: Option<&SecretKey<Params>>
     ) -> ModulusAwareCiphertext<Params, Strategy>
-        where Params: 'a
+        where Params: 'a,
+            Params::PlaintextRing: AsBGVPlaintext<Params>
     {
         assert!(LOG || debug_sk.is_none());
         assert!(ZZbig.eq_el(&ZZbig.pow(ZZbig.clone_el(self.p()), self.r()), &int_cast(P_base.base_ring().integer_ring().clone_el(P_base.base_ring().modulus()), ZZbig, P_base.base_ring().integer_ring())));
@@ -494,11 +479,11 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
             }
 
             let final_result = log_time::<_, _, LOG, _>("4. Computing digit extraction", |[]| {
-                self.digit_extract.evaluate_bgv::<Params, Strategy, LOG>(
+                let plaintext_rings = [P_base].into_iter().chain(self.plaintext_ring_hierarchy.iter()).chain([P_main]).collect::<Vec<_>>();
+                self.digit_extract.evaluate_bgv::<_, Params, Strategy, LOG>(
+                    &plaintext_rings,
                     &self.modswitch_strategy,
-                    P_base,
-                    &self.plaintext_ring_hierarchy,
-                    P_main,
+                    &plaintext_rings,
                     C_master,
                     noisy_decryption_in_slots,
                     rk,
@@ -571,49 +556,47 @@ impl<Params> SparseKeyEncapsulationKey<Params>
     }
 }
 
-impl DigitExtract {
+impl<R: ?Sized + RingBase> DigitExtract<R> {
 
-    pub fn evaluate_bgv<Params: BGVInstantiation, Strategy: BGVModswitchStrategy<Params>, const LOG: bool>(
+    pub fn evaluate_bgv<S, Params, Strategy, const LOG: bool>(
         &self,
+        rings: &[S],
         modswitch_strategy: &Strategy, 
-        P_base: &PlaintextRing<Params>, 
-        P_intermediate: &[PlaintextRing<Params>], 
-        P_main: &PlaintextRing<Params>,
+        P: &[&PlaintextRing<Params>],
         C_master: &CiphertextRing<Params>, 
         input: ModulusAwareCiphertext<Params, Strategy>, 
         rk: &RelinKey<Params>,
         debug_sk: Option<&SecretKey<Params>>
-    ) -> (ModulusAwareCiphertext<Params, Strategy>, ModulusAwareCiphertext<Params, Strategy>) {
+    ) -> (ModulusAwareCiphertext<Params, Strategy>, ModulusAwareCiphertext<Params, Strategy>)
+        where S: RingStore<Type = R>,
+            Params: BGVInstantiation, 
+            R: AsBGVPlaintext<Params>,
+            Strategy: BGVModswitchStrategy<Params>
+    {
         assert!(LOG || debug_sk.is_none());
 
-        let (p, _) = is_prime_power(ZZbig, &int_cast(P_base.base_ring().integer_ring().clone_el(P_base.base_ring().modulus()), ZZbig, P_base.base_ring().integer_ring())).unwrap();
-        assert_el_eq!(ZZbig, self.p(), &p);
-        assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), self.r()), int_cast(P_base.base_ring().integer_ring().clone_el(P_base.base_ring().modulus()), ZZbig, P_base.base_ring().integer_ring()));
-        assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), self.e()), int_cast(P_main.base_ring().integer_ring().clone_el(P_main.base_ring().modulus()), ZZbig, P_main.base_ring().integer_ring()));
-        for i in (self.r() + 1)..self.e() {
-            let P_current = &P_intermediate[i - self.r() - 1];
-            assert!(P_base.base_ring().integer_ring().get_ring() == P_current.base_ring().integer_ring().get_ring());
-            assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), i), int_cast(P_current.base_ring().integer_ring().clone_el(P_current.base_ring().modulus()), ZZbig, P_current.base_ring().integer_ring()));
+        let ZZ = P[0].base_ring().integer_ring();
+        let (p, actual_r) = is_prime_power(ZZ, P[0].base_ring().modulus()).unwrap();
+        assert!(actual_r >= self.r());
+        assert_eq!(self.v() + 1, P.len());
+        assert_eq!(self.v() + 1, rings.len());
+        assert_el_eq!(ZZbig, self.p(), int_cast(ZZ.clone_el(&p), ZZbig, ZZ));
+        for i in 0..=self.v() {
+            assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), actual_r + i), int_cast(ZZ.clone_el(P[i].base_ring().modulus()), ZZbig, ZZ));
         }
-        let get_P = |exp: usize| if exp == self.r() {
-            P_base
-        } else if exp == self.e() {
-            P_main
-        } else {
-            &P_intermediate[exp - self.r() - 1]
-        };
+
         return self.evaluate_generic(
             input,
             |exp, inputs, circuit| {
-                let digit_extracted = modswitch_strategy.evaluate_circuit(circuit, ZZbig, get_P(exp), C_master, inputs, Some(rk), &[], debug_sk);
+                let digit_extracted = modswitch_strategy.evaluate_circuit(circuit, &rings[exp - self.r()], P[exp - self.r()], C_master, inputs, Some(rk), &[], debug_sk);
                 if LOG && /* don't log if the circuit is just adding/cloning elements */ circuit.has_multiplication_gates() {
                     println!("Digit extraction modulo p^{} done", exp);
                     if let Some(sk) = debug_sk {
                         for ct in &digit_extracted {
-                            modswitch_strategy.print_info(get_P(exp), C_master, ct);
+                            modswitch_strategy.print_info(P[exp - self.r()], C_master, ct);
                             let Clocal = Params::mod_switch_down_C(C_master, &ct.dropped_rns_factor_indices);
                             let sk_local = Params::mod_switch_sk(&Clocal, C_master, sk);
-                            Params::dec_println_slots(get_P(exp), &Clocal, &ct.data, &sk_local, Some("."));
+                            Params::dec_println_slots(P[exp - self.r()], &Clocal, &ct.data, &sk_local, Some("."));
                             println!();
                         }
                     }
@@ -623,7 +606,7 @@ impl DigitExtract {
             |exp_old, exp_new, input| {
                 let C_current = Params::mod_switch_down_C(C_master, &input.dropped_rns_factor_indices);
                 let result = ModulusAwareCiphertext {
-                    data: Params::change_plaintext_modulus(get_P(exp_new), get_P(exp_old), &C_current, input.data),
+                    data: Params::change_plaintext_modulus(P[exp_new - self.r()], P[exp_old - self.r()], &C_current, input.data),
                     dropped_rns_factor_indices: input.dropped_rns_factor_indices.clone(),
                     info: input.info,
                     sk: input.sk
@@ -647,7 +630,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     let P = params.create_plaintext_ring(t);
     let C_master = params.create_ciphertext_ring(790..800);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C_master, 2, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
+    let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C_master, 2, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
@@ -685,7 +668,7 @@ fn test_composite_bgv_thin_bootstrapping_2_sparse_key_encapsulation() {
     let P = params.create_plaintext_ring(t);
     let C_master = params.create_ciphertext_ring(790..800);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C_master, 4, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
+    let bootstrapper = ThinBootstrapper::build_odd::<true>(&params, &P, &C_master, 4, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {

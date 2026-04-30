@@ -411,16 +411,17 @@ pub trait BFVInstantiation {
     }
 
     ///
-    /// Computes an encryption of the product of an encrypted message and an integer plaintext.
+    /// Computes an encryption of the product of an encrypted message and a scalar plaintext.
     /// 
     /// This function does not perform any semantic checks. In particular, it is up to the
     /// caller to ensure that the ciphertext is defined over the given ring, and is a valid
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
     #[instrument(skip_all)]
-    fn hom_mul_plain_int(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<BigIntRing>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        let hom = C.inclusion().compose(C.base_ring().can_hom(&ZZbig).unwrap());
-        (hom.mul_ref_snd_map(ct.0, m), hom.mul_ref_snd_map(ct.1, m))
+    fn hom_mul_plain_scalar(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &<Self::PlaintextZnRing as RingBase>::Element, ct: Ciphertext<Self>) -> Ciphertext<Self> {
+        let m = P.base_ring().smallest_lift(P.base_ring().clone_el(m));
+        let hom = C.inclusion().compose(C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap());
+        (hom.mul_ref_snd_map(ct.0, &m), hom.mul_ref_snd_map(ct.1, &m))
     }
 
     ///
@@ -432,9 +433,10 @@ pub trait BFVInstantiation {
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
     #[instrument(skip_all)]
-    fn hom_fma_plain_int(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, dst: Ciphertext<Self>, lhs: &El<BigIntRing>, rhs: &Ciphertext<Self>) -> Ciphertext<Self> {
-        let hom = C.inclusion().compose(C.base_ring().can_hom(&ZZbig).unwrap());
-        (hom.fma_map(&rhs.0, lhs, dst.0), hom.fma_map(&rhs.1, lhs, dst.1))
+    fn hom_fma_plain_scalar(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, dst: Ciphertext<Self>, lhs: &<Self::PlaintextZnRing as RingBase>::Element, rhs: &Ciphertext<Self>) -> Ciphertext<Self> {
+        let lhs = P.base_ring().smallest_lift(P.base_ring().clone_el(lhs));
+        let hom = C.inclusion().compose(C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap());
+        (hom.fma_map(&rhs.0, &lhs, dst.0), hom.fma_map(&rhs.1, &lhs, dst.1))
     }
     
     ///

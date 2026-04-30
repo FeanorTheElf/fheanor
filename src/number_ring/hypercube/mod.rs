@@ -1,6 +1,4 @@
 
-mod serialization;
-
 ///
 /// Contains [`structure::HypercubeStructure`] representing hypercube structures, i.e. 
 /// mappings of a set of representatives of `(Z/mZ)* / <p>` to the entries of a hypercube.  

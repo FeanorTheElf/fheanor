@@ -1,13 +1,16 @@
+
+use std::borrow::Borrow;
+use tracing::instrument;
+
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::poly::*;
 use feanor_math::rings::poly::sparse_poly::SparsePolyRingBase;
-use tracing::instrument;
-
+use feanor_math::rings::zn::*;
+use feanor_math::assert_el_eq;
 use feanor_math::ring::*;
 use feanor_math::homomorphism::*;
 use feanor_math::integer::*;
 use feanor_math::group::*;
-use feanor_math::primitive_int::*;
 use feanor_math::delegate::*;
 use feanor_math::seq::*;
 
@@ -55,18 +58,21 @@ pub trait AsBFVPlaintext<Params: BFVInstantiation>: RingBase {
     ) -> Ciphertext<Params>;
 
     ///
-    /// Computes a plaintext-ciphertext multiplication and adds the
+    /// Computes a plaintext-ciphertext inner product and adds the
     /// result to `dst`.
     /// 
-    fn hom_fma(
+    fn hom_inner_prod<L, R, I>(
         &self, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
         dst: Ciphertext<Params>,
-        lhs: &Self::Element, 
-        rhs: &Ciphertext<Params>
-    ) -> Ciphertext<Params> {
-        Params::hom_add(C, dst, &self.hom_mul_to(P, C, lhs, Params::clone_ct(C, rhs)))
+        it: I
+    ) -> Ciphertext<Params>
+        where L: Borrow<Self::Element>,
+            R: Borrow<Ciphertext<Params>>,
+            I: Iterator<Item = (L, R)>
+    {
+        it.fold(dst, |current, (l, r)| Params::hom_add(C, current, &self.hom_mul_to(P, C, l.borrow(), Params::clone_ct(C, r.borrow()))))
     }
 }
 
@@ -96,7 +102,7 @@ impl<R, Params> AsBFVPlaintext<Params> for R
     }
 }
 
-impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for StaticRingBase<i64> {
+impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for zn_64::ZnBase {
 
     fn hom_add_to(
         &self, 
@@ -105,7 +111,8 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for StaticRingBase<i64> {
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_add_plain(P, C, &P.inclusion().compose(P.base_ring().can_hom(&ZZi64).unwrap()).map(*m), ct)
+        assert_eq!(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()), *self.modulus());
+        Params::hom_add_plain(P, C, &P.inclusion().compose(P.base_ring().can_hom(&ZZi64).unwrap()).map(self.smallest_lift(*m)), ct)
     }
 
     fn hom_mul_to(
@@ -115,22 +122,12 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for StaticRingBase<i64> {
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_mul_plain_int(P, C, &int_cast(*m, ZZbig, ZZi64), ct)
-    }
-
-    fn hom_fma(
-        &self, 
-        P: &PlaintextRing<Params>, 
-        C: &CiphertextRing<Params>, 
-        dst: Ciphertext<Params>,
-        lhs: &Self::Element, 
-        rhs: &Ciphertext<Params>
-    ) -> Ciphertext<Params> {
-        Params::hom_fma_plain_int(P, C, dst, &int_cast(*lhs, ZZbig, ZZi64), rhs)
+        assert_eq!(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()), *self.modulus());
+        Params::hom_mul_plain_scalar(P, C, &P.base_ring().can_hom(&ZZi64).unwrap().map(self.smallest_lift(*m)), ct)
     }
 }
 
-impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for BigIntRingBase {
+impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for zn_big::ZnBase<BigIntRing> {
 
     fn hom_add_to(
         &self, 
@@ -139,7 +136,8 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for BigIntRingBase {
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_add_plain(P, C, &P.inclusion().compose(P.base_ring().can_hom(&ZZbig).unwrap()).map_ref(m), ct)
+        assert_el_eq!(ZZbig, int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring()), self.modulus());
+        Params::hom_add_plain(P, C, &P.inclusion().compose(P.base_ring().can_hom(&ZZbig).unwrap()).map(self.smallest_lift(self.clone_el(m))), ct)
     }
 
     fn hom_mul_to(
@@ -149,18 +147,8 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for BigIntRingBase {
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_mul_plain_int(P, C, m, ct)
-    }
-
-    fn hom_fma(
-        &self, 
-        P: &PlaintextRing<Params>, 
-        C: &CiphertextRing<Params>, 
-        dst: Ciphertext<Params>,
-        lhs: &Self::Element, 
-        rhs: &Ciphertext<Params>
-    ) -> Ciphertext<Params> {
-        Params::hom_fma_plain_int(P, C, dst, lhs, rhs)
+        assert_el_eq!(ZZbig, int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring()), self.modulus());
+        Params::hom_mul_plain_scalar(P, C, &P.base_ring().can_hom(&ZZbig).unwrap().map(self.smallest_lift(self.clone_el(m))), ct)
     }
 }
 
@@ -288,21 +276,6 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for EncodedBFVPlaintextRin
             C.get_ring().mul_prepared(&ct.1, None, &m.encoded, Some(&m.prepared)),
         )
     }
-
-    #[instrument(skip_all)]
-    fn hom_fma(
-        &self, 
-        _P: &PlaintextRing<Params>, 
-        C: &CiphertextRing<Params>, 
-        dst: Ciphertext<Params>,
-        lhs: &Self::Element, 
-        rhs: &Ciphertext<Params>
-    ) -> Ciphertext<Params> {assert!(self.C.get_ring() == C.get_ring());
-        (
-            C.get_ring().fma_prepared(&rhs.0, None, &lhs.encoded, Some(&lhs.prepared), dst.0),
-            C.get_ring().fma_prepared(&rhs.1, None, &lhs.encoded, Some(&lhs.prepared), dst.1),
-        )
-    }
 }
 
 struct BFVEvaluator<'a, R: ?Sized + AsBFVPlaintext<Inst> , Inst: BFVInstantiation> {
@@ -339,33 +312,36 @@ impl<'a, 'b, R: ?Sized + AsBFVPlaintext<Inst> , Inst: BFVInstantiation> CircuitE
         }
     }
 
-    fn inner_prod<'c, I>(&mut self, mut data: I) -> Ciphertext<Inst>
+    fn inner_prod<'c, I>(&mut self, data: I) -> Ciphertext<Inst>
         where I: Iterator<Item = (&'b Coefficient<R>, &'c Ciphertext<Inst>)>,
             R: 'b,
             Ciphertext<Inst>: 'c
     {
-        if let Some((coeff, ciphertext)) = data.next() {
-            let mut result = if let Coefficient::One = coeff {
-                Inst::clone_ct(self.C, ciphertext)
-            } else if let Some(int) = coeff.as_integer() {
-                <StaticRingBase<i64> as AsBFVPlaintext<Inst>>::hom_mul_to(ZZi64.get_ring(), self.P, self.C, &(int as i64), Inst::clone_ct(self.C, ciphertext))
-            } else if let Coefficient::Other(coeff) = coeff {
-                self.ring.hom_mul_to(self.P, self.C, coeff, Inst::clone_ct(self.C, ciphertext))
-            } else {
-                unreachable!()
-            };
-            for (coeff, ciphertext) in data {
-                if let Coefficient::One = coeff {
-                    result = Inst::hom_add(self.C, result, ciphertext);
-                } else if let Some(int) = coeff.as_integer() {
-                    result = <StaticRingBase<i64> as AsBFVPlaintext<Inst>>::hom_fma(ZZi64.get_ring(), self.P, self.C, result, &(int as i64), ciphertext);
-                } else if let Coefficient::Other(coeff) = coeff {
-                    result = self.ring.hom_fma(self.P, self.C, result, coeff, ciphertext);
-                }
-            }
-            return result;
+        let mut simple_part = None;
+        let main_part = self.ring.hom_inner_prod(self.P, self.C, Inst::transparent_zero(self.C), data.filter_map(|(l, r)| match l {
+            Coefficient::Zero => None,
+            Coefficient::One => {
+                simple_part = Some(simple_part.take().map(|x| Inst::hom_add(self.C, x, r))
+                    .unwrap_or_else(|| Inst::clone_ct(self.C, r)));
+                None
+            },
+            Coefficient::NegOne => {
+                simple_part = Some(simple_part.take().map(|x| Inst::hom_sub(self.C, x, r))
+                    .unwrap_or_else(|| Inst::hom_mul_plain_scalar(self.P, self.C, &self.P.base_ring().neg_one(), Inst::clone_ct(self.C, r))));
+                None
+            },
+            Coefficient::Integer(scalar) => {
+                let scalar = self.P.base_ring().int_hom().map(*scalar);
+                simple_part = Some(simple_part.take().map(|x| Inst::hom_fma_plain_scalar(self.P, self.C, x, &scalar, r))
+                    .unwrap_or_else(|| Inst::hom_mul_plain_scalar(self.P, self.C, &scalar, Inst::clone_ct(self.C, r))));
+                None
+            },
+            Coefficient::Other(l) => Some((l, r))
+        }));
+        if let Some(simple_part) = simple_part.take() {
+            return Inst::hom_add(self.C, main_part, &simple_part);
         } else {
-            return Inst::transparent_zero(self.C);
+            return main_part;
         }
     }
 
@@ -423,8 +399,6 @@ use crate::poly_eval::to_circuit::poly_to_circuit;
 #[cfg(test)]
 use feanor_math::rings::zn::zn_64::*;
 #[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
 use crate::bfv::{Pow2BFV, test_setup_bfv};
 #[cfg(test)]
 use feanor_math::rings::zn::ZnRingStore;
@@ -441,7 +415,6 @@ fn test_hom_evaluate_circuit() {
         assert_el_eq!(FpX.base_ring(), FpX.evaluate(&f, &x, FpX.base_ring().identity()), &circuit.evaluate_generic(&[x], HomEvaluator::new(FpX.base_ring().identity()))[0]);
     }
 
-    let circuit = circuit.change_ring_uniform(|x| x.change_ring(|x| FpX.base_ring().smallest_lift(x)));
-    let res = circuit.evaluate_bfv::<Pow2BFV, _>(ZZi64, &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], None).into_iter().next().unwrap();
+    let res = circuit.evaluate_bfv::<Pow2BFV, _>(FpX.base_ring(), &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], None).into_iter().next().unwrap();
     assert_el_eq!(&P, P.inclusion().map(FpX.evaluate(&f, &FpX.base_ring().int_hom().map(2), FpX.base_ring().identity())), &Pow2BFV::dec(&P, &C, res, &sk));
 }

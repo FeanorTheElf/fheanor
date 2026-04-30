@@ -67,7 +67,7 @@ struct SerializablePlaintextCircuitData<G: Serialize, O: Serialize> {
     output_transforms: O
 }
 
-pub struct SerializablePlaintextCircuit<'a, R>
+pub(super) struct SerializablePlaintextCircuit<'a, R>
     where R: RingStore + Copy,
         R::Type: SerializableElementRing
 {
@@ -125,144 +125,8 @@ impl<'a, R> Serialize for SerializablePlaintextCircuit<'a, R>
     }
 }
 
-#[derive(Clone)]
-struct DeserializeSeedCoefficient<R>
-    where R: RingStore + Copy,
-        R::Type: SerializableElementRing
-{
-    deserializer: DeserializeWithRing<R>
-}
-
-impl_deserialize_seed_for_dependent_enum!{
-    <{'de, R}> pub enum CoefficientData<{'de, R}> using DeserializeSeedCoefficient<R> {
-        Integer(i32): |_: DeserializeSeedCoefficient<R>| PhantomData,
-        Other(El<R>): |d: DeserializeSeedCoefficient<R>| d.deserializer
-    } where R: RingStore + Copy,
-        R::Type: SerializableElementRing
-}
-
-#[derive(Clone)]
-struct DeserializeSeedLinearCombination<R>
-    where R: RingStore + Copy,
-        R::Type: SerializableElementRing
-{
-    deserializer: DeserializeWithRing<R>
-}
-
-impl_deserialize_seed_for_dependent_struct!{
-    <{'de, R}> pub struct LinearCombinationData<{'de, R}> using DeserializeSeedLinearCombination<R> {
-        constant: CoefficientData<'de, R>: |d: &DeserializeSeedLinearCombination<R>| DeserializeSeedCoefficient { deserializer: d.deserializer.clone() },
-        factors: Vec<CoefficientData<'de, R>>: |d: &DeserializeSeedLinearCombination<R>| DeserializeSeedSeq::new(
-            std::iter::repeat(DeserializeSeedCoefficient { deserializer: d.deserializer.clone() }),
-            Vec::new(),
-            |mut current, next| { current.push(next); current }
-        )
-    } where R: RingStore + Copy, 
-        R::Type: SerializableElementRing
-}
-
-#[derive(Clone)]
-struct DeserializeSeedPlaintextCircuitMulGate<R>
-    where R: RingStore + Copy,
-        R::Type: SerializableElementRing
-{
-    deserializer: DeserializeWithRing<R>
-}
-
-impl_deserialize_seed_for_dependent_struct!{
-    <{'de, R}> pub struct MulGateData<{'de, R}> using DeserializeSeedPlaintextCircuitMulGate<R> {
-        lhs: LinearCombinationData<'de, R>: |d: &DeserializeSeedPlaintextCircuitMulGate<R>| DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() },
-        rhs: LinearCombinationData<'de, R>: |d: &DeserializeSeedPlaintextCircuitMulGate<R>| DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() }
-    } where R: RingStore + Copy, 
-        R::Type: SerializableElementRing
-}
-
-#[derive(Clone)]
-struct DeserializeSeedPlaintextCircuitSquareGate<R: RingStore + Copy>
-    where R::Type: SerializableElementRing
-{
-    deserializer: DeserializeWithRing<R>
-}
-
-impl_deserialize_seed_for_dependent_struct!{
-    <{'de, R}> pub struct SquareGateData<{'de, R}> using DeserializeSeedPlaintextCircuitSquareGate<R> {
-        val: LinearCombinationData<'de, R>: |d: &DeserializeSeedPlaintextCircuitSquareGate<R>| DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() }
-    } where R: RingStore + Copy, R::Type: SerializableElementRing
-}
-
-#[derive(Clone)]
-struct DeserializeSeedPlaintextCircuitGalGate<'a, R>
-    where R: RingStore + Copy,
-        R::Type: SerializableElementRing
-{
-    galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>,
-    deserializer: DeserializeWithRing<R>
-}
-
-fn derive_gal_gate_deserializer<'de, 'a, R>(d: &DeserializeSeedPlaintextCircuitGalGate<'a, R>) -> impl use<'a, 'de, R> + DeserializeSeed<'de, Value = Vec<GaloisGroupEl>>
-    where R: RingStore + Copy,
-        R::Type: SerializableElementRing
-{
-    let galois_group: &'a Subgroup<CyclotomicGaloisGroup> = d.galois_group.expect("cannot deserialize a circuit with galois gates if no galois group was specified");
-    DeserializeSeedSeq::new(
-        std::iter::repeat(DeserializeWithGroup::new(galois_group.parent())),
-        Vec::new(),
-        |mut current, next| { assert!(galois_group.contains(&next)); current.push(next); current }
-    )
-}
-
-impl_deserialize_seed_for_dependent_struct!{
-    <{'de, 'a, R}> pub struct GalGateData<{'de, R}> using DeserializeSeedPlaintextCircuitGalGate<'a, R> {
-        automorphisms: Vec<GaloisGroupEl>: derive_gal_gate_deserializer,
-        input: LinearCombinationData<'de, R>: |d: &DeserializeSeedPlaintextCircuitGalGate<R>| DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() }
-    } where R: RingStore + Copy, 
-        R::Type: SerializableElementRing
-}
-
-#[derive(Clone)]
-struct DeserializeSeedPlaintextCircuitGate<'a, R>
-    where R: RingStore + Copy,
-        R::Type: SerializableElementRing
-{
-    galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>,
-    deserializer: DeserializeWithRing<R>
-}
-
-impl_deserialize_seed_for_dependent_enum!{
-    <{'de, 'a, R}> pub enum GateData<{'de, R}> using DeserializeSeedPlaintextCircuitGate<'a, R> {
-        Mul(MulGateData<'de, R>): |d: DeserializeSeedPlaintextCircuitGate<'a, R>| DeserializeSeedPlaintextCircuitMulGate { deserializer: d.deserializer },
-        Gal(GalGateData<'de, R>): |d: DeserializeSeedPlaintextCircuitGate<'a, R>| DeserializeSeedPlaintextCircuitGalGate { deserializer: d.deserializer, galois_group: d.galois_group },
-        Square(SquareGateData<'de, R>): |d: DeserializeSeedPlaintextCircuitGate<'a, R>| DeserializeSeedPlaintextCircuitSquareGate { deserializer: d.deserializer }
-    } where R: RingStore + Copy, 
-        R::Type: SerializableElementRing
-}
-struct DeserializeSeedPlaintextCircuitData<'a, R>
-    where R: RingStore + Copy,
-        R::Type: SerializableElementRing
-{
-    galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>,
-    deserializer: DeserializeWithRing<R>
-}
-
-impl_deserialize_seed_for_dependent_struct!{
-    <{'de, 'a, R}> pub struct PlaintextCircuitData<{'de, R}> using DeserializeSeedPlaintextCircuitData<'a, R> {
-        input_count: usize: |_| PhantomData,
-        gates: Vec<GateData<'de, R>>: |d: &DeserializeSeedPlaintextCircuitData<'a, R>| DeserializeSeedSeq::new(
-            std::iter::repeat(DeserializeSeedPlaintextCircuitGate { deserializer: d.deserializer.clone(), galois_group: d.galois_group }),
-            Vec::new(),
-            |mut current, next| { current.push(next); current }
-        ),
-        output_transforms: Vec<LinearCombinationData<'de, R>>: |d: &DeserializeSeedPlaintextCircuitData<'a, R>| DeserializeSeedSeq::new(
-            std::iter::repeat(DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() }),
-            Vec::new(),
-            |mut current, next| { current.push(next); current }
-        )
-    } where R: RingStore + Copy, 
-        R::Type: SerializableElementRing
-}
-
 #[derive(Copy, Clone)]
-pub struct DeserializeSeedPlaintextCircuit<'a, R>
+pub(super) struct DeserializeSeedPlaintextCircuit<'a, R>
     where R: RingStore + Copy,
         R::Type: SerializableElementRing
 {
@@ -280,6 +144,143 @@ impl<'de, 'a, R> DeserializeSeed<'de> for DeserializeSeedPlaintextCircuit<'a, R>
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
         where D: serde::Deserializer<'de>
     {
+        #[derive(Clone)]
+        struct DeserializeSeedCoefficient<R>
+            where R: RingStore + Copy,
+                R::Type: SerializableElementRing
+        {
+            deserializer: DeserializeWithRing<R>
+        }
+
+        impl_deserialize_seed_for_dependent_enum!{
+            <{'de, R}> pub enum CoefficientData<{'de, R}> using DeserializeSeedCoefficient<R> {
+                Integer(i32): |_: DeserializeSeedCoefficient<R>| PhantomData,
+                Other(El<R>): |d: DeserializeSeedCoefficient<R>| d.deserializer
+            } where R: RingStore + Copy,
+                R::Type: SerializableElementRing
+        }
+
+        #[derive(Clone)]
+        struct DeserializeSeedLinearCombination<R>
+            where R: RingStore + Copy,
+                R::Type: SerializableElementRing
+        {
+            deserializer: DeserializeWithRing<R>
+        }
+
+        impl_deserialize_seed_for_dependent_struct!{
+            <{'de, R}> pub struct LinearCombinationData<{'de, R}> using DeserializeSeedLinearCombination<R> {
+                constant: CoefficientData<'de, R>: |d: &DeserializeSeedLinearCombination<R>| DeserializeSeedCoefficient { deserializer: d.deserializer.clone() },
+                factors: Vec<CoefficientData<'de, R>>: |d: &DeserializeSeedLinearCombination<R>| DeserializeSeedSeq::new(
+                    std::iter::repeat(DeserializeSeedCoefficient { deserializer: d.deserializer.clone() }),
+                    Vec::new(),
+                    |mut current, next| { current.push(next); current }
+                )
+            } where R: RingStore + Copy, 
+                R::Type: SerializableElementRing
+        }
+
+        #[derive(Clone)]
+        struct DeserializeSeedPlaintextCircuitMulGate<R>
+            where R: RingStore + Copy,
+                R::Type: SerializableElementRing
+        {
+            deserializer: DeserializeWithRing<R>
+        }
+
+        impl_deserialize_seed_for_dependent_struct!{
+            <{'de, R}> pub struct MulGateData<{'de, R}> using DeserializeSeedPlaintextCircuitMulGate<R> {
+                lhs: LinearCombinationData<'de, R>: |d: &DeserializeSeedPlaintextCircuitMulGate<R>| DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() },
+                rhs: LinearCombinationData<'de, R>: |d: &DeserializeSeedPlaintextCircuitMulGate<R>| DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() }
+            } where R: RingStore + Copy, 
+                R::Type: SerializableElementRing
+        }
+
+        #[derive(Clone)]
+        struct DeserializeSeedPlaintextCircuitSquareGate<R: RingStore + Copy>
+            where R::Type: SerializableElementRing
+        {
+            deserializer: DeserializeWithRing<R>
+        }
+
+        impl_deserialize_seed_for_dependent_struct!{
+            <{'de, R}> pub struct SquareGateData<{'de, R}> using DeserializeSeedPlaintextCircuitSquareGate<R> {
+                val: LinearCombinationData<'de, R>: |d: &DeserializeSeedPlaintextCircuitSquareGate<R>| DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() }
+            } where R: RingStore + Copy, R::Type: SerializableElementRing
+        }
+
+        #[derive(Clone)]
+        struct DeserializeSeedPlaintextCircuitGalGate<'a, R>
+            where R: RingStore + Copy,
+                R::Type: SerializableElementRing
+        {
+            galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>,
+            deserializer: DeserializeWithRing<R>
+        }
+
+        fn derive_gal_gate_deserializer<'de, 'a, R>(d: &DeserializeSeedPlaintextCircuitGalGate<'a, R>) -> impl use<'a, 'de, R> + DeserializeSeed<'de, Value = Vec<GaloisGroupEl>>
+            where R: RingStore + Copy,
+                R::Type: SerializableElementRing
+        {
+            let galois_group: &'a Subgroup<CyclotomicGaloisGroup> = d.galois_group.expect("cannot deserialize a circuit with galois gates if no galois group was specified");
+            DeserializeSeedSeq::new(
+                std::iter::repeat(DeserializeWithGroup::new(galois_group.parent())),
+                Vec::new(),
+                |mut current, next| { assert!(galois_group.contains(&next)); current.push(next); current }
+            )
+        }
+
+        impl_deserialize_seed_for_dependent_struct!{
+            <{'de, 'a, R}> pub struct GalGateData<{'de, R}> using DeserializeSeedPlaintextCircuitGalGate<'a, R> {
+                automorphisms: Vec<GaloisGroupEl>: derive_gal_gate_deserializer,
+                input: LinearCombinationData<'de, R>: |d: &DeserializeSeedPlaintextCircuitGalGate<R>| DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() }
+            } where R: RingStore + Copy, 
+                R::Type: SerializableElementRing
+        }
+
+        #[derive(Clone)]
+        struct DeserializeSeedPlaintextCircuitGate<'a, R>
+            where R: RingStore + Copy,
+                R::Type: SerializableElementRing
+        {
+            galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>,
+            deserializer: DeserializeWithRing<R>
+        }
+
+        impl_deserialize_seed_for_dependent_enum!{
+            <{'de, 'a, R}> pub enum GateData<{'de, R}> using DeserializeSeedPlaintextCircuitGate<'a, R> {
+                Mul(MulGateData<'de, R>): |d: DeserializeSeedPlaintextCircuitGate<'a, R>| DeserializeSeedPlaintextCircuitMulGate { deserializer: d.deserializer },
+                Gal(GalGateData<'de, R>): |d: DeserializeSeedPlaintextCircuitGate<'a, R>| DeserializeSeedPlaintextCircuitGalGate { deserializer: d.deserializer, galois_group: d.galois_group },
+                Square(SquareGateData<'de, R>): |d: DeserializeSeedPlaintextCircuitGate<'a, R>| DeserializeSeedPlaintextCircuitSquareGate { deserializer: d.deserializer }
+            } where R: RingStore + Copy, 
+                R::Type: SerializableElementRing
+        }
+        struct DeserializeSeedPlaintextCircuitData<'a, R>
+            where R: RingStore + Copy,
+                R::Type: SerializableElementRing
+        {
+            galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>,
+            deserializer: DeserializeWithRing<R>
+        }
+
+        impl_deserialize_seed_for_dependent_struct!{
+            <{'de, 'a, R}> pub struct PlaintextCircuitData<{'de, R}> using DeserializeSeedPlaintextCircuitData<'a, R> {
+                input_count: usize: |_| PhantomData,
+                gates: Vec<GateData<'de, R>>: |d: &DeserializeSeedPlaintextCircuitData<'a, R>| DeserializeSeedSeq::new(
+                    std::iter::repeat(DeserializeSeedPlaintextCircuitGate { deserializer: d.deserializer.clone(), galois_group: d.galois_group }),
+                    Vec::new(),
+                    |mut current, next| { current.push(next); current }
+                ),
+                output_transforms: Vec<LinearCombinationData<'de, R>>: |d: &DeserializeSeedPlaintextCircuitData<'a, R>| DeserializeSeedSeq::new(
+                    std::iter::repeat(DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() }),
+                    Vec::new(),
+                    |mut current, next| { current.push(next); current }
+                )
+            } where R: RingStore + Copy, 
+                R::Type: SerializableElementRing
+        }
+
+
         let convert_coefficient = |c: CoefficientData<_>| match c {
             CoefficientData::Integer((x, _)) if x == 0 => Coefficient::Zero,
             CoefficientData::Integer((x, _)) if x == 1 => Coefficient::One,

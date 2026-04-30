@@ -1,5 +1,7 @@
 use std::cell::RefCell;
 use std::cmp::max;
+use serde::Serialize;
+use serde::de::DeserializeSeed;
 
 use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::group::AbelianGroupStore;
@@ -20,11 +22,8 @@ use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::BaseRing;
 use crate::number_ring::*;
 
-///
-/// Contains [`serialization::DeserializeSeedPlaintextCircuit`], a [`serde::de::DeserializeSeed`] that
-/// can deserialize a circuit when given the ring over which its coefficients are defined.
-/// 
-pub mod serialization;
+mod serialization;
+
 ///
 /// Contains the trait [`evaluator::CircuitEvaluator`] and different implementations, which describe
 /// how to evaluate an arithmetic circuit.
@@ -1202,17 +1201,19 @@ impl<'a, R> SerializeDeserializeWith<(R, &'a Subgroup<CyclotomicGaloisGroup>)> f
     where R: RingStore + Copy,
         R::Type: SerializableElementRing
 {
-    type SerializeWithData<'b> = SerializablePlaintextCircuit<'b, R>
-        where Self: 'b, R: 'b, 'a: 'b;
-    type DeserializeWithData<'b> = DeserializeSeedPlaintextCircuit<'b, R>
-        where Self: 'b, R: 'b, 'a: 'b;
-
-    fn deserialize_with<'b>(data: &'b (R, &'a Subgroup<CyclotomicGaloisGroup>)) -> Self::DeserializeWithData<'b> {
-        DeserializeSeedPlaintextCircuit { galois_group: Some(data.1), ring: data.0 }
+    fn deserialize_with_data<'de, D: serde::Deserializer<'de>>(data: (R, &'a Subgroup<CyclotomicGaloisGroup>), deserializer: D) -> Result<Self, D::Error> {
+        DeserializeSeedPlaintextCircuit {
+            galois_group: Some(data.1),
+            ring: data.0
+        }.deserialize(deserializer)
     }
 
-    fn serialize_with<'b>(&'b self, data: &'b (R, &'a Subgroup<CyclotomicGaloisGroup>)) -> Self::SerializeWithData<'b> {
-        SerializablePlaintextCircuit { circuit: self, galois_group: Some(data.1), ring: data.0 }
+    fn serialize_with_data<S: serde::Serializer>(&self, data: &(R, &'a Subgroup<CyclotomicGaloisGroup>), serializer: S) -> Result<S::Ok, S::Error> {
+        SerializablePlaintextCircuit {
+            circuit: self,
+            galois_group: Some(data.1),
+            ring: data.0
+        }.serialize(serializer)
     }
 }
 
@@ -1220,17 +1221,19 @@ impl<R> SerializeDeserializeWith<(R, )> for PlaintextCircuit<R::Type>
     where R: RingStore + Copy,
         R::Type: SerializableElementRing
 {
-    type SerializeWithData<'b> = SerializablePlaintextCircuit<'b, R>
-        where Self: 'b, R: 'b;
-    type DeserializeWithData<'b> = DeserializeSeedPlaintextCircuit<'b, R>
-        where Self: 'b, R: 'b;
-
-    fn deserialize_with<'b>(data: &'b (R, )) -> Self::DeserializeWithData<'b> {
-        DeserializeSeedPlaintextCircuit { galois_group: None, ring: data.0 }
+    fn deserialize_with_data<'de, D: serde::Deserializer<'de>>(data: (R, ), deserializer: D) -> Result<Self, D::Error> {
+        DeserializeSeedPlaintextCircuit {
+            galois_group: None,
+            ring: data.0
+        }.deserialize(deserializer)
     }
 
-    fn serialize_with<'b>(&'b self, data: &'b (R, )) -> Self::SerializeWithData<'b> {
-        SerializablePlaintextCircuit { circuit: self, galois_group: None, ring: data.0 }
+    fn serialize_with_data<S: serde::Serializer>(&self, data: &(R, ), serializer: S) -> Result<S::Ok, S::Error> {
+        SerializablePlaintextCircuit {
+            circuit: self,
+            galois_group: None,
+            ring: data.0
+        }.serialize(serializer)
     }
 }
 
@@ -1240,7 +1243,7 @@ pub fn create_circuit_cached<R, F, const LOG: bool>(ring: R, keys: &[CachedDataK
         BaseRing<R>: ZnRing,
         F: FnOnce() -> PlaintextCircuit<R::Type>
 {
-    create_cached::<_, _, _, LOG>(&(ring, ring.acting_galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysJson })
+    create_cached::<_, _, _, LOG>((ring, ring.acting_galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysJson })
 }
 
 #[cfg(test)]
@@ -1255,10 +1258,6 @@ use feanor_math::rings::extension::FreeAlgebraStore;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 #[cfg(test)]
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
-#[cfg(test)]
-use serde::Serialize;
-#[cfg(test)]
-use serde::de::DeserializeSeed;
 #[cfg(test)]
 use crate::ZZi64;
 
@@ -1378,15 +1377,15 @@ fn test_serialization() {
     }
 
     let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
-    let tokens = circuit.serialize_with(&(ring, )).serialize(&serializer).unwrap();
+    let tokens = circuit.serialize_with_data(&(ring, ), &serializer).unwrap();
     let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(true).build();
-    let deserialized_circuit = PlaintextCircuit::deserialize_with(&(ring, )).deserialize(&mut deserializer).unwrap();
+    let deserialized_circuit = PlaintextCircuit::deserialize_with_data((ring, ), &mut deserializer).unwrap();
     assert!(deserialized_circuit.eq(&circuit, ring, None));
 
     let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
-    let tokens = circuit.serialize_with(&(ring, )).serialize(&serializer).unwrap();
+    let tokens = circuit.serialize_with_data(&(ring, ), &serializer).unwrap();
     let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(false).build();
-    let deserialized_circuit = PlaintextCircuit::deserialize_with(&(ring, )).deserialize(&mut deserializer).unwrap();
+    let deserialized_circuit = PlaintextCircuit::deserialize_with_data((ring, ), &mut deserializer).unwrap();
     assert!(deserialized_circuit.eq(&circuit, ring, None));
 }
 
@@ -1439,7 +1438,7 @@ fn generate_slots_to_coeffs() {
     let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)));
     let H = LazyCell::new(|| {
         let hypercube = HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
-        HypercubeIsomorphism::new::<true>(&&P, &hypercube, Some("."))
+        HypercubeIsomorphism::new::<true>(&P, &hypercube, Some("."))
     });
     let coeffs_to_slots = create_circuit_cached::<_, _, true>(
         &P, 
@@ -1449,8 +1448,8 @@ fn generate_slots_to_coeffs() {
     );
     let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));
     write!(BufWriter::new(File::create(format!("./coeffs_to_slots_m{}_p65537_e{}_levels4.fheir", m, e + 1).as_str()).unwrap()), "{}", program).unwrap();
-    let a = serde_json::to_string_pretty(&coeffs_to_slots.serialize_with(&(&P, P.acting_galois_group()))).unwrap();
-    let b = serde_json::to_string_pretty(&PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program).serialize_with(&(&P, P.acting_galois_group()))).unwrap();
+    let a = serde_json::to_string_pretty(&SerializeSerializableWithData::new(&(&P, P.acting_galois_group()), &coeffs_to_slots)).unwrap();
+    let b = serde_json::to_string_pretty(&SerializeSerializableWithData::new(&(&P, P.acting_galois_group()), &PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program))).unwrap();
     println!("{}", a == b);
     assert!(coeffs_to_slots.eq(&PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program), &P, Some(P.acting_galois_group())));
 

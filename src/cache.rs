@@ -10,6 +10,8 @@ use feanor_math::integer::*;
 use feanor_math::ring::*;
 use feanor_math::rings::rust_bigint::RustBigint;
 use feanor_math::serialization::*;
+use serde::Deserializer;
+use serde::Serializer;
 use serde::de::DeserializeSeed;
 use serde::{Deserialize, Serialize};
 use feanor_serde::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};
@@ -185,13 +187,10 @@ macro_rules! filename_keys {
     };
 }
 
-pub trait SerializeDeserializeWith<Data> {
+pub trait SerializeDeserializeWith<Data>: Sized {
 
-    type SerializeWithData<'a>: Serialize where Self: 'a, Data: 'a;
-    type DeserializeWithData<'a>: for<'de> DeserializeSeed<'de, Value = Self> where Self: 'a, Data: 'a;
-
-    fn serialize_with<'a>(&'a self, data: &'a Data) -> Self::SerializeWithData<'a>;
-    fn deserialize_with<'a>(data: &'a Data) -> Self::DeserializeWithData<'a>;
+    fn serialize_with_data<S: Serializer>(&self, data: &Data, serializer: S) -> Result<S::Ok, S::Error>;
+    fn deserialize_with_data<'de, D: Deserializer<'de>>(data: Data, deserializer: D) -> Result<Self, D::Error>;
 }
 
 pub struct RingElSerializeDeserializeWithRing<R: ?Sized + RingBase + SerializableElementRing> {
@@ -210,28 +209,60 @@ impl<R: ?Sized + RingBase + SerializableElementRing> RingElSerializeDeserializeW
     }
 }
 
-pub struct RingElDeserializeWithRing<R>(DeserializeWithRing<R>)
-    where R: RingStore, R::Type: SerializableElementRing;
-
-impl<'de, R> DeserializeSeed<'de> for RingElDeserializeWithRing<R>
-    where R: RingStore, R::Type: SerializableElementRing
-{
-    type Value = RingElSerializeDeserializeWithRing<R::Type>;
-
-    fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        self.0.deserialize(deserializer).map(RingElSerializeDeserializeWithRing::from)
-    }
-}
-
 impl<R> SerializeDeserializeWith<R> for RingElSerializeDeserializeWithRing<R::Type>
     where R: RingStore,
         R::Type: SerializableElementRing
 {
-    type SerializeWithData<'a> = SerializeWithRing<'a, &'a R> where Self: 'a, R: 'a;
-    type DeserializeWithData<'a> = RingElDeserializeWithRing<&'a R> where Self: 'a, R: 'a;
+    fn serialize_with_data<S: Serializer>(&self, data: &R, serializer: S) -> Result<S::Ok, S::Error> {
+        SerializeWithRing::new(&self.value, data).serialize(serializer)
+    }
 
-    fn serialize_with<'a>(&'a self, data: &'a R) -> Self::SerializeWithData<'a> { SerializeWithRing::new(&self.value, data) }
-    fn deserialize_with<'a>(data: &'a R) -> Self::DeserializeWithData<'a> { RingElDeserializeWithRing(DeserializeWithRing::new(data)) }
+    fn deserialize_with_data<'de, D: Deserializer<'de>>(data: R, deserializer: D) -> Result<Self, D::Error> {
+        DeserializeWithRing::new(data).deserialize(deserializer).map(Self::from)
+    }
+}
+
+pub struct SerializeSerializableWithData<'a, D, T: SerializeDeserializeWith<D>> {
+    data: &'a D,
+    value: &'a T
+}
+
+impl<'a, D, T: SerializeDeserializeWith<D>> SerializeSerializableWithData<'a, D, T> {
+
+    pub fn new(data: &'a D, value: &'a T) -> Self {
+        Self { data, value }
+    }
+}
+
+impl<'a, D, T: SerializeDeserializeWith<D>> Serialize for SerializeSerializableWithData<'a, D, T> {
+    
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        self.value.serialize_with_data(self.data, serializer)
+    }
+}
+pub struct DeserializeSeedDeserializableWithData<D, T: SerializeDeserializeWith<D>> {
+    data: D,
+    value: PhantomData<T>
+}
+
+impl<'a, D, T: SerializeDeserializeWith<D>> DeserializeSeedDeserializableWithData<D, T> {
+
+    pub fn new(data: D) -> Self {
+        Self { data, value: PhantomData }
+    }
+}
+
+impl<'de, D, T: SerializeDeserializeWith<D>> DeserializeSeed<'de> for DeserializeSeedDeserializableWithData<D, T> {
+        
+    type Value = T;
+
+    fn deserialize<S>(self, deserializer: S) -> Result<Self::Value, S::Error>
+        where S: Deserializer<'de>
+    {
+        T::deserialize_with_data(self.data, deserializer)
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -244,12 +275,11 @@ pub enum StoreAs {
     AlwaysBoth
 }
 
-pub fn create_cached<T, D, F, const LOG: bool>(data: &D, create_fn: F, keys: &[CachedDataKey], dir: Option<&str>, store_format: StoreAs) -> T
+pub fn create_cached<T, D, F, const LOG: bool>(data: D, create_fn: F, keys: &[CachedDataKey], dir: Option<&str>, store_format: StoreAs) -> T
     where T: SerializeDeserializeWith<D>,
-        F: FnOnce() -> T
+        F: FnOnce() -> T,
+        D: Clone
 {
-    assert!(dir.is_some() || store_format == StoreAs::None);
-
     #[derive(Serialize)]
     #[serde(rename = "KeyedData", bound = "")]
     struct SerializeKeyedData<'a, T, D>
@@ -257,25 +287,24 @@ pub fn create_cached<T, D, F, const LOG: bool>(data: &D, create_fn: F, keys: &[C
             D: 'a
     {
         keys: &'a [CachedDataKey],
-        data: T::SerializeWithData<'a>,
+        data: SerializeSerializableWithData<'a, D, T>,
         ignore: ()
     }
-    
-    struct DeserializeSeedKeyedData<'a, T, Data>
-        where T: 'a + SerializeDeserializeWith<Data>,
-            Data: 'a
+
+    struct DeserializeSeedKeyedData<T, Data>
+        where T: SerializeDeserializeWith<Data>
     {
-        data: &'a Data,
+        data: Data,
         element: PhantomData<T>
     }
 
     impl_deserialize_seed_for_dependent_struct! {
-        <{ 'de, 'a, T, Data }> pub struct KeyedData<{'de, 'a, T, Data}> using DeserializeSeedKeyedData<'a, T, Data> {
+        <{ 'de, T, Data }> pub struct KeyedData<{'de, T, Data}> using DeserializeSeedKeyedData<T, Data> {
             keys: Vec<CachedDataKey>: |_| PhantomData,
-            data: T: |seed: &DeserializeSeedKeyedData<'a, T, Data>| T::deserialize_with(seed.data),
-            ignore: PhantomData<&'a Data>: |_| PhantomData
-        } where T: 'a + SerializeDeserializeWith<Data>,
-            Data: 'a
+            data: T: |seed: &DeserializeSeedKeyedData<T, Data>| DeserializeSeedDeserializableWithData::new(seed.data.clone()),
+            ignore: PhantomData<Data>: |_| PhantomData
+        } where T: SerializeDeserializeWith<Data>,
+            Data: Clone
     }
 
     let identifier_string = keys.iter().map(|key| format!("{}", key)).reduce(|l, r| format!("{}_{}", l, r)).unwrap();
@@ -293,14 +322,14 @@ pub fn create_cached<T, D, F, const LOG: bool>(data: &D, create_fn: F, keys: &[C
                 drop(file);
                 let reader = postcard::de_flavors::Slice::new(&content);
                 let mut deserializer = postcard::Deserializer::from_flavor(reader);
-                let result = DeserializeSeedKeyedData { data: data, element: PhantomData }.deserialize(&mut deserializer).map_err(|e| e.to_string()).unwrap();
+                let result = DeserializeSeedKeyedData { data: data.clone(), element: PhantomData }.deserialize(&mut deserializer).map_err(|e| e.to_string()).unwrap();
                 (check_result(result), store_format == StoreAs::AlwaysJson || store_format == StoreAs::AlwaysBoth, false)
             })
         } else if let Ok(file) = File::open(filename_json.as_str()) {
             log_time::<_, _, LOG, _>(&format!("Reading {} from {}", identifier_string, filename_json), |[]| {
                 let reader = serde_json::de::IoRead::new(BufReader::new(file));
                 let mut deserializer = serde_json::Deserializer::new(reader);
-                let result = DeserializeSeedKeyedData { data: data, element: PhantomData }.deserialize(&mut deserializer).map_err(|e| e.to_string()).unwrap();
+                let result = DeserializeSeedKeyedData { data: data.clone(), element: PhantomData }.deserialize(&mut deserializer).map_err(|e| e.to_string()).unwrap();
                 (check_result(result), false, store_format == StoreAs::AlwaysPostcard || store_format == StoreAs::AlwaysBoth)
             })
         } else {
@@ -315,7 +344,7 @@ pub fn create_cached<T, D, F, const LOG: bool>(data: &D, create_fn: F, keys: &[C
             let file = File::create(filename_json).unwrap();
             let mut serializer = serde_json::Serializer::new(BufWriter::new(file));
             SerializeKeyedData::<T, D> {
-                data: T::serialize_with(&result, data),
+                data: SerializeSerializableWithData::new(&data, &result),
                 keys: keys,
                 ignore: ()
             }.serialize(&mut serializer).unwrap();
@@ -323,7 +352,7 @@ pub fn create_cached<T, D, F, const LOG: bool>(data: &D, create_fn: F, keys: &[C
         if store_postcard {
             let file = File::create(filename_postcard).unwrap();
             postcard::to_io(&SerializeKeyedData::<T, D> {
-                data: T::serialize_with(&result, data),
+                data: SerializeSerializableWithData::new(&data, &result),
                 keys: keys,
                 ignore: ()
             }, BufWriter::new(file)).unwrap();

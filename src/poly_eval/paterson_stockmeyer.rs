@@ -431,7 +431,7 @@ fn circuit_for_65537() {
         cache::StoreAs::AlwaysJson
     ).into();
     let circuit: PlaintextCircuit<feanor_math::rings::zn::zn_64::ZnBase> = create_cached::<_, _, _, true>(
-        &(Zp2X.base_ring(), &CyclotomicGaloisGroupBase::new(2).into().full_subgroup()),
+        (Zp2X.base_ring(), &CyclotomicGaloisGroupBase::new(2).into().full_subgroup()),
         || heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| paterson_stockmeyer_circuit(&Zp2X, &polys).unwrap(), Zp2.identity()),
         &filename_keys!(digit_extract, p: 65537, e: 2),
         Some("."),

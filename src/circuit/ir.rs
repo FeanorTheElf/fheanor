@@ -533,7 +533,7 @@ fn test_from_to_ir() {
     let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)));
     let H = {
         let hypercube = HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
-        HypercubeIsomorphism::new::<true>(&&P, &hypercube, Some("."))
+        HypercubeIsomorphism::new::<true>(&P, &hypercube, Some("."))
     };
     let coeffs_to_slots = pow2::coeffs_to_slots_thin(&H, 4);
     let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));
