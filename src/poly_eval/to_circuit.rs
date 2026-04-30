@@ -12,7 +12,6 @@ use tracing::instrument;
 
 use crate::circuit::CircuitEvaluatorCosts;
 use crate::circuit::PlaintextCircuit;
-use crate::circuit::ir::ElToIRRing;
 use crate::number_ring::NumberRingQuotient;
 use crate::number_ring::hypercube::isomorphism::BaseRing;
 use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
@@ -38,7 +37,7 @@ const DEFAULT_COSTS: CircuitEvaluatorCosts = CircuitEvaluatorCosts {
 pub fn poly_to_circuit<P>(poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<BaseRing<P>>
     where P: RingStore,
         P::Type: PolyRing,
-        BaseRing<P>: FiniteRing + DivisibilityRing + ElToIRRing,
+        BaseRing<P>: FiniteRing + DivisibilityRing,
 {
     heuristic_functional_decomposition(
         &poly_ring, 
@@ -102,7 +101,7 @@ pub fn heuristic_functional_decomposition<P, R, H, F>(poly_ring: P, to_evaluate:
         P::Type: PolyRing,
         BaseRing<P>: DivisibilityRing,
         F: FnMut(P, Vec<El<P>>, H) -> PlaintextCircuit<R>,
-        R: ?Sized + RingBase + ElToIRRing,
+        R: ?Sized + RingBase,
         H: Copy + Homomorphism<BaseRing<P>, R>
 {
     assert!(hom.domain().get_ring() == poly_ring.base_ring().get_ring());
@@ -364,9 +363,9 @@ pub fn low_depth_bsgs_circuit_with_baby_steps<P>(poly_ring: P, polys: &[El<P>], 
 pub fn poly_to_circuit_with_galois<P, R>(hypercube_iso: &HypercubeIsomorphism<R>, poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<R::Type>
     where P: RingStore,
         P::Type: PolyRing,
-        BaseRing<P>: ZnRing + DivisibilityRing + ElToIRRing,
+        BaseRing<P>: ZnRing + DivisibilityRing,
         R: RingStore,
-        R::Type: NumberRingQuotient + ElToIRRing,
+        R::Type: NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
     heuristic_functional_decomposition::<_, _, &ComposedHom<_, _, _, _, _>, _>(&poly_ring, polys.iter().map(|f| poly_ring.clone_el(f)).collect(), &mut |poly_ring, factors, hom| {

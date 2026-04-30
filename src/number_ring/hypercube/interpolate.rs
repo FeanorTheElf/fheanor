@@ -1,7 +1,6 @@
 
 use feanor_math::algorithms::zpe_extension::invert_over_local_zn;
 use feanor_math::homomorphism::Homomorphism;
-use feanor_math::local::PrincipalLocalRing;
 use feanor_math::ring::*;
 use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 use feanor_math::rings::extension::*;
@@ -21,7 +20,7 @@ use feanor_math::rings::zn::ZnReductionMap;
 pub struct FastPolyInterpolation<P>
     where P: RingStore,
         P::Type: PolyRing,
-        <<P::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + PrincipalLocalRing
+        <<P::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn
 {
     poly_ring: P,
     input_degree: usize,
@@ -36,7 +35,7 @@ pub struct FastPolyInterpolation<P>
 fn crt_unit_vectors<P>(poly_ring: P, f: &El<P>, g: &El<P>) -> El<P>
     where P: RingStore,
         P::Type: PolyRing,
-        <<P::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + PrincipalLocalRing
+        <<P::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn
 {
     assert!(poly_ring.base_ring().is_one(poly_ring.lc(f).unwrap()));
     assert!(poly_ring.base_ring().is_one(poly_ring.lc(g).unwrap()));
@@ -62,7 +61,7 @@ fn crt_unit_vectors<P>(poly_ring: P, f: &El<P>, g: &El<P>) -> El<P>
 impl<P> FastPolyInterpolation<P>
     where P: RingStore,
         P::Type: PolyRing,
-        <<P::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + PrincipalLocalRing
+        <<P::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn
 {
     #[instrument(skip_all)]
     pub fn new(poly_ring: P, moduli: Vec<El<P>>) -> Self {
@@ -98,7 +97,7 @@ impl<P> FastPolyInterpolation<P>
     pub fn change_modulus<PNew>(&self, new_poly_ring: PNew) -> FastPolyInterpolation<PNew>
         where PNew: RingStore,
             PNew::Type: PolyRing,
-            <<PNew::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + PrincipalLocalRing
+            <<PNew::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn
     {
         let red_map = ZnReductionMap::new(self.poly_ring().base_ring(), new_poly_ring.base_ring()).unwrap();
         let lifted_red_map = new_poly_ring.lifted_hom(self.poly_ring(), &red_map);

@@ -110,17 +110,7 @@ pub struct SerializableHypercubeIsomorphismWithoutRing<'a, R>
         R::Type: NumberRingQuotient,
         BaseRing<R>: NiceZn + SerializableElementRing
 {
-    hypercube_isomorphism: &'a HypercubeIsomorphism<R>
-}
-
-impl<'a, R> SerializableHypercubeIsomorphismWithoutRing<'a, R>
-    where R: RingStore,
-        R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing
-{
-    pub fn new(hypercube_isomorphism: &'a HypercubeIsomorphism<R>) -> Self {
-        Self { hypercube_isomorphism }
-    }
+    pub(super) hypercube_isomorphism: &'a HypercubeIsomorphism<R>
 }
 
 impl<'a, R> Serialize for SerializableHypercubeIsomorphismWithoutRing<'a, R>
@@ -167,17 +157,7 @@ pub struct DeserializeSeedHypercubeIsomorphismWithoutRing<R>
         R::Type: NumberRingQuotient,
         BaseRing<R>: NiceZn + SerializableElementRing
 {
-    ring: R
-}
-
-impl<R> DeserializeSeedHypercubeIsomorphismWithoutRing<R>
-    where R: RingStore,
-        R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing
-{
-    pub fn new(ring: R) -> Self {
-        Self { ring }
-    }
+    pub(super) ring: R
 }
 
 impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithoutRing<R>
@@ -244,7 +224,7 @@ impl<R> Serialize for HypercubeIsomorphism<R>
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer
     {
-        SerializableNewtypeStruct::new("HypercubeIsomorphism", (self.ring(), SerializableHypercubeIsomorphismWithoutRing::new(self))).serialize(serializer)
+        SerializableNewtypeStruct::new("HypercubeIsomorphism", (self.ring(), SerializableHypercubeIsomorphismWithoutRing { hypercube_isomorphism: self })).serialize(serializer)
     }
 }
 
@@ -259,7 +239,7 @@ impl<'de, R> Deserialize<'de> for HypercubeIsomorphism<R>
     {
         DeserializeSeedNewtypeStruct::new("HypercubeIsomorphism", DeserializeSeedDependentTuple::new(
             PhantomData::<R>,
-            |ring| DeserializeSeedHypercubeIsomorphismWithoutRing::new(ring)
+            |ring| DeserializeSeedHypercubeIsomorphismWithoutRing { ring: ring }
         )).deserialize(deserializer)
     }
 }

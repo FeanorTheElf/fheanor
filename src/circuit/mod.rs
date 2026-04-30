@@ -1208,11 +1208,11 @@ impl<'a, R> SerializeDeserializeWith<(R, &'a Subgroup<CyclotomicGaloisGroup>)> f
         where Self: 'b, R: 'b, 'a: 'b;
 
     fn deserialize_with<'b>(data: &'b (R, &'a Subgroup<CyclotomicGaloisGroup>)) -> Self::DeserializeWithData<'b> {
-        DeserializeSeedPlaintextCircuit::new(data.0, data.1)
+        DeserializeSeedPlaintextCircuit { galois_group: Some(data.1), ring: data.0 }
     }
 
     fn serialize_with<'b>(&'b self, data: &'b (R, &'a Subgroup<CyclotomicGaloisGroup>)) -> Self::SerializeWithData<'b> {
-        SerializablePlaintextCircuit::new(data.0, data.1, self)
+        SerializablePlaintextCircuit { circuit: self, galois_group: Some(data.1), ring: data.0 }
     }
 }
 
@@ -1226,11 +1226,11 @@ impl<R> SerializeDeserializeWith<(R, )> for PlaintextCircuit<R::Type>
         where Self: 'b, R: 'b;
 
     fn deserialize_with<'b>(data: &'b (R, )) -> Self::DeserializeWithData<'b> {
-        DeserializeSeedPlaintextCircuit::new_no_galois(data.0)
+        DeserializeSeedPlaintextCircuit { galois_group: None, ring: data.0 }
     }
 
     fn serialize_with<'b>(&'b self, data: &'b (R, )) -> Self::SerializeWithData<'b> {
-        SerializablePlaintextCircuit::new_no_galois(data.0, self)
+        SerializablePlaintextCircuit { circuit: self, galois_group: None, ring: data.0 }
     }
 }
 
@@ -1378,15 +1378,15 @@ fn test_serialization() {
     }
 
     let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
-    let tokens = SerializablePlaintextCircuit::new_no_galois(&ring, &circuit).serialize(&serializer).unwrap();
+    let tokens = circuit.serialize_with(&(ring, )).serialize(&serializer).unwrap();
     let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(true).build();
-    let deserialized_circuit = DeserializeSeedPlaintextCircuit::new_no_galois(&ring).deserialize(&mut deserializer).unwrap();
+    let deserialized_circuit = PlaintextCircuit::deserialize_with(&(ring, )).deserialize(&mut deserializer).unwrap();
     assert!(deserialized_circuit.eq(&circuit, ring, None));
 
     let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
-    let tokens = SerializablePlaintextCircuit::new_no_galois(&ring, &circuit).serialize(&serializer).unwrap();
+    let tokens = circuit.serialize_with(&(ring, )).serialize(&serializer).unwrap();
     let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(false).build();
-    let deserialized_circuit = DeserializeSeedPlaintextCircuit::new_no_galois(&ring).deserialize(&mut deserializer).unwrap();
+    let deserialized_circuit = PlaintextCircuit::deserialize_with(&(ring, )).deserialize(&mut deserializer).unwrap();
     assert!(deserialized_circuit.eq(&circuit, ring, None));
 }
 

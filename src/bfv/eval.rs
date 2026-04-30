@@ -378,7 +378,7 @@ impl<'a, 'b, R: ?Sized + AsBFVPlaintext<Inst> , Inst: BFVInstantiation> CircuitE
     }
 }
 
-impl<R: RingBase> PlaintextCircuit<R> {
+impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
 
     #[instrument(skip_all)]
     pub fn evaluate_bfv<Params, S>(&self, 

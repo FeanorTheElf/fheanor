@@ -99,49 +99,79 @@ impl Display for CachedDataKey {
     }
 }
 
-impl<'a> From<&'a str> for CachedDataKey {
+impl TryFrom<CachedDataKeyLiteral> for CachedDataKey {
+
+    type Error = ();
+
+    fn try_from(value: CachedDataKeyLiteral) -> Result<Self, Self::Error> {
+        match value {
+            CachedDataKeyLiteral::Integer(key, val) => Ok(Self::Integer(key, val)),
+            CachedDataKeyLiteral::None => Err(()),
+            CachedDataKeyLiteral::String(key) => Ok(Self::String(key))
+        }
+    }
+}
+
+pub enum CachedDataKeyLiteral {
+    Integer(String, El<BigIntRing>),
+    String(String),
+    None
+}
+
+impl<'a> From<&'a str> for CachedDataKeyLiteral {
 
     fn from(value: &'a str) -> Self {
         Self::String(value.to_owned())
     }
 }
 
-impl<'a> From<(&'a str, &'a RustBigint)> for CachedDataKey {
+impl<'a> From<(&'a str, &'a RustBigint)> for CachedDataKeyLiteral {
 
     fn from(value: (&'a str, &'a RustBigint)) -> Self {
         Self::Integer(value.0.to_owned(), ZZbig.clone_el(value.1))
     }
 }
 
-impl<'a> From<(&'a str, RustBigint)> for CachedDataKey {
+impl<'a> From<(&'a str, RustBigint)> for CachedDataKeyLiteral {
 
     fn from(value: (&'a str, RustBigint)) -> Self {
         Self::Integer(value.0.to_owned(), value.1)
     }
 }
 
-impl<'a> From<(&'a str, i64)> for CachedDataKey {
+impl<'a> From<(&'a str, i64)> for CachedDataKeyLiteral {
 
     fn from(value: (&'a str, i64)) -> Self {
         Self::Integer(value.0.to_owned(), int_cast(value.1, ZZbig, ZZi64))
     }
 }
 
-impl<'a> From<(&'a str, i32)> for CachedDataKey {
+impl<'a> From<(&'a str, Option<i64>)> for CachedDataKeyLiteral {
+
+    fn from(value: (&'a str, Option<i64>)) -> Self {
+        if let Some(val) = value.1 {
+            Self::from((value.0, val))
+        } else {
+            Self::None
+        }
+    }
+}
+
+impl<'a> From<(&'a str, i32)> for CachedDataKeyLiteral {
 
     fn from(value: (&'a str, i32)) -> Self {
         Self::Integer(value.0.to_owned(), int_cast(value.1 as i64, ZZbig, ZZi64))
     }
 }
 
-impl<'a> From<(&'a str, usize)> for CachedDataKey {
+impl<'a> From<(&'a str, usize)> for CachedDataKeyLiteral {
 
     fn from(value: (&'a str, usize)) -> Self {
         Self::from((value.0, TryInto::<i64>::try_into(value.1).unwrap()))
     }
 }
 
-impl<'a> From<(&'a str, u64)> for CachedDataKey {
+impl<'a> From<(&'a str, u64)> for CachedDataKeyLiteral {
 
     fn from(value: (&'a str, u64)) -> Self {
         Self::from((value.0, TryInto::<i64>::try_into(value.1).unwrap()))
@@ -151,7 +181,7 @@ impl<'a> From<(&'a str, u64)> for CachedDataKey {
 #[macro_export]
 macro_rules! filename_keys {
     ($($key:ident $(: $value:expr)?),*) => {
-        vec![$(<$crate::cache::CachedDataKey as From<_>>::from((stringify!($key) $(, $value)?))),*]
+        [$(<$crate::cache::CachedDataKeyLiteral as From<_>>::from((stringify!($key) $(, $value)?))),*].into_iter().filter_map(|x| $crate::cache::CachedDataKey::try_from(x).ok()).collect::<Vec<$crate::cache::CachedDataKey>>()
     };
 }
 

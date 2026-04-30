@@ -1,9 +1,11 @@
 
 use std::alloc::Global;
 use std::cell::RefCell;
+use std::ops::Deref;
 use std::slice::from_ref;
 
 use feanor_math::algorithms::convolution::rns::{RNSConvolution, RNSConvolutionZn};
+use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::algorithms::interpolate::interpolate;
 use feanor_math::algorithms::linsolve::LinSolveRingStore;
 use feanor_math::algorithms::miller_rabin::is_prime;
@@ -22,14 +24,19 @@ use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 use feanor_math::integer::{BigIntRing, BigIntRingBase, IntegerRing, IntegerRingStore, int_cast};
 use feanor_math::ring::*;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
+use feanor_math::serialization::*;
 use tracing::instrument;
 
-use crate::circuit::ir::ElToIRRing;
+use crate::cache::{SerializeDeserializeWith, StoreAs, create_cached};
 use crate::number_ring::NumberRingQuotient;
+use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupOps};
 use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
+use crate::poly_eval::digit_extract::serialization::{DeserializeSeedDigitExtract, SerializableDigitExtract};
 use crate::poly_eval::to_circuit::{poly_to_circuit, poly_to_circuit_with_galois};
 use crate::circuit::{Coefficient, PlaintextCircuit};
-use crate::{NiceZn, ZZbig, ZZi64};
+use crate::{NiceZn, ZZbig, ZZi64, filename_keys};
+
+pub mod serialization;
 
 ///
 /// The digit extraction operation, as required during BFV and
@@ -70,7 +77,7 @@ pub struct DigitExtract<R: ?Sized + RingBase = BigIntRingBase> {
 }
 
 impl<R> DigitExtract<R>
-    where R: ?Sized + RingBase + NumberRingQuotient + ElToIRRing,
+    where R: ?Sized + RingBase + NumberRingQuotient,
         <R::BaseRing as RingStore>::Type: NiceZn
 {
     ///
@@ -79,20 +86,33 @@ impl<R> DigitExtract<R>
     /// Uses internal heuristics to determine which polynomials and circuits to use.
     /// 
     #[instrument(skip_all)]
-    pub fn new_default<S: RingStore<Type = R>>(hypercube_iso: &HypercubeIsomorphism<S>, r: usize, B: i64) -> Self {
+    pub fn new_default<C, S, const LOG: bool>(hypercube_iso: &C, r: usize, B: Option<i64>, cache_dir: Option<&str>) -> Self
+        where C: Deref<Target = HypercubeIsomorphism<S>>,
+            S: RingStore<Type = R>,
+            R: SerializableElementRing
+    {
         let base_ring = hypercube_iso.ring().base_ring();
         let (p, e) = is_prime_power(base_ring.integer_ring(), base_ring.modulus()).unwrap();
-        assert!(r <= e);
-        let v = e - r;
-        let mod_p = hypercube_iso.ring().base_ring().can_hom(&ZZbig).unwrap();
+        let p = int_cast(p, ZZbig, base_ring.integer_ring());
+        create_cached::<_, _, _, LOG>(
+            &(hypercube_iso.ring(), hypercube_iso.galois_group()),
+            || {
+                assert!(r <= e);
+                let v = e - r;
+                let mod_p = hypercube_iso.ring().base_ring().can_hom(&ZZbig).unwrap();
 
-        if base_ring.integer_ring().eq_el(&p, &base_ring.integer_ring().int_hom().map(2)) && e <= 23 {
-            DigitExtract::new_precomputed_p_is_2(2, e, r).change_ring_uniform(|x| x.change_ring(|x| hypercube_iso.ring().inclusion().map(mod_p.map(x))))
-        } else if v == 1 && base_ring.integer_ring().is_lt(&int_cast(B * 2, base_ring.integer_ring(), ZZi64), &p) {
-            Self::new_bounded_error_with_galois(hypercube_iso, B)
-        } else {
-            Self::new_digit_retain_based_with_galois(hypercube_iso, r)
-        }
+                if ZZbig.eq_el(&p, &int_cast(2, ZZbig, ZZi64)) && e <= 23 {
+                    DigitExtract::new_precomputed_p_is_2(2, e, r).change_ring_uniform(|x| x.change_ring(|x| hypercube_iso.ring().inclusion().map(mod_p.map(x))))
+                } else if v == 1 && B.is_some() && ZZbig.is_lt(&int_cast(B.unwrap() * 2, ZZbig, ZZi64), &p) {
+                    Self::new_bounded_error_with_galois(&hypercube_iso, B.unwrap())
+                } else {
+                    Self::new_digit_retain_based_with_galois(&hypercube_iso, r)
+                }
+            },
+            &filename_keys![digit_extract, m: hypercube_iso.galois_group().m(), o: hypercube_iso.galois_group().group_order(), p: &p, e: e, r: r, B: B],
+            cache_dir,
+            StoreAs::AlwaysJson
+        )
     }
 
     ///
@@ -454,6 +474,55 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
                 hom.codomain().checked_div(&x, &hom.codomain().pow(hom.codomain().clone_el(&p), from - to)).unwrap()
             }
         )
+    }
+}
+
+
+impl<R> SerializeDeserializeWith<(R, )> for DigitExtract<R::Type>
+    where R: RingStore + Copy,
+        R::Type: SerializableElementRing
+{
+    type SerializeWithData<'a> = SerializableDigitExtract<'a, R> where Self: 'a, R: 'a;
+    type DeserializeWithData<'a> = DeserializeSeedDigitExtract<'a, R> where Self: 'a, R: 'a;
+
+    fn serialize_with<'a>(&'a self, data: &'a (R, )) -> Self::SerializeWithData<'a> {
+        SerializableDigitExtract {
+            e: self.e,
+            p: SerializeOwnedWithRing::new(ZZbig.clone_el(&self.p), ZZbig),
+            v: self.v,
+            extraction_circuits: self.extraction_circuits.iter().map(|(digits, circuit)| (digits, circuit.serialize_with(data))).collect()
+        }
+    }
+
+    fn deserialize_with<'a>(data: &'a (R, )) -> Self::DeserializeWithData<'a> {
+        DeserializeSeedDigitExtract {
+            ring: data.0,
+            galois_group: None
+        }
+    }
+}
+
+impl<'a, R> SerializeDeserializeWith<(R, &'a Subgroup<CyclotomicGaloisGroup>)> for DigitExtract<R::Type>
+    where R: RingStore + Copy,
+        R::Type: SerializableElementRing
+{
+    type SerializeWithData<'b> = SerializableDigitExtract<'b, R> where Self: 'b, 'a: 'b, R: 'b;
+    type DeserializeWithData<'b> = DeserializeSeedDigitExtract<'b, R> where Self: 'b, 'a: 'b, R: 'b;
+
+    fn serialize_with<'b>(&'b self, data: &'b (R, &'a Subgroup<CyclotomicGaloisGroup>)) -> Self::SerializeWithData<'b> {
+        SerializableDigitExtract {
+            e: self.e,
+            p: SerializeOwnedWithRing::new(ZZbig.clone_el(&self.p), ZZbig),
+            v: self.v,
+            extraction_circuits: self.extraction_circuits.iter().map(|(digits, circuit)| (digits, circuit.serialize_with(data))).collect()
+        }
+    }
+
+    fn deserialize_with<'b>(data: &'b (R, &'a Subgroup<CyclotomicGaloisGroup>)) -> Self::DeserializeWithData<'b> {
+        DeserializeSeedDigitExtract {
+            ring: data.0,
+            galois_group: None
+        }
     }
 }
 

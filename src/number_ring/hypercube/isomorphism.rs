@@ -716,11 +716,11 @@ impl<R> SerializeDeserializeWith<R> for HypercubeIsomorphism<R>
 
     fn serialize_with<'a>(&'a self, ring: &'a R) -> Self::SerializeWithData<'a> {
         assert!(self.ring.get_ring() == ring.get_ring());
-        SerializableHypercubeIsomorphismWithoutRing::new(self)
+        SerializableHypercubeIsomorphismWithoutRing { hypercube_isomorphism: self }
     }
 
     fn deserialize_with<'a>(ring: &'a R) -> Self::DeserializeWithData<'a> {
-        DeserializeSeedHypercubeIsomorphismWithoutRing::new(ring.clone())
+        DeserializeSeedHypercubeIsomorphismWithoutRing { ring: ring.clone() }
     }
 }
 
@@ -902,9 +902,9 @@ fn test_serialization() {
     {
         let hypercube = HypercubeIsomorphism::new::<false>(&&ring, &hypercube_structure, None);
         let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
-        let tokens = SerializableHypercubeIsomorphismWithoutRing::new(&hypercube).serialize(&serializer).unwrap();
+        let tokens = hypercube.serialize_with(&&ring).serialize(&serializer).unwrap();
         let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(true).build();
-        let deserialized_hypercube = DeserializeSeedHypercubeIsomorphismWithoutRing::new(&ring).deserialize(&mut deserializer).unwrap();
+        let deserialized_hypercube = HypercubeIsomorphism::deserialize_with(&&ring).deserialize(&mut deserializer).unwrap();
         assert!(hypercube.slot_ring().get_ring() == deserialized_hypercube.slot_ring().get_ring());
         assert_el_eq!(hypercube.ring(), 
             hypercube.from_slot_values((0..hypercube.slot_count()).map(|i| hypercube.slot_ring().int_hom().map(i as i32))), 
@@ -912,9 +912,9 @@ fn test_serialization() {
         );
 
         let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
-        let tokens = SerializableHypercubeIsomorphismWithoutRing::new(&hypercube).serialize(&serializer).unwrap();
+        let tokens = hypercube.serialize_with(&&ring).serialize(&serializer).unwrap();
         let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(false).build();
-        let deserialized_hypercube = DeserializeSeedHypercubeIsomorphismWithoutRing::new(&ring).deserialize(&mut deserializer).unwrap();
+        let deserialized_hypercube = HypercubeIsomorphism::deserialize_with(&&ring).deserialize(&mut deserializer).unwrap();
         assert!(hypercube.slot_ring().get_ring() == deserialized_hypercube.slot_ring().get_ring());
         assert_el_eq!(hypercube.ring(), 
             hypercube.from_slot_values((0..hypercube.slot_count()).map(|i| hypercube.slot_ring().int_hom().map(i as i32))), 
