@@ -1,21 +1,34 @@
 use std::cmp::min;
 
+use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::divisibility::*;
 use feanor_math::integer::*;
 use feanor_math::ring::*;
 use feanor_math::rings::zn::ZnReductionMap;
+use feanor_math::seq::*;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use tracing::instrument;
 
+use crate::circuit::CircuitEvaluatorCosts;
 use crate::circuit::PlaintextCircuit;
+use crate::circuit::ir::ElToIRRing;
 use crate::number_ring::NumberRingQuotient;
 use crate::number_ring::hypercube::isomorphism::BaseRing;
 use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
 use crate::poly_eval::addition_chains::addition_chain_for;
 use crate::poly_eval::addition_chains::addition_chain_lengths;
+use crate::poly_eval::galois_based::poly_circuit_via_norm;
 use crate::poly_eval::paterson_stockmeyer::paterson_stockmeyer_circuit;
 use crate::*;
+
+const DEFAULT_COSTS: CircuitEvaluatorCosts = CircuitEvaluatorCosts {
+    cost_mul: 1.,
+    cost_sqr: 0.83,
+    cost_hoisted_gal: 0.5,
+    cost_single_gal: 0.5,
+    cost_setup_hoisted_gal: 0.
+};
 
 ///
 /// Heuristically chooses a low-depth, low-complexity circuit that
@@ -25,12 +38,12 @@ use crate::*;
 pub fn poly_to_circuit<P>(poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<BaseRing<P>>
     where P: RingStore,
         P::Type: PolyRing,
-        BaseRing<P>: FiniteRing + DivisibilityRing,
+        BaseRing<P>: FiniteRing + DivisibilityRing + ElToIRRing,
 {
-    heuristic_decomposition(
+    heuristic_functional_decomposition(
         &poly_ring, 
         polys.iter().map(|f| poly_ring.clone_el(f)).collect(), 
-        |poly_ring, polys, _| {
+        &mut |poly_ring, polys, _| {
             let bsgs_option = low_depth_bsgs_circuit(&poly_ring, &polys);
             let paterson_stockmeyer_option = paterson_stockmeyer_circuit(&poly_ring, &polys);
             match paterson_stockmeyer_option {
@@ -84,128 +97,113 @@ pub fn compute_powers_circuit<R>(ring: R, input_powers: &[usize], output_powers:
 /// Currently, this is only a check if the polynomial is even or odd.
 /// 
 #[instrument(skip_all)]
-pub fn heuristic_decomposition<P, R, H, F>(poly_ring: P, to_evaluate: Vec<El<P>>, mut factors_to_circuit: F, hom: H) -> PlaintextCircuit<R>
+pub fn heuristic_functional_decomposition<P, R, H, F>(poly_ring: P, to_evaluate: Vec<El<P>>, factors_to_circuit: &mut F, hom: H) -> PlaintextCircuit<R>
     where P: RingStore + Copy,
         P::Type: PolyRing,
         BaseRing<P>: DivisibilityRing,
         F: FnMut(P, Vec<El<P>>, H) -> PlaintextCircuit<R>,
-        R: ?Sized + RingBase,
+        R: ?Sized + RingBase + ElToIRRing,
         H: Copy + Homomorphism<BaseRing<P>, R>
 {
     assert!(hom.domain().get_ring() == poly_ring.base_ring().get_ring());
     if to_evaluate.len() == 0 {
-        return PlaintextCircuit::empty();
+        return PlaintextCircuit::drop(1);
     }
     let circuit_ring = hom.codomain();
 
-    let mut nontrivial_operation = false;
-    let mut precompute_square = false;
-    let mut polynomials = Vec::new();
-    let mut pre_circuits = Vec::new();
-    let mut post_circuits = Vec::new();
+    let mut polys_in_x_sqr = Vec::new();
+    let mut generic_polys = Vec::new();
+    let mut outputs = Vec::new();
 
+    enum Output<R: ?Sized + RingBase> {
+        Compute(PlaintextCircuit<R>),
+        OddPoly(usize),
+        EvenPoly(usize),
+        GenericPoly(usize)
+    }
+
+    let to_evaluate_len = to_evaluate.len();
     for f in to_evaluate {
-        let d = poly_ring.degree(&f).unwrap();
-        let current_output_idx = polynomials.len() + 1;
+        let d = poly_ring.degree(&f).unwrap_or(0);
         if d == 0 {
-            nontrivial_operation = true;
-            post_circuits.push(PlaintextCircuit::constant(hom.map_ref(poly_ring.coefficient_at(&f, 0)), circuit_ring));
+            outputs.push(Output::Compute(PlaintextCircuit::constant(hom.map_ref(poly_ring.coefficient_at(&f, 0)), circuit_ring).tensor(PlaintextCircuit::drop(1), circuit_ring)));
         } else if d == 1 {
-            nontrivial_operation = true;
-            post_circuits.push(PlaintextCircuit::add(circuit_ring).compose(
+            outputs.push(Output::Compute(PlaintextCircuit::add(circuit_ring).compose(
                 PlaintextCircuit::constant(hom.map_ref(poly_ring.coefficient_at(&f, 0)), circuit_ring).tensor(
                     PlaintextCircuit::linear_transform_ring(&[hom.map_ref(poly_ring.coefficient_at(&f, 1))], circuit_ring), 
                     circuit_ring
                 ),
                 circuit_ring
-            ));
+            )));
         } else if (1..=d).step_by(2).all(|i| poly_ring.base_ring().is_zero(poly_ring.coefficient_at(&f, i))) {
-            nontrivial_operation = true;
-            precompute_square = true;
             let factored_poly = poly_ring.from_terms(poly_ring.terms(&f).map(|(c, i)| (poly_ring.base_ring().clone_el(c), i.checked_div(2).unwrap())));
-            polynomials.push(factored_poly);
-            pre_circuits.push(PlaintextCircuit::select(2, &[1], circuit_ring));
-            post_circuits.push(PlaintextCircuit::select(current_output_idx + 1, &[current_output_idx], circuit_ring))
+            let idx = polys_in_x_sqr.len();
+            polys_in_x_sqr.push(factored_poly);
+            outputs.push(Output::EvenPoly(idx));
         } else if (0..=d).step_by(2).all(|i| poly_ring.base_ring().is_zero(poly_ring.coefficient_at(&f, i))) {
-            nontrivial_operation = true;
-            precompute_square = true;
             let factored_poly = poly_ring.from_terms(poly_ring.terms(&f).map(|(c, i)| (poly_ring.base_ring().clone_el(c), i.checked_sub(1).unwrap().checked_div(2).unwrap())));
-            polynomials.push(factored_poly);
-            pre_circuits.push(PlaintextCircuit::select(2, &[1], circuit_ring));
-            post_circuits.push(PlaintextCircuit::mul(circuit_ring).compose(PlaintextCircuit::select(current_output_idx + 1, &[0, current_output_idx], circuit_ring), circuit_ring));
+            let idx = polys_in_x_sqr.len();
+            polys_in_x_sqr.push(factored_poly);
+            outputs.push(Output::OddPoly(idx));
         } else {
-            polynomials.push(f);
-            pre_circuits.push(PlaintextCircuit::select(1, &[0], circuit_ring));
-            post_circuits.push(PlaintextCircuit::select(current_output_idx + 1, &[current_output_idx], circuit_ring));
+            let idx = generic_polys.len();
+            generic_polys.push(f);
+            outputs.push(Output::GenericPoly(idx));
         }
     }
 
-    if nontrivial_operation {
-        let polynomials_len = polynomials.len();
-        let main_circuit = heuristic_decomposition::<P, R, H, F>(poly_ring, polynomials, factors_to_circuit, hom);
-        assert_eq!(main_circuit.output_count(), polynomials_len);
+    if !outputs.iter().all(|out| if let Output::GenericPoly(_) = out { true } else { false }) {
+        let generic_circuit = heuristic_functional_decomposition(poly_ring, generic_polys, factors_to_circuit, hom);
 
-        let pre_stage_inputs = if precompute_square { 2 } else { 1 };
-        let mut pre_circuit = pre_circuits.into_iter().fold(
-            PlaintextCircuit::drop(pre_stage_inputs), 
-            |current: PlaintextCircuit<_>, pre_circuit| {
-                let pad_count = pre_stage_inputs - pre_circuit.input_count();
-                current.tensor(
-                    pre_circuit.tensor(
-                        PlaintextCircuit::drop(pad_count),
-                        circuit_ring
-                    ),
-                    circuit_ring
-                ).compose(
-                    PlaintextCircuit::identity(pre_stage_inputs, circuit_ring).output_twice(circuit_ring),
-                    circuit_ring
-                )
-            }
-        );
-        if precompute_square {
-            pre_circuit = pre_circuit.compose(
-                PlaintextCircuit::identity(1, circuit_ring).tensor(
-                    PlaintextCircuit::square(circuit_ring), 
-                    circuit_ring
-                ).compose(
-                    PlaintextCircuit::identity(1, circuit_ring).output_times(pre_stage_inputs, circuit_ring), 
-                    circuit_ring
-                ), 
-                circuit_ring
-            );
+        if polys_in_x_sqr.len() > 0 {
+            let polys_in_x_sqr_offset = 2;
+            let generic_polys_offset = 2 + polys_in_x_sqr.len();
+
+            let polys_in_x_sqr_circuit = heuristic_functional_decomposition(poly_ring, polys_in_x_sqr, factors_to_circuit, hom);
+            let sqr_circuit = PlaintextCircuit::identity(1, circuit_ring).tensor(PlaintextCircuit::square(circuit_ring), circuit_ring)
+                .compose(PlaintextCircuit::identity(1, circuit_ring).output_twice(circuit_ring), circuit_ring);
+            let first_part = PlaintextCircuit::identity(2, circuit_ring)
+                .tensor(polys_in_x_sqr_circuit.compose(PlaintextCircuit::select(2, &[1], circuit_ring), circuit_ring), circuit_ring)
+                .tensor(generic_circuit.compose(PlaintextCircuit::select(2, &[0], circuit_ring), circuit_ring), circuit_ring)
+                .compose(sqr_circuit.output_times(3, circuit_ring), circuit_ring);
+            let first_part_output_len = first_part.output_count();
+
+            let second_part = outputs.into_iter().fold(PlaintextCircuit::drop(first_part_output_len), |current, next| match next {
+                Output::Compute(part) => current.tensor(part, circuit_ring),
+                Output::GenericPoly(idx) => current.tensor(PlaintextCircuit::select(first_part_output_len, &[idx + generic_polys_offset], circuit_ring), circuit_ring).compose(
+                    PlaintextCircuit::identity(first_part_output_len, circuit_ring).output_twice(circuit_ring), circuit_ring
+                ),
+                Output::EvenPoly(idx) => current.tensor(PlaintextCircuit::select(first_part_output_len, &[idx + polys_in_x_sqr_offset], circuit_ring), circuit_ring).compose(
+                    PlaintextCircuit::identity(first_part_output_len, circuit_ring).output_twice(circuit_ring), circuit_ring
+                ),
+                Output::OddPoly(idx) => current.tensor(
+                    PlaintextCircuit::mul(circuit_ring)
+                        .compose(PlaintextCircuit::select(first_part_output_len, &[0, idx + polys_in_x_sqr_offset], circuit_ring), circuit_ring), circuit_ring
+                ).compose(PlaintextCircuit::identity(first_part_output_len, circuit_ring).output_twice(circuit_ring), circuit_ring)
+            });
+            let result = second_part.compose(first_part, circuit_ring);
+            debug_assert_eq!(1, result.input_count());
+            debug_assert_eq!(to_evaluate_len, result.output_count());
+            return result;
+        } else {
+            let input_len = generic_circuit.output_count() + 1;
+            let generic_polys_offset = 1;
+            let result = outputs.into_iter().fold(
+                PlaintextCircuit::drop(input_len), |current, next| match next {
+                    Output::Compute(part) => current.tensor(part.compose(PlaintextCircuit::select(input_len, &[0], circuit_ring), circuit_ring), circuit_ring),
+                    Output::GenericPoly(idx) => current.tensor(PlaintextCircuit::select(input_len, &[idx + generic_polys_offset], circuit_ring), circuit_ring),
+                    _ => unreachable!()
+                }.compose(PlaintextCircuit::identity(input_len, circuit_ring).output_twice(circuit_ring), circuit_ring)
+            )
+                .compose(PlaintextCircuit::identity(1, circuit_ring).tensor(generic_circuit, circuit_ring), circuit_ring)
+                .compose(PlaintextCircuit::identity(1, circuit_ring).output_twice(circuit_ring), circuit_ring);
+            debug_assert_eq!(1, result.input_count());
+            debug_assert_eq!(to_evaluate_len, result.output_count());
+            return result;
         }
-        assert_eq!(1, pre_circuit.input_count());
-        assert_eq!(polynomials_len, pre_circuit.output_count());
-
-        let main_stage_outputs = polynomials_len + 1;
-        let post_circuit = post_circuits.into_iter().fold(
-            PlaintextCircuit::drop(main_stage_outputs),
-            |current: PlaintextCircuit<_>, post_circuit| {
-                let pad_count = main_stage_outputs - post_circuit.input_count();
-                current.tensor(
-                    post_circuit.tensor(
-                        PlaintextCircuit::drop(pad_count),
-                        circuit_ring
-                    ),
-                    circuit_ring
-                ).compose(
-                    PlaintextCircuit::identity(main_stage_outputs, circuit_ring).output_twice(circuit_ring),
-                    circuit_ring
-                )
-            }
-        );
-        return post_circuit.compose(
-            PlaintextCircuit::identity(1, circuit_ring).tensor(
-                main_circuit.compose(pre_circuit, circuit_ring), 
-                circuit_ring
-            ).compose(
-                PlaintextCircuit::identity(1, circuit_ring).output_twice(circuit_ring), 
-                circuit_ring
-            ),
-            circuit_ring
-        );
     } else {
-        return factors_to_circuit(poly_ring, polynomials, hom);
+        let result = factors_to_circuit(poly_ring, generic_polys, hom);
+        return result;
     }
 }
 
@@ -366,13 +364,23 @@ pub fn low_depth_bsgs_circuit_with_baby_steps<P>(poly_ring: P, polys: &[El<P>], 
 pub fn poly_to_circuit_with_galois<P, R>(hypercube_iso: &HypercubeIsomorphism<R>, poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<R::Type>
     where P: RingStore,
         P::Type: PolyRing,
-        BaseRing<P>: ZnRing + DivisibilityRing,
+        BaseRing<P>: ZnRing + DivisibilityRing + ElToIRRing,
         R: RingStore,
-        R::Type: NumberRingQuotient,
+        R::Type: NumberRingQuotient + ElToIRRing,
         BaseRing<R>: NiceZn
 {
-    heuristic_decomposition(&poly_ring, polys.iter().map(|f| poly_ring.clone_el(f)).collect(), |poly_ring, factors, hom| {
-        unimplemented!()
+    heuristic_functional_decomposition::<_, _, &ComposedHom<_, _, _, _, _>, _>(&poly_ring, polys.iter().map(|f| poly_ring.clone_el(f)).collect(), &mut |poly_ring, factors, hom| {
+        let norm_based = if factors.len() == 1 && poly_ring.degree(&factors[0]).unwrap() <= hypercube_iso.slot_ring().rank() {
+            poly_circuit_via_norm(hypercube_iso, poly_ring, &factors[0]).ok()
+        } else {
+            None
+        };
+        let standard = poly_to_circuit(&poly_ring, &factors).change_ring_uniform(|x| x.change_ring(|x| hom.map(x)));
+        if norm_based.is_some() && norm_based.as_ref().unwrap().cost(&DEFAULT_COSTS) < standard.cost(&DEFAULT_COSTS) {
+            norm_based.unwrap()
+        } else {
+            standard
+        }
     }, &hypercube_iso.ring().inclusion().compose(ZnReductionMap::new(poly_ring.base_ring(), hypercube_iso.ring().base_ring()).unwrap()))
 }
 
@@ -380,8 +388,6 @@ pub fn poly_to_circuit_with_galois<P, R>(hypercube_iso: &HypercubeIsomorphism<R>
 use feanor_math::rings::zn::zn_64::Zn;
 #[cfg(test)]
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
-#[cfg(test)]
-use feanor_math::seq::VectorFn;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
@@ -392,7 +398,6 @@ use crate::feanor_math::seq::VectorView;
 #[test]
 fn test_compute_powers_circuit() {
     let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[1]);
-    println!("{}", circuit.to_ir(ZZi64, None));
     assert!(circuit.eq(&PlaintextCircuit::select(3, &[1], ZZi64), ZZi64, None));
 
     let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[3]);
@@ -523,5 +528,93 @@ fn test_best_circuit_multiple_polys() {
         assert_el_eq!(Zn, P.evaluate(&g, &x, &P.base_ring().identity()), result_it.next().unwrap());
         assert_el_eq!(Zn, P.evaluate(&h, &x, &P.base_ring().identity()), result_it.next().unwrap());
         assert_el_eq!(Zn, P.evaluate(&l, &x, &P.base_ring().identity()), result_it.next().unwrap());
+    }
+}
+
+#[test]
+fn test_heuristic_functional_decomposition() {
+    let FpX = DensePolyRing::new(Zn::new(65537), "X");
+    let Fp = FpX.base_ring();
+
+    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(4)]);
+    let actual = heuristic_functional_decomposition(&FpX, vec![f], &mut |_, _, _| unreachable!(), Fp.identity());
+    let expected = PlaintextCircuit::square(Fp).compose(PlaintextCircuit::square(Fp), Fp);
+    assert!(expected.eq(&actual, Fp, None));
+
+    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5)]);
+    let actual = heuristic_functional_decomposition(&FpX, vec![f], &mut |_, _, _| unreachable!(), Fp.identity());
+    let expected = PlaintextCircuit::mul(Fp).compose(
+        PlaintextCircuit::identity(1, Fp).tensor(
+            PlaintextCircuit::square(Fp).compose(PlaintextCircuit::square(Fp), Fp), 
+            Fp
+        ), 
+        Fp
+    ).compose(
+        PlaintextCircuit::identity(1, Fp).output_twice(Fp), 
+        Fp
+    );
+    assert!(expected.eq(&actual, Fp, None));
+
+    let [f, g] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + 2 * X.pow_ref(3) - X, X.pow_ref(2) + 2 * X - 1]);
+    let mut dense_part_mults = 0;
+    let actual = heuristic_functional_decomposition(&FpX, vec![FpX.clone_el(&f)], &mut |FpX, polys, _| {
+        assert_eq!(1, polys.len());
+        assert_el_eq!(FpX, g, &polys[0]);
+        let result = poly_to_circuit(FpX, &polys);
+        dense_part_mults = result.multiplication_gate_count();
+        return result;
+    }, Fp.identity());
+    assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
+    for x in -10..10 {
+        let x = Fp.coerce(&ZZi64, x);
+        assert_el_eq!(Fp, FpX.evaluate(&f, &x, Fp.identity()), &actual.evaluate_no_galois(&[x], Fp.identity())[0]);
+    }
+
+    let [f1, f2] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + 2 * X.pow_ref(3) - X, X.pow_ref(4) + 2 * X.pow_ref(2) - 1]);
+    let mut dense_part_mults = 0;
+    let actual = heuristic_functional_decomposition(&FpX, vec![FpX.clone_el(&f1), FpX.clone_el(&f2)], &mut |FpX, polys, _| {
+        assert_eq!(2, polys.len());
+        let result = poly_to_circuit(FpX, &polys);
+        dense_part_mults = result.multiplication_gate_count();
+        return result;
+    }, Fp.identity());
+    assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
+    for x in -10..10 {
+        let x = Fp.coerce(&ZZi64, x);
+        assert_el_eq!(Fp, FpX.evaluate(&f1, &x, Fp.identity()), &actual.evaluate_no_galois(&[x], Fp.identity())[0]);
+        assert_el_eq!(Fp, FpX.evaluate(&f2, &x, Fp.identity()), &actual.evaluate_no_galois(&[x], Fp.identity())[1]);
+    }
+
+    let [f1, f2] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + 2 * X.pow_ref(3) - X, X.pow_ref(4) - X.pow_ref(3) + 2 * X.pow_ref(2) - 1]);
+    let mut dense_part_mults = 0;
+    let actual = heuristic_functional_decomposition(&FpX, vec![FpX.clone_el(&f1), FpX.clone_el(&f2)], &mut |FpX, polys, _| {
+        assert_eq!(1, polys.len());
+        let result = poly_to_circuit(FpX, &polys);
+        dense_part_mults += result.multiplication_gate_count();
+        return result;
+    }, Fp.identity());
+    assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
+    for x in -10..10 {
+        let x = Fp.coerce(&ZZi64, x);
+        assert_el_eq!(Fp, FpX.evaluate(&f1, &x, Fp.identity()), &actual.evaluate_no_galois(&[x], Fp.identity())[0]);
+        assert_el_eq!(Fp, FpX.evaluate(&f2, &x, Fp.identity()), &actual.evaluate_no_galois(&[x], Fp.identity())[1]);
+    }
+
+    let Z81X = DensePolyRing::new(Zn::new(65537), "X");
+    let Z81 = Z81X.base_ring();
+
+    let [f1, f2] = Z81X.with_wrapped_indeterminate(|X| [X.pow_ref(3), 55 * X.pow_ref(9) + 9 * X.pow_ref(7) + 18 * X.pow_ref(5)]);
+    let mut dense_part_mults = 0;
+    let actual = heuristic_functional_decomposition(&Z81X, vec![Z81X.clone_el(&f1), Z81X.clone_el(&f2)], &mut |Z81X, polys, _| {
+        assert_eq!(1, polys.len());
+        let result = poly_to_circuit(Z81X, &polys);
+        dense_part_mults = result.multiplication_gate_count();
+        return result;
+    }, Fp.identity());
+    assert_eq!(dense_part_mults + 3, actual.multiplication_gate_count());
+    for x in -10..10 {
+        let x = Z81.coerce(&ZZi64, x);
+        assert_el_eq!(Z81, FpX.evaluate(&f1, &x, Z81.identity()), &actual.evaluate_no_galois(&[x], Z81.identity())[0]);
+        assert_el_eq!(Z81, FpX.evaluate(&f2, &x, Z81.identity()), &actual.evaluate_no_galois(&[x], Z81.identity())[1]);
     }
 }

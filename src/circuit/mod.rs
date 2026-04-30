@@ -35,6 +35,15 @@ pub mod evaluator;
 /// 
 pub mod ir;
 
+#[derive(Copy, Clone, Debug)]
+pub struct CircuitEvaluatorCosts {
+    pub cost_mul: f64,
+    pub cost_sqr: f64,
+    pub cost_single_gal: f64,
+    pub cost_setup_hoisted_gal: f64,
+    pub cost_hoisted_gal: f64
+}
+
 ///
 /// A coefficient used in a [`PlaintextCircuit`].
 /// 
@@ -1106,6 +1115,14 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
             PlaintextCircuitGate::Mul(_, _) => true,
             PlaintextCircuitGate::Square(_) => true
         }).count()
+    }
+
+    pub fn cost(&self, costs: &CircuitEvaluatorCosts) -> f64 {
+        self.gates.iter().map(|gate| match gate {
+            PlaintextCircuitGate::Gal(gs, _) => if gs.len() == 1 { costs.cost_single_gal } else { costs.cost_setup_hoisted_gal + gs.len() as f64 * costs.cost_hoisted_gal },
+            PlaintextCircuitGate::Mul(_, _) => costs.cost_mul,
+            PlaintextCircuitGate::Square(_) => costs.cost_sqr
+        }).sum()
     }
 
     ///

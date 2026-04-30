@@ -182,9 +182,9 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
 
         let digit_extract = if let Some(B) = digit_extract_error_bound {
             assert_eq!(1, v, "if `digit_extract_error_bound` is set, `v` must be 1");
-            DigitExtract::new_bounded_error(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, B as i64)
+            DigitExtract::new_bounded_error(ZZbig.clone_el(&p), e, B as i64)
         } else {
-            DigitExtract::new_default(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, r)
+            DigitExtract::new_digit_retain_based(ZZbig.clone_el(&p), e, r)
         };
 
         let H = LazyCell::new(|| {
@@ -266,9 +266,9 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
             DigitExtract::new_precomputed_p_is_2(p_i64, e, r)
         } else if let Some(B) = digit_extract_error_bound {
             assert_eq!(1, v, "if `digit_extract_error_bound` is set, `v` must be 1");
-            DigitExtract::new_bounded_error(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, B as i64)
+            DigitExtract::new_bounded_error(ZZbig.clone_el(&p), e, B as i64)
         } else {
-            DigitExtract::new_default(p_i64, e, r)
+            DigitExtract::new_digit_retain_based(ZZbig.clone_el(&p), e, r)
         };
 
         let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
@@ -494,31 +494,16 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
             }
 
             let final_result = log_time::<_, _, LOG, _>("4. Computing digit extraction", |[]| {
-
-                let C_current = Params::mod_switch_down_C(C_master, &noisy_decryption_in_slots.dropped_rns_factor_indices);
-                let rounding_divisor_half = C_current.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(ZZbig.clone_el(self.p()), self.v()), &ZZbig.int_hom().map(2)));
-                let digit_extraction_input = ModulusAwareCiphertext {
-                    data: Params::hom_add_plain_encoded(P_main, &C_current, &C_current.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots.data),
-                    info: noisy_decryption_in_slots.info,
-                    dropped_rns_factor_indices: noisy_decryption_in_slots.dropped_rns_factor_indices,
-                    sk: noisy_decryption_in_slots.sk
-                };
-        
-                if let Some(sk) = debug_sk {
-                    self.modswitch_strategy.print_info(P_main, &C_current, &digit_extraction_input);
-                    Params::dec_println_slots(P_main, &C_current, &digit_extraction_input.data, &Params::mod_switch_sk(&C_current, C_master, sk), Some("."));
-                }
-
-                return self.digit_extract.evaluate_bgv::<Params, Strategy, LOG>(
+                self.digit_extract.evaluate_bgv::<Params, Strategy, LOG>(
                     &self.modswitch_strategy,
                     P_base,
                     &self.plaintext_ring_hierarchy,
                     P_main,
                     C_master,
-                    digit_extraction_input,
+                    noisy_decryption_in_slots,
                     rk,
                     debug_sk
-                ).0;
+                ).0
             });
             return final_result;
         })
@@ -620,7 +605,7 @@ impl DigitExtract {
         return self.evaluate_generic(
             input,
             |exp, inputs, circuit| {
-                let digit_extracted = modswitch_strategy.evaluate_circuit(circuit, ZZi64, get_P(exp), C_master, inputs, Some(rk), &[], debug_sk);
+                let digit_extracted = modswitch_strategy.evaluate_circuit(circuit, ZZbig, get_P(exp), C_master, inputs, Some(rk), &[], debug_sk);
                 if LOG && /* don't log if the circuit is just adding/cloning elements */ circuit.has_multiplication_gates() {
                     println!("Digit extraction modulo p^{} done", exp);
                     if let Some(sk) = debug_sk {

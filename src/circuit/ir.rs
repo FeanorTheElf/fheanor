@@ -74,6 +74,18 @@ impl<NumberRing, ZnTy, A, C> ElToIRRing for NumberRingQuotientByIdealBase<Number
     }
 }
 
+impl ElToIRRing for BigIntRingBase {
+    type ElRepr = ValueInt<BigIntRing>;
+
+    fn from_repr(&self, repr: &Self::ElRepr) -> Self::Element {
+        self.clone_el(repr)
+    }
+
+    fn into_repr(&self, el: &Self::Element) -> Self::ElRepr {
+        ValueInt::from(self.clone_el(el))
+    }
+}
+
 impl ElToIRRing for zn_64::ZnBase {
 
     type ElRepr = i64;
@@ -86,7 +98,6 @@ impl ElToIRRing for zn_64::ZnBase {
         self.smallest_lift(*el)
     }
 }
-
 
 impl<I> ElToIRRing for zn_big::ZnBase<I>
     where I: RingStore + Default,

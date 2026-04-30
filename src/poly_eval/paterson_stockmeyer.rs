@@ -346,46 +346,6 @@ use feanor_math::rings::zn::zn_64::Zn;
 use std::slice::from_ref;
 
 #[test]
-fn test_heuristic_decomposition() {
-    let FpX = DensePolyRing::new(Zn::new(65537), "X");
-    let Fp = FpX.base_ring();
-
-    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(4)]);
-    let actual = heuristic_decomposition(&FpX, vec![f], |_, _, _| unreachable!(), Fp.identity());
-    let expected = PlaintextCircuit::square(Fp).compose(PlaintextCircuit::square(Fp), Fp);
-    assert!(expected.eq(&actual, Fp, None));
-
-    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5)]);
-    let actual = heuristic_decomposition(&FpX, vec![f], |_, _, _| unreachable!(), Fp.identity());
-    let expected = PlaintextCircuit::mul(Fp).compose(
-        PlaintextCircuit::identity(1, Fp).tensor(
-            PlaintextCircuit::square(Fp).compose(PlaintextCircuit::square(Fp), Fp), 
-            Fp
-        ), 
-        Fp
-    ).compose(
-        PlaintextCircuit::identity(1, Fp).output_twice(Fp), 
-        Fp
-    );
-    assert!(expected.eq(&actual, Fp, None));
-
-    let [f, g] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + 2 * X.pow_ref(3) - X, X.pow_ref(2) + 2 * X - 1]);
-    let mut dense_part_mults = 0;
-    let actual = heuristic_decomposition(&FpX, vec![FpX.clone_el(&f)], |FpX, polys, _| {
-        assert_eq!(1, polys.len());
-        assert_el_eq!(FpX, g, &polys[0]);
-        let result = poly_to_circuit(FpX, &polys);
-        dense_part_mults = result.multiplication_gate_count();
-        return result;
-    }, Fp.identity());
-    assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
-    for x in -10..10 {
-        let x = Fp.coerce(&ZZi64, x);
-        assert_el_eq!(Fp, FpX.evaluate(&f, &x, Fp.identity()), actual.evaluate_no_galois(&[x], Fp.identity()).pop().unwrap());
-    }
-}
-
-#[test]
 fn test_plan_single() {
     assert_eq!(0, plan_paterson_stockmeyer_circuit(&[1]).mul_count);
     assert_eq!(1, plan_paterson_stockmeyer_circuit(&[2]).mul_count);
@@ -472,7 +432,7 @@ fn circuit_for_65537() {
     ).into();
     let circuit: PlaintextCircuit<feanor_math::rings::zn::zn_64::ZnBase> = create_cached::<_, _, _, true>(
         &(Zp2X.base_ring(), &CyclotomicGaloisGroupBase::new(2).into().full_subgroup()),
-        || heuristic_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], |Zp2X, polys, _| paterson_stockmeyer_circuit(&Zp2X, &polys).unwrap(), Zp2.identity()),
+        || heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| paterson_stockmeyer_circuit(&Zp2X, &polys).unwrap(), Zp2.identity()),
         &filename_keys!(digit_extract, p: 65537, e: 2),
         Some("."),
         StoreAs::AlwaysJson
@@ -487,6 +447,6 @@ fn circuit_for_65537() {
         }
     }
 
-    let circuit = heuristic_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], |Zp2X, polys, _| poly_to_circuit(&Zp2X, &polys), Zp2.identity());
+    let circuit = heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| poly_to_circuit(&Zp2X, &polys), Zp2.identity());
     println!("bsgs mults {}", circuit.multiplication_gate_count());
 }
