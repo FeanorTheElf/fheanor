@@ -270,7 +270,8 @@ pub trait AsBGVPlaintext<Params: BGVInstantiation>: RingBase + CanHomFrom<BigInt
     ) -> Ciphertext<Params>
         where I: Iterator<Item = (Self::Element, Ciphertext<Params>)>
     {
-        data.fold(Params::transparent_zero(P, C), |current, (lhs, rhs)| {
+        data.fold(Params::transparent_zero(P, C), |current, (lhs, mut rhs)| {
+            rhs.implicit_scale = P.base_ring().one();
             Params::hom_add(P, C, current, self.hom_mul_to(P, C, dropped_factors, &lhs, rhs))
         })
     }
@@ -446,7 +447,7 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for StaticRingBase<i64> {
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_mul_plain_int(P, C, &int_cast(*m, ZZbig, ZZi64), ct)
+        Params::hom_mul_plain_scalar(P, C, &P.base_ring().coerce(&ZZi64, *m), ct)
     }
 
     fn hom_mul_to_noise<N: BGVNoiseEstimator<Params>>(
@@ -489,6 +490,61 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for StaticRingBase<i64> {
     }
 }
 
+impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for ZnBase {
+
+    fn hom_add_to(
+        &self, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>,
+        _dropped_factors: &RNSFactorIndexList,
+        m: &Self::Element, 
+        ct: Ciphertext<Params>
+    ) -> Ciphertext<Params> {
+        assert_eq!(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()), *self.modulus());
+        Params::hom_add_plain(P, C, &P.inclusion().compose(P.base_ring().can_hom(&ZZi64).unwrap()).map(self.smallest_lift(*m)), ct)
+    }
+
+    fn hom_mul_to(
+        &self, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>,
+        _dropped_factors: &RNSFactorIndexList,
+        m: &Self::Element, 
+        ct: Ciphertext<Params>
+    ) -> Ciphertext<Params> {
+        assert_eq!(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()), *self.modulus());
+        Params::hom_mul_plain_scalar(P, C, &P.base_ring().can_hom(&ZZi64).unwrap().map(self.smallest_lift(*m)), ct)
+    }
+
+    fn hom_add_to_noise<N: BGVNoiseEstimator<Params>>(
+        &self, 
+        estimator: &N, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        _dropped_factors: &RNSFactorIndexList, 
+        m: &Self::Element, 
+        ct_info: &N::CiphertextDescriptor, 
+        implicit_scale: &El<PlaintextZnRing<Params>>
+    ) -> N::CiphertextDescriptor {
+        assert_eq!(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()), *self.modulus());
+        estimator.hom_add_plain_encoded(P, C, &C.inclusion().compose(C.base_ring().can_hom(&ZZi64).unwrap()).map(self.smallest_lift(*m)), ct_info, implicit_scale)
+    }
+
+    fn hom_mul_to_noise<N: BGVNoiseEstimator<Params>>(
+        &self, 
+        estimator: &N, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        _dropped_factors: &RNSFactorIndexList, 
+        m: &Self::Element, 
+        ct_info: &N::CiphertextDescriptor, 
+        implicit_scale: &El<PlaintextZnRing<Params>>
+    ) -> N::CiphertextDescriptor {
+        assert_eq!(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()), *self.modulus());
+        estimator.hom_mul_plain_int(P, C, &int_cast(self.smallest_lift(*m), ZZbig, ZZi64), ct_info, implicit_scale)
+    }
+}
+
 impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for BigIntRingBase {
 
     fn hom_add_to(
@@ -523,7 +579,7 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for BigIntRingBase {
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_mul_plain_int(P, C, m, ct)
+        Params::hom_mul_plain_scalar(P, C, &P.base_ring().coerce(&ZZbig, ZZbig.clone_el(m)), ct)
     }
 
     fn hom_mul_to_noise<N: BGVNoiseEstimator<Params>>(
@@ -682,19 +738,13 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
         let mut lhs = Vec::new();
         let mut rhs_c0 = Vec::new();
         let mut rhs_c1 = Vec::new();
-        let mut first_implicit_scale = None;
         for (l, r) in data {
-            if first_implicit_scale.is_none() {
-                first_implicit_scale = Some(P.base_ring().clone_el(&r.implicit_scale));
-            } else {
-                assert!(P.base_ring().eq_el(first_implicit_scale.as_ref().unwrap(), &r.implicit_scale));
-            }
             lhs.push(C.get_ring().drop_rns_factor_element(self, dropped_factors, &l));
             rhs_c0.push(r.c0);
             rhs_c1.push(r.c1);
         }
         return Ciphertext {
-            implicit_scale: first_implicit_scale.unwrap_or(P.base_ring().one()),
+            implicit_scale: P.base_ring().one(),
             c0: <_ as ComputeInnerProduct>::inner_product_ref_fst(C.get_ring(), lhs.iter().zip(rhs_c0.into_iter())),
             c1: <_ as ComputeInnerProduct>::inner_product(C.get_ring(), lhs.into_iter().zip(rhs_c1.into_iter())),
         };
@@ -1233,6 +1283,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
             if let Some(sk) = debug_sk {
                 let sk_target = Params::mod_switch_sk(&C_target, C_master, sk);
                 println!("  actual noise budget: {}", Params::noise_budget(P, &C_target, &res_data, &sk_target));
+                Params::dec_println(P, &C_target, &res_data, &sk_target);
             }
         }
         return ModulusAwareCiphertext {
@@ -1304,6 +1355,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
             if let Some(sk) = debug_sk {
                 let sk_target = Params::mod_switch_sk(&C_target, C_master, sk);
                 println!("  actual noise budget: {}", Params::noise_budget(P, &C_target, &res_data, &sk_target));
+                Params::dec_println(P, &C_target, &res_data, &sk_target);
             }
         }
         return ModulusAwareCiphertext {
@@ -1493,21 +1545,77 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> BG
 }
 
 #[cfg(test)]
+use feanor_math::rings::poly::dense_poly::DensePolyRing;
+#[cfg(test)]
 use crate::bgv::noise_estimator::NaiveBGVNoiseEstimator;
+#[cfg(test)]
+use crate::poly_eval::digit_extract::centered_digit_retain_poly;
+#[cfg(test)]
+use crate::poly_eval::to_circuit::poly_to_circuit;
 
 #[test]
-fn test_default_modswitch_strategy_mul() {
+fn test_modswitch_strategy_inner_prod() {
+    let mut rng = rand::rng();
+
+    let params = Pow2BGV::new(1 << 8);
+    let P = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
+    let C = params.create_ciphertext_ring(500..520);
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+
+    let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> = DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
+    let inputs = [P.int_hom().map(2), P.int_hom().map(100), P.int_hom().map(-1)];
+    let mut cts = inputs.iter().map(|x| ModulusAwareCiphertext {
+        data: Pow2BGV::enc_sym(&P, &C, &mut rng, &x, &sk, 3.2),
+        dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+        info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
+        sk: SecretKeyDistribution::UniformTernary
+    }).collect::<Vec<_>>();
+
+    let res = modswitch_strategy.inner_prod(&P, &C, &[
+        &Coefficient::NegOne,
+        &Coefficient::One,
+        &Coefficient::Other(P.int_hom().map(17))
+    ], &cts.iter().collect::<Vec<_>>(), &P, None);
+    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+    assert_el_eq!(&P, &P.int_hom().map(-2 + 100 - 17), Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
+
+    let to_drop = RNSFactorIndexList::from([0], C.base_ring().len());
+    let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
+    cts[0] = modswitch_strategy.mod_switch_down(&P, &C_new, &C, &to_drop, modswitch_strategy.clone_ct(&P, &C, &cts[0]), "", None);
+
+    let res = modswitch_strategy.inner_prod(&P, &C, &[
+        &Coefficient::NegOne,
+        &Coefficient::One,
+        &Coefficient::Other(P.int_hom().map(17))
+    ], &cts.iter().collect::<Vec<_>>(), &P, None);
+    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+    assert_el_eq!(&P, &P.int_hom().map(-2 + 100 - 17), Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
+
+    let to_drop = RNSFactorIndexList::from([1], C.base_ring().len());
+    let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
+    cts[2] = modswitch_strategy.mod_switch_down(&P, &C_new, &C, &to_drop, modswitch_strategy.clone_ct(&P, &C, &cts[2]), "", None);
+
+    let res = modswitch_strategy.inner_prod(&P, &C, &[
+        &Coefficient::NegOne,
+        &Coefficient::One,
+        &Coefficient::Other(P.int_hom().map(17))
+    ], &cts.iter().collect::<Vec<_>>(), &P, None);
+    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+    assert_el_eq!(&P, &P.int_hom().map(-2 + 100 - 17), Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
+}
+
+#[test]
+fn test_modswitch_strategy_mul() {
     let mut rng = rand::rng();
 
     let params = Pow2BGV::new(1 << 8);
     let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
     let C = params.create_ciphertext_ring(500..520);
-
     let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
-
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
 
     let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> = DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
     let pow8_circuit = PlaintextCircuit::mul(ZZi64)
@@ -1515,6 +1623,8 @@ fn test_default_modswitch_strategy_mul() {
         .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
         .compose(PlaintextCircuit::identity(1, ZZi64).output_twice(ZZi64), ZZi64);
 
+    let input = P.int_hom().map(2);
+    let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
     let res = modswitch_strategy.evaluate_circuit(
         &pow8_circuit,
         ZZi64,
@@ -1523,7 +1633,7 @@ fn test_default_modswitch_strategy_mul() {
         &[ModulusAwareCiphertext {
             dropped_rns_factor_indices: RNSFactorIndexList::empty(),
             info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
-            data: ctxt,
+            data: ct,
             sk: SecretKeyDistribution::UniformTernary
         }],
         Some(&rk),
@@ -1533,14 +1643,13 @@ fn test_default_modswitch_strategy_mul() {
 
     let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
     let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
-
     let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
     println!("Actual output noise budget is {}", res_noise);
     assert_el_eq!(&P, &P.neg_one(), Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
 }
 
 #[test]
-fn test_never_modswitch_strategy() {
+fn test_never_modswitch_strategy_mul() {
     let mut rng = rand::rng();
 
     let params = Pow2BGV::new(1 << 8);
@@ -1610,6 +1719,46 @@ fn test_never_modswitch_strategy() {
         let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
         assert_eq!(0, res_noise);
     }
+}
+
+#[test]
+fn test_modswitch_strategy_evaluate_circuit() {
+    let mut rng = rand::rng();
+
+    let params = Pow2BGV::new(1 << 8);
+    let P = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
+    let C = params.create_ciphertext_ring(500..520);
+
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
+
+    let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> = DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
+    let ZpeX = DensePolyRing::new(P.base_ring(), "X");
+    let circuit = poly_to_circuit(&ZpeX, &[centered_digit_retain_poly(&ZpeX, 3)]);
+
+    let input = P.int_hom().map(17 * 17 + 2 * 17 - 3);
+    let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
+    let res = modswitch_strategy.evaluate_circuit(
+        &circuit,
+        P.base_ring(),
+        &P,
+        &C,
+        &[ModulusAwareCiphertext {
+            dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+            info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
+            data: Pow2BGV::clone_ct(&P, &C, &ct),
+            sk: SecretKeyDistribution::UniformTernary
+        }],
+        Some(&rk),
+        &[],
+        Some(&sk)
+    ).into_iter().next().unwrap();
+
+    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+    let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
+    println!("Actual output noise budget is {}", res_noise);
+    assert_el_eq!(&P, &circuit.evaluate(&[input], P.inclusion())[0], Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
 }
 
 #[test]

@@ -659,6 +659,33 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
 }
 
 #[test]
+fn test_digit_extract_homomorphic() {
+    let mut rng = rand::rng();
+
+    let params = Pow2BFV::new(1 << 7);
+    let P1 = params.create_plaintext_ring(int_cast(17 * 17, ZZbig, ZZi64));
+    let P2 = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
+    let (C, C_mul) = params.create_ciphertext_rings(790..800);
+
+    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len()), 3.2);
+    let m = P2.int_hom().map(17 * 17 + 2 * 17 + 5);
+    let ct = Pow2BFV::enc_sym(&P2, &C, &mut rng, &m, &sk, 3.2);
+
+    let digitextract = DigitExtract::new_digit_retain_based(&[P1.base_ring(), P2.base_ring()]);
+    let (ct_high, ct_low) = digitextract.evaluate_bfv::<_, Pow2BFV>(&[P1.base_ring(), P2.base_ring()], &[&P1, &P2], &C, &C_mul, ct, &rk, Some(&sk));
+    let m_high = Pow2BFV::dec(&P1, &C, Pow2BFV::clone_ct(&C, &ct_high), &sk);
+    assert!(P1.wrt_canonical_basis(&m_high).iter().skip(1).all(|x| P1.base_ring().is_zero(&x)));
+    let m_high = P1.base_ring().smallest_lift(P1.wrt_canonical_basis(&m_high).at(0));
+    assert_eq!(17 + 2, m_high);
+    
+    let m_low = Pow2BFV::dec(&P2, &C, Pow2BFV::clone_ct(&C, &ct_low), &sk);
+    assert!(P2.wrt_canonical_basis(&m_low).iter().skip(1).all(|x| P2.base_ring().is_zero(&x)));
+    let m_low = P2.base_ring().smallest_lift(P2.wrt_canonical_basis(&m_low).at(0));
+    assert_eq!(5, m_low);
+}
+
+#[test]
 fn test_pow2_bfv_thin_bootstrapping_17() {
     let mut rng = rand::rng();
     
@@ -798,33 +825,6 @@ fn test_composite_bfv_thin_bootstrapping_2() {
     );
 
     assert_el_eq!(P, P.int_hom().map(2), CompositeBFV::dec(&P, &C, res_ct, &sk));
-}
-
-#[test]
-fn test_digit_extract_homomorphic() {
-    let mut rng = rand::rng();
-
-    let params = Pow2BFV::new(1 << 7);
-    let P1 = params.create_plaintext_ring(int_cast(17 * 17, ZZbig, ZZi64));
-    let P2 = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
-    let (C, C_mul) = params.create_ciphertext_rings(790..800);
-
-    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len()), 3.2);
-    let m = P2.int_hom().map(17 * 17 + 2 * 17 + 5);
-    let ct = Pow2BFV::enc_sym(&P2, &C, &mut rng, &m, &sk, 3.2);
-
-    let digitextract = DigitExtract::new_digit_retain_based(&[P1.base_ring(), P2.base_ring()]);
-    let (ct_high, ct_low) = digitextract.evaluate_bfv::<_, Pow2BFV>(&[P1.base_ring(), P2.base_ring()], &[&P1, &P2], &C, &C_mul, ct, &rk, Some(&sk));
-    let m_high = Pow2BFV::dec(&P1, &C, Pow2BFV::clone_ct(&C, &ct_high), &sk);
-    assert!(P1.wrt_canonical_basis(&m_high).iter().skip(1).all(|x| P1.base_ring().is_zero(&x)));
-    let m_high = P1.base_ring().smallest_positive_lift(P1.wrt_canonical_basis(&m_high).at(0));
-    assert_eq!(2, m_high % 17);
-    
-    let m_low = Pow2BFV::dec(&P2, &C, Pow2BFV::clone_ct(&C, &ct_low), &sk);
-    assert!(P2.wrt_canonical_basis(&m_low).iter().skip(1).all(|x| P2.base_ring().is_zero(&x)));
-    let m_low = P2.base_ring().smallest_positive_lift(P2.wrt_canonical_basis(&m_low).at(0));
-    assert_eq!(5, m_low % (17 * 17));
 }
 
 #[test]

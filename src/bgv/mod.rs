@@ -468,10 +468,10 @@ pub trait BGVInstantiation {
     /// Returns an encryption of the product of the encrypted input and the given plaintext.
     /// 
     #[instrument(skip_all)]
-    fn hom_mul_plain_int(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<BigIntRing>, mut ct: Ciphertext<Self>) -> Ciphertext<Self> {
+    fn hom_mul_plain_scalar(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &<Self::PlaintextZnRing as RingBase>::Element, mut ct: Ciphertext<Self>) -> Ciphertext<Self> {
         let hom = C.inclusion().compose(C.base_ring().can_hom(&ZZbig).unwrap());
-        hom.mul_assign_ref_map(&mut ct.c0, m);
-        hom.mul_assign_ref_map(&mut ct.c1, m);
+        hom.mul_assign_map(&mut ct.c0, int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(m)), ZZbig, P.base_ring().integer_ring()));
+        hom.mul_assign_map(&mut ct.c1, int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(m)), ZZbig, P.base_ring().integer_ring()));
         return ct;
     }
 
@@ -480,8 +480,8 @@ pub trait BGVInstantiation {
     /// larger noise. Mainly used for internal purposes.
     /// 
     fn merge_implicit_scale(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        let scale = int_cast(P.base_ring().smallest_lift(P.base_ring().invert(&ct.implicit_scale).unwrap()), ZZbig, P.base_ring().integer_ring());
-        let mut result = Self::hom_mul_plain_int(P, C, &scale, ct);
+        let scale = P.base_ring().invert(&ct.implicit_scale).unwrap();
+        let mut result = Self::hom_mul_plain_scalar(P, C, &scale, ct);
         result.implicit_scale = P.base_ring().one();
         return result;
     }

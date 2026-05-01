@@ -621,6 +621,41 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
 use crate::bgv::noise_estimator::NaiveBGVNoiseEstimator;
 
 #[test]
+fn test_digit_extract_homomorphic() {
+    let mut rng = rand::rng();
+
+    let params = Pow2BGV::new(1 << 7);
+    let P1 = params.create_plaintext_ring(int_cast(17 * 17, ZZbig, ZZi64));
+    let P2 = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
+    let C_master = params.create_ciphertext_ring(790..800);
+
+    let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
+    let rk = Pow2BGV::gen_rk(&P2, &C_master, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len()), 3.2);
+    let m = P2.int_hom().map(17 * 17 + 2 * 17 - 3);
+    let ct = Pow2BGV::enc_sym(&P2, &C_master, &mut rng, &m, &sk, 3.2);
+
+    let digitextract = DigitExtract::new_digit_retain_based(&[P1.base_ring(), P2.base_ring()]);
+    let strategy = DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator);
+    let (ct_high, ct_low) = digitextract.evaluate_bgv::<_, Pow2BGV, _, true>(&[P1.base_ring(), P2.base_ring()], &strategy, &[&P1, &P2], &C_master, ModulusAwareCiphertext {
+        data: ct,
+        dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+        info: strategy.info_for_fresh_encryption(&P2, &C_master, SecretKeyDistribution::UniformTernary),
+        sk: SecretKeyDistribution::UniformTernary
+    }, &rk, Some(&sk));
+    let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_high.dropped_rns_factor_indices);
+    let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
+    let m_high = Pow2BGV::dec(&P1, &C_result, Pow2BGV::clone_ct(&P1, &C_result, &ct_high.data), &sk_result);
+    assert!(P1.wrt_canonical_basis(&m_high).iter().skip(1).all(|x| P1.base_ring().is_zero(&x)));
+    let m_high = P1.base_ring().smallest_lift(P1.wrt_canonical_basis(&m_high).at(0));
+    assert_eq!(17 + 2, m_high);
+    
+    let m_low = Pow2BGV::dec(&P2, &C_result, Pow2BGV::clone_ct(&P2, &C_result, &ct_low.data), &sk_result);
+    assert!(P2.wrt_canonical_basis(&m_low).iter().skip(1).all(|x| P2.base_ring().is_zero(&x)));
+    let m_low = P2.base_ring().smallest_lift(P2.wrt_canonical_basis(&m_low).at(0));
+    assert_eq!(-3, m_low);
+}
+
+#[test]
 fn test_pow2_bgv_thin_bootstrapping_17() {
     let mut rng = StdRng::from_seed([0; 32]);
     
