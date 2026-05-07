@@ -45,10 +45,10 @@ pub fn poly_to_circuit<P>(poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<Bas
         &mut |poly_ring, polys, _| {
             let bsgs_option = low_depth_bsgs_circuit(&poly_ring, &polys);
             let paterson_stockmeyer_option = paterson_stockmeyer_circuit(&poly_ring, &polys);
-            match paterson_stockmeyer_option {
-                Err(()) => bsgs_option,
-                Ok(circuit) if circuit.multiplication_gate_count() > bsgs_option.multiplication_gate_count() => bsgs_option,
-                Ok(circuit) => circuit
+            if bsgs_option.multiplication_gate_count() < paterson_stockmeyer_option.multiplication_gate_count() {
+                bsgs_option
+            } else {
+                paterson_stockmeyer_option
             }
         },
         &poly_ring.base_ring().identity()

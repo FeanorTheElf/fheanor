@@ -9,7 +9,7 @@ use feanor_math::rings::finite::{FiniteRing, FiniteRingStore};
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use tracing::{Level, event, instrument};
 
-use crate::circuit::PlaintextCircuit;
+use crate::circuit::{Coefficient, PlaintextCircuit};
 use crate::number_ring::hypercube::isomorphism::BaseRing;
 use crate::poly_eval::addition_chains::addition_chain_lengths;
 use crate::poly_eval::to_circuit::compute_powers_circuit;
@@ -39,9 +39,13 @@ fn minimum_somewhat_continuous_function<F>(range: RangeInclusive<usize>, mut f: 
 ///  - compute powers `x^i` for `i` in `precomputed_powers`; this always
 ///    includes `1, 2, ..., k`, and usually many powers of two
 ///  - for a polynomial `f` of degree `d`, recursively write it as `f = q X^l + r`
-///    and `r = c q + s`, where `l = split_at_monomial[d]`. Then `f = q (X^l + c) + s`,
+///    and `r = c q + s`, where `l in split_at_monomial[d].0`. Then `f = q (X^l + c) + s`,
 ///    and we evaluate it by combining `x^l` and `q(x), c(x), s(x)`, which are evaluated
-///    recursively 
+///    recursively;
+///    "monic augmentation": as fallback, we also consider the splitting as `f + X^m = q X^l + r`
+///    and `r = c q + s` with `(l, m) = split_at_monomial[d].1` and `m > deg(f)` - 
+///    this might be necessary if the leading coefficient of `f` is not a unit. In that case,
+///    we evaluate by combining `x^l, x^m` and `q(x), c(x), s(x)` as `f(x) = q(x) (x^l + c(x)) + s(x) - x^m`;
 ///  - asymptotically, we would choose l = (d + k) / 2 so that deg(c) < k and we 
 ///    can derive `c(x)`` from the precomputed powers; this leads to a reduction
 ///    `d -> 2 x (d - k)/2` on each recursive step, with means we need `log2(d/k) - 1`
@@ -51,7 +55,7 @@ fn minimum_somewhat_continuous_function<F>(range: RangeInclusive<usize>, mut f: 
 ///    concrete choice of `l` using dynamic programming. 
 /// 
 struct PatersonStockmeyerPlan {
-    split_at_monomial: Vec<Vec<usize>>,
+    split_at_monomial: Vec<(Vec<usize>, (usize, usize))>,
     k: usize,
     /// these do not necessarily include the numbers 0..=k (but may include some)
     extra_precomputed_powers: Vec<usize>,
@@ -75,7 +79,11 @@ fn plan_paterson_stockmeyer_circuit(ds: &[usize]) -> PatersonStockmeyerPlan {
     let max_d = ds.iter().copied().max().unwrap();
     let max_log2_d = ZZi64.abs_log2_floor(&(max_d as i64)).unwrap_or(0);
 
-    fn compute_cost_split(d: usize, l: usize, power_costs: &[usize], prev_costs: &[usize]) -> usize {
+    /// Computes the cost of evaluating a polynomial of degree `d` with splitting parameter `l`
+    /// by splitting it according to the Paterson-Stockmeyer method; `power_costs[i]` should be the
+    /// cost of evaluating `x^i`, excluding costs for unconditionally precomputed values. `prev_costs[i]`
+    /// for `i < d` should be the cost of recursively evaluating a polynomial of degree `i`.
+    fn compute_cost_for_degree(d: usize, l: usize, power_costs: &[usize], prev_costs: &[usize]) -> usize {
         let deg_q = d.saturating_sub(l);
         let deg_c = l.saturating_sub(deg_q + 1);
         let deg_s = min(deg_q.saturating_sub(1), l - 1);
@@ -87,18 +95,28 @@ fn plan_paterson_stockmeyer_circuit(ds: &[usize]) -> PatersonStockmeyerPlan {
         }
     }
 
-    fn get_mult_number(d: usize, k: usize, power_costs: &[usize]) -> usize {
+    fn compute_costs(d: usize, k: usize, power_costs: &[usize]) -> usize {
         assert!(k >= 1);
         let mut result = Vec::with_capacity(d + 1);
         result.extend((0..=k).map(|_| 0));
         for i in (k + 1)..(d + 1) {
             result.push((1..(i + 1)).map(|l| 
-                compute_cost_split(i, l, power_costs, &result)
+                compute_cost_for_degree(i, l, power_costs, &result)
             ).min().unwrap());
         }
         return result[d];
     }
 
+    // since the general optimization problem is NP-hard, we use the following, heuristic approach:
+    //  - get a rough value for the number of consecutive precomputed powers `k`
+    //  - get a more precise (still heuristic) value for the set of precomputed powers, currently consisting
+    //    of `k` consecutive powers, followed by powers to powers of two
+    //  - get values for the splitting points `l` for each degree; this step may overestimate the actual cost,
+    //    since it assumes that only the powers `precomputed_powers` are available for free for every degree,
+    //    even if additional powers have been computed for lower degrees (but of course we don't know if those
+    //    lower degree computations will actually be used for the final polynomial)
+
+    // compute the rough `k`
     let max_k = max(20, 2 * (max_d as f64).sqrt().ceil() as usize);
     let min_k = max(1, ((max_d as f64).sqrt().floor() as usize / 2).saturating_sub(10));
     let mut cache = HashMap::new();
@@ -109,11 +127,12 @@ fn plan_paterson_stockmeyer_circuit(ds: &[usize]) -> PatersonStockmeyerPlan {
         precomputed_powers.sort();
         precomputed_powers.dedup();
         let (power_costs, _) = addition_chain_lengths(max_d, &precomputed_powers);
-        let cost = ds.iter().map(|d| get_mult_number(*d, k, &power_costs)).sum::<usize>() + precomputed_powers.len() - 2;
+        let cost = ds.iter().map(|d| compute_costs(*d, k, &power_costs)).sum::<usize>() + precomputed_powers.len() - 2;
         cache.insert(k, cost as i64);
         return cost as i64;
     }, 4);
 
+    // compute the more precise `k` and `precomputed_powers`
     let (exact_k, precomputed_powers, precomputed_powers_pow2) = (max(rough_k.saturating_sub(4), 1)..(rough_k + 9)).rev().flat_map(|k| (0..5).map(move |skipped_pow2s| (k, skipped_pow2s)))
         .map(|(k, skipped_pow2s)| {
             let precomputed_powers_pow2 = (0..max_log2_d.saturating_sub(skipped_pow2s)).map(|i| 1 << i).collect::<Vec<_>>();
@@ -124,29 +143,53 @@ fn plan_paterson_stockmeyer_circuit(ds: &[usize]) -> PatersonStockmeyerPlan {
         })
         .min_by_key(|(k, precomputed_powers, _)| {
             let (power_costs, _) = addition_chain_lengths(max_d, &precomputed_powers);
-            let cost = ds.iter().map(|d| get_mult_number(*d, (*k).try_into().unwrap(), &power_costs)).sum::<usize>() + precomputed_powers.len() - 2;
+            let cost = ds.iter().map(|d| compute_costs(*d, (*k).try_into().unwrap(), &power_costs)).sum::<usize>() + precomputed_powers.len() - 2;
             return cost;
         }).unwrap();
     event!(Level::INFO, "paterson_stockmeyere_k({})", exact_k);
 
+    // compute the splitting points `l`
+
+    /// if we split `f = f(x) = q(x) (x^l + c(x)) + s(x)`, the multiplicative depth of the result will
+    /// be `max(dpt(x^l), log2(q)) + 1`; thus we cannot split to asymmetrically. The idea is that
+    /// we restrict to splitting points that satisfy `log2(l), log2(d - l) <= log2(deg(f) * (1 + 2 * DEPTH_RELAX))`.
+    /// In that case, the multiplicative depth increases at most by `log2(1 + 2 * DEPTH_RELAX)` on every
+    /// recursion step, and also behaves very controllably in practice.
     const DEPTH_RELAX: f64 = 0.1;
-    const MUL_COUNT_RELAX: usize = 0;
 
     let (power_costs, _) = addition_chain_lengths(max_d, &precomputed_powers);
     let mut min_costs: Vec<usize> = Vec::new();
     min_costs.extend((0..=exact_k).map(|_| 0));
     let mut split_at_monomial = Vec::new();
-    split_at_monomial.extend((0..=exact_k).map(|_| Vec::new()));
+    split_at_monomial.extend((0..=exact_k).map(|_| (Vec::new(), (0, 0))));
     for d in (exact_k + 1)..(max_d + 1) {
-        let next_pow2 = 1 << ZZi64.abs_log2_ceil(&(d as i64)).unwrap();
-        let min_possible_l = min(d - next_pow2 / 2, (d as f64 * (0.5 - DEPTH_RELAX)).floor() as usize);
-        let max_possible_l = max(next_pow2 / 2, (d as f64 * (0.5 + DEPTH_RELAX)).ceil() as usize);
-        let mut possible_l = (min_possible_l..=max_possible_l)
-            .map(|l| (l, compute_cost_split(d, l, &power_costs, &min_costs))).collect::<Vec<_>>();
-        let min_cost = possible_l.iter().map(|(_, cost)| *cost).min().unwrap();
-        possible_l.retain(|(_, cost)| *cost <= min_cost + MUL_COUNT_RELAX);
-        min_costs.push(min_cost);
-        split_at_monomial.push(possible_l.into_iter().map(|(l, _)| l).collect());
+        let standard_split_possible_l = {
+            let next_pow2 = 1 << ZZi64.abs_log2_ceil(&(d as i64)).unwrap();
+            let min_possible_l = min(d - next_pow2 / 2, (d as f64 * (0.5 - DEPTH_RELAX)).ceil() as usize);
+            let max_possible_l = max(next_pow2 / 2, (d as f64 * (0.5 + DEPTH_RELAX)).floor() as usize);
+            let mut possible_l = (min_possible_l..=max_possible_l)
+                .map(|l| (l, compute_cost_for_degree(d, l, &power_costs, &min_costs))).collect::<Vec<_>>();
+            let min_cost = possible_l.iter().map(|(_, cost)| *cost).min().unwrap();
+            possible_l.retain(|(_, cost)| *cost <= min_cost);
+            min_costs.push(min_cost);
+            possible_l.into_iter().map(|(l, _)| l).collect::<Vec<_>>()
+        };
+        let (monic_augment_l, monic_augment_m, _) = {
+            let min_m = d + 1;
+            let next_pow2 = 1 << ZZi64.abs_log2_ceil(&(d as i64 + 1)).unwrap();
+            let max_m = next_pow2;
+            (min_m..=max_m).map(|m| {
+                let min_possible_l = min(m - next_pow2 / 2, (d as f64 * (0.5 - DEPTH_RELAX)).ceil() as usize);
+                let max_possible_l = max(next_pow2 / 2, (d as f64 * (0.5 + DEPTH_RELAX)).floor() as usize);
+                let (l, cost) = (min_possible_l..=max_possible_l)
+                    .map(|l| (l, compute_cost_for_degree(d, l, &power_costs, &min_costs)))
+                    .min_by_key(|(_, cost)| *cost).unwrap();
+                return (l, m, cost);
+            }).min_by_key(|(_, _, cost)| *cost).unwrap()
+        };
+        
+        debug_assert!(standard_split_possible_l.len() > 0);
+        split_at_monomial.push((standard_split_possible_l, (monic_augment_l, monic_augment_m)));
     }
 
     return PatersonStockmeyerPlan {
@@ -165,12 +208,19 @@ enum PatersonStockmeyerSplit<R>
     Precomputed {
         f: El<R>
     },
-    InnerNode {
+    StandardSplit {
         q: Box<PatersonStockmeyerSplit<R>>,
         c: Box<PatersonStockmeyerSplit<R>>,
         s: Box<PatersonStockmeyerSplit<R>>,
         factor: El<<R::Type as RingExtension>::BaseRing>,
         l: usize
+    },
+    FallbackSplit {
+        q: Box<PatersonStockmeyerSplit<R>>,
+        c: Box<PatersonStockmeyerSplit<R>>,
+        s: Box<PatersonStockmeyerSplit<R>>,
+        l: usize,
+        m: usize
     }
 }
 
@@ -179,37 +229,60 @@ impl<R> PatersonStockmeyerSplit<R>
         R::Type: PolyRing,
         BaseRing<R>: DivisibilityRing
 {
-    fn create_recursive(poly_ring: R, mut f: El<R>, plan: &PatersonStockmeyerPlan, rec_depth: usize) -> Result<Self, ()> {
+    fn is_fallback_split(&self) -> bool {
+        if let PatersonStockmeyerSplit::FallbackSplit { q: _, c: _, s: _, l: _, m: _ } = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    #[instrument(skip_all)]
+    fn create_recursive(poly_ring: R, mut f: El<R>, plan: &PatersonStockmeyerPlan, rec_depth: usize) -> Self {
         const MAX_ATTEMPTS: usize = 3;
         let d = poly_ring.degree(&f).unwrap_or(0);
+        let (splitting_points, (monic_augment_l, monic_augment_m)) = &plan.split_at_monomial[d];
         if d <= plan.k {
-            return Ok(Self::Precomputed { f: f });
+            return Self::Precomputed { f: f };
         } else if let Some(f_lc_inv) = poly_ring.base_ring().invert(poly_ring.lc(&f).unwrap()) {
             let lc_f = poly_ring.base_ring().clone_el(poly_ring.lc(&f).unwrap());
             poly_ring.inclusion().mul_assign_map(&mut f, f_lc_inv);
 
-            for l in plan.split_at_monomial[d].iter().take(MAX_ATTEMPTS) {
-                // println!("{}[{}] trying split at {}", "  ".repeat(rec_depth), d, l);
+            for l in splitting_points.iter().skip(1).take(MAX_ATTEMPTS) {
                 let X_l = poly_ring.from_terms([(poly_ring.base_ring().one(), *l)]);
                 let (q, r) = poly_ring.div_rem_monic(poly_ring.clone_el(&f), &X_l);
                 let (c, s) = poly_ring.div_rem_monic(r, &q);
 
-                match (
-                    PatersonStockmeyerSplit::create_recursive(poly_ring, q, plan, rec_depth + 1),
-                    PatersonStockmeyerSplit::create_recursive(poly_ring, c, plan, rec_depth + 1),
-                    PatersonStockmeyerSplit::create_recursive(poly_ring, s, plan, rec_depth + 1)
-                ) {
-                    (Ok(q), Ok(c), Ok(s)) => return Ok(Self::InnerNode { q: Box::new(q), c: Box::new(c), s: Box::new(s), l: *l, factor: lc_f }),
-                    _ => {}
+                let q = PatersonStockmeyerSplit::create_recursive(poly_ring, q, plan, rec_depth + 1);
+                let c = PatersonStockmeyerSplit::create_recursive(poly_ring, c, plan, rec_depth + 1);
+                let s = PatersonStockmeyerSplit::create_recursive(poly_ring, s, plan, rec_depth + 1);
+                if !q.is_fallback_split() && !c.is_fallback_split() && !s.is_fallback_split() {
+                    return PatersonStockmeyerSplit::StandardSplit { q: Box::new(q), c: Box::new(c), s: Box::new(s), factor: lc_f, l: *l }
                 }
             }
-            return Err(());
+            let l = splitting_points[0];
+            let X_l = poly_ring.from_terms([(poly_ring.base_ring().one(), l)]);
+            let (q, r) = poly_ring.div_rem_monic(f, &X_l);
+            let (c, s) = poly_ring.div_rem_monic(r, &q);
+            let q = PatersonStockmeyerSplit::create_recursive(poly_ring, q, plan, rec_depth + 1);
+            let c = PatersonStockmeyerSplit::create_recursive(poly_ring, c, plan, rec_depth + 1);
+            let s = PatersonStockmeyerSplit::create_recursive(poly_ring, s, plan, rec_depth + 1);
+            return PatersonStockmeyerSplit::StandardSplit { q: Box::new(q), c: Box::new(c), s: Box::new(s), factor: lc_f, l: l };
         } else {
-            return Err(());
+            let X_l = poly_ring.from_terms([(poly_ring.base_ring().one(), *monic_augment_l)]);
+            let X_m = poly_ring.from_terms([(poly_ring.base_ring().one(), *monic_augment_m)]);
+            let f_ = poly_ring.add(f, X_m);
+            let (q, r) = poly_ring.div_rem_monic(f_, &X_l);
+            let (c, s) = poly_ring.div_rem_monic(r, &q);
+            let q = PatersonStockmeyerSplit::create_recursive(poly_ring, q, plan, rec_depth + 1);
+            let c = PatersonStockmeyerSplit::create_recursive(poly_ring, c, plan, rec_depth + 1);
+            let s = PatersonStockmeyerSplit::create_recursive(poly_ring, s, plan, rec_depth + 1);
+            return PatersonStockmeyerSplit::FallbackSplit { q: Box::new(q), c: Box::new(c), s: Box::new(s), l: *monic_augment_l, m: *monic_augment_m };
         }
     }
 
-    fn requried_monomials(&self, poly_ring: R, monomials: &mut BTreeSet<usize>) {
+    #[instrument(skip_all)]
+    fn required_monomials(&self, poly_ring: R, monomials: &mut BTreeSet<usize>) {
         match self {
             PatersonStockmeyerSplit::Precomputed { f } => {
                 for (_, i) in poly_ring.terms(&f) {
@@ -218,16 +291,25 @@ impl<R> PatersonStockmeyerSplit<R>
                     }
                 }
             },
-            PatersonStockmeyerSplit::InnerNode { q, c, s, l, factor: _ } => {
-                assert!(*l > 0);
+            PatersonStockmeyerSplit::StandardSplit { q, c, s, l, factor: _ } => {
+                debug_assert!(*l > 0);
                 monomials.insert(*l);
-                q.requried_monomials(poly_ring, monomials);
-                c.requried_monomials(poly_ring, monomials);
-                s.requried_monomials(poly_ring, monomials);
+                q.required_monomials(poly_ring, monomials);
+                c.required_monomials(poly_ring, monomials);
+                s.required_monomials(poly_ring, monomials);
+            },
+            PatersonStockmeyerSplit::FallbackSplit { q, c, s, l, m } => {
+                debug_assert!(*l > 0);
+                monomials.insert(*l);
+                monomials.insert(*m);
+                q.required_monomials(poly_ring, monomials);
+                c.required_monomials(poly_ring, monomials);
+                s.required_monomials(poly_ring, monomials);
             }
         }
     }
 
+    #[instrument(skip_all)]
     fn to_circuit_recursive(self, poly_ring: R, input_powers: &[usize], rec_depth: usize) -> (El<R>, PlaintextCircuit<BaseRing<R>>) {
         let base_ring = poly_ring.base_ring();
         let get_power_idx = |power: usize| input_powers.iter().enumerate().filter(|(_, val)| **val == power).next().unwrap().0;
@@ -242,12 +324,12 @@ impl<R> PatersonStockmeyerSplit<R>
                 );
                 return (f, circuit);
             },
-            PatersonStockmeyerSplit::InnerNode { q, c, s, l, factor } => {
+            PatersonStockmeyerSplit::StandardSplit { q, c, s, l, factor } => {
                 let Xl = PlaintextCircuit::select(input_powers.len(), &[get_power_idx(l)], base_ring);
                 let (q, q_circuit) = q.to_circuit_recursive(poly_ring, input_powers, rec_depth + 1);
                 let (c, c_circuit) = c.to_circuit_recursive(poly_ring, input_powers, rec_depth + 1);
                 let (s, s_circuit) = s.to_circuit_recursive(poly_ring, input_powers, rec_depth + 1);
-                let f_circuit = PlaintextCircuit::linear_transform_ring(&[factor], base_ring).compose(
+                let f_circuit = PlaintextCircuit::linear_transform_ring(&[base_ring.clone_el(&factor)], base_ring).compose(
                     PlaintextCircuit::add(base_ring).compose(
                         PlaintextCircuit::mul(base_ring).compose(
                             PlaintextCircuit::add(base_ring).compose(Xl.tensor(c_circuit, base_ring), base_ring)
@@ -263,9 +345,34 @@ impl<R> PatersonStockmeyerSplit<R>
                 );
                 debug_assert_eq!(input_powers.len(), f_circuit.input_count());
                 debug_assert_eq!(1, f_circuit.output_count());
-                let mut Xl = poly_ring.one();
-                poly_ring.mul_assign_monomial(&mut Xl, l);
-                let f = poly_ring.add(poly_ring.mul(poly_ring.add(c, Xl), q), s);
+                let Xl = poly_ring.from_terms([(base_ring.one(), l)]);
+                let f = poly_ring.inclusion().mul_map(poly_ring.add(poly_ring.mul(poly_ring.add(c, Xl), q), s), factor);
+                return (f, f_circuit);
+            },
+            PatersonStockmeyerSplit::FallbackSplit { q, c, s, l, m } => {
+                let Xl = PlaintextCircuit::select(input_powers.len(), &[get_power_idx(l)], base_ring);
+                let Xm = PlaintextCircuit::select(input_powers.len(), &[get_power_idx(m)], base_ring);
+                let (q, q_circuit) = q.to_circuit_recursive(poly_ring, input_powers, rec_depth + 1);
+                let (c, c_circuit) = c.to_circuit_recursive(poly_ring, input_powers, rec_depth + 1);
+                let (s, s_circuit) = s.to_circuit_recursive(poly_ring, input_powers, rec_depth + 1);
+                let f_circuit = PlaintextCircuit::linear_transform(&[Coefficient::One, Coefficient::One, Coefficient::NegOne], base_ring).compose(
+                    PlaintextCircuit::mul(base_ring).compose(
+                        PlaintextCircuit::add(base_ring).compose(Xl.tensor(c_circuit, base_ring), base_ring)
+                            .tensor(q_circuit, base_ring),
+                        base_ring
+                    )
+                    .tensor(s_circuit, base_ring)
+                    .tensor(Xm, base_ring),
+                    base_ring
+                ).compose(
+                    PlaintextCircuit::identity(input_powers.len(), base_ring).output_times(5, base_ring),
+                    base_ring
+                );
+                debug_assert_eq!(input_powers.len(), f_circuit.input_count());
+                debug_assert_eq!(1, f_circuit.output_count());
+                let Xl = poly_ring.from_terms([(poly_ring.base_ring().one(), l)]);
+                let Xm = poly_ring.from_terms([(poly_ring.base_ring().one(), m)]);
+                let f = poly_ring.sub(poly_ring.add(poly_ring.mul(poly_ring.add(c, Xl), q), s), Xm);
                 return (f, f_circuit);
             }
         }
@@ -279,7 +386,8 @@ impl<R> PatersonStockmeyerSplit<R>
 /// Note that Paterson-Stockmeyer requires certain intermediate polynomials to have
 /// invertible coefficients.
 /// 
-pub fn paterson_stockmeyer_circuit<R>(poly_ring: R, polynomials: &[El<R>]) -> Result<PlaintextCircuit<BaseRing<R>>, ()>
+#[instrument(skip_all)]
+pub fn paterson_stockmeyer_circuit<R>(poly_ring: R, polynomials: &[El<R>]) -> PlaintextCircuit<BaseRing<R>>
     where R: RingStore,
         R::Type: PolyRing,
         BaseRing<R>: DivisibilityRing + FiniteRing
@@ -289,47 +397,39 @@ pub fn paterson_stockmeyer_circuit<R>(poly_ring: R, polynomials: &[El<R>]) -> Re
     assert!(plan.k >= 1);
 
     let mut rng = oorandom::Rand64::new(0);
-    for _ in 0..10 {
+    (0..10).map(|_| {
         let random_value = poly_ring.base_ring().random_element(|| rng.rand_u64());
         let mut splits = Vec::new();
         for poly in polynomials {
             let randomized_poly = poly_ring.evaluate(poly, &poly_ring.from_terms([(poly_ring.base_ring().one(), 1), (poly_ring.base_ring().clone_el(&random_value), 0)]), poly_ring.inclusion());
-            if let Ok(split) = PatersonStockmeyerSplit::create_recursive(&poly_ring, randomized_poly, &plan, 0) {
-                splits.push(split);
-            } else {
-                break;
-            }
+            splits.push(PatersonStockmeyerSplit::create_recursive(&poly_ring, randomized_poly, &plan, 0));
         }
-        if splits.len() == polynomials.len() {
-            let mut precomputed_powers = BTreeSet::new();
-            precomputed_powers.extend(plan.extra_precomputed_powers.iter().copied());
-            drop(plan);
-            for split in &splits {
-                split.requried_monomials(&poly_ring, &mut precomputed_powers);
-            }
-            debug_assert!(!precomputed_powers.contains(&0));
-            let precomputed_powers = precomputed_powers.into_iter().collect::<Vec<_>>();
-            let main_circuit = splits.into_iter().fold(
-                PlaintextCircuit::drop(precomputed_powers.len()),
-                |current, next| current.tensor(next.to_circuit_recursive(&poly_ring, &precomputed_powers, 0).1, poly_ring.base_ring())
-                        .compose(PlaintextCircuit::identity(precomputed_powers.len(), poly_ring.base_ring()).output_twice(poly_ring.base_ring()), poly_ring.base_ring())
-            );
-            debug_assert_eq!(precomputed_powers.len(), main_circuit.input_count());
-            debug_assert_eq!(polynomials.len(), main_circuit.output_count());
-            
-            let precompute_powers_circuit = compute_powers_circuit(poly_ring.base_ring(), &[1], &precomputed_powers);
-
-            let de_randomize_circuit = PlaintextCircuit::add(poly_ring.base_ring()).compose(
-                PlaintextCircuit::identity(1, poly_ring.base_ring()).tensor(
-                    PlaintextCircuit::constant(poly_ring.base_ring().negate(random_value), poly_ring.base_ring()), 
-                    poly_ring.base_ring()
-                ), 
+        
+        let mut precomputed_powers = BTreeSet::new();
+        precomputed_powers.extend(plan.extra_precomputed_powers.iter().copied());
+        for split in &splits {
+            split.required_monomials(&poly_ring, &mut precomputed_powers);
+        }
+        debug_assert!(!precomputed_powers.contains(&0));
+        let precomputed_powers = precomputed_powers.into_iter().collect::<Vec<_>>();
+        let main_circuit = splits.into_iter().fold(
+            PlaintextCircuit::drop(precomputed_powers.len()),
+            |current, next| current.tensor(next.to_circuit_recursive(&poly_ring, &precomputed_powers, 0).1, poly_ring.base_ring())
+                    .compose(PlaintextCircuit::identity(precomputed_powers.len(), poly_ring.base_ring()).output_twice(poly_ring.base_ring()), poly_ring.base_ring())
+        );
+        debug_assert_eq!(precomputed_powers.len(), main_circuit.input_count());
+        debug_assert_eq!(polynomials.len(), main_circuit.output_count());
+        
+        let precompute_powers_circuit = compute_powers_circuit(poly_ring.base_ring(), &[1], &precomputed_powers);
+        let de_randomize_circuit = PlaintextCircuit::add(poly_ring.base_ring()).compose(
+            PlaintextCircuit::identity(1, poly_ring.base_ring()).tensor(
+                PlaintextCircuit::constant(poly_ring.base_ring().negate(random_value), poly_ring.base_ring()), 
                 poly_ring.base_ring()
-            );
-            return Ok(main_circuit.compose(precompute_powers_circuit, poly_ring.base_ring()).compose(de_randomize_circuit, poly_ring.base_ring()));
-        }
-    }
-    return Err(());
+            ), 
+            poly_ring.base_ring()
+        );
+        return main_circuit.compose(precompute_powers_circuit, poly_ring.base_ring()).compose(de_randomize_circuit, poly_ring.base_ring());
+    }).min_by_key(|circuit| circuit.multiplication_gate_count()).unwrap()
 }
 
 #[cfg(test)]
@@ -372,19 +472,22 @@ fn test_evaluation_circuit() {
     let FpX = DensePolyRing::new(Zn::new(65537), "X");
     let Fp = FpX.base_ring();
     let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1]);
-    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f)).unwrap();
+    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
+    assert_eq!(2, circuit.multiplication_gate_count());
     for i in 0..10 {
         assert_el_eq!(Fp, FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
     }
 
     let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1]);
-    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f)).unwrap();
+    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
+    assert_eq!(3, circuit.multiplication_gate_count());
     for i in 0..10 {
         assert_el_eq!(Fp, FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
     }
 
     let f = FpX.from_terms((0..=17).map(|i| (Fp.int_hom().map(1 << i), i)));
-    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f)).unwrap();
+    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
+    assert_eq!(7, circuit.multiplication_gate_count());
     for i in 0..20 {
         assert_el_eq!(Fp, FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
     }
@@ -395,18 +498,43 @@ fn test_evaluation_circuit_multiple() {
     let FpX = DensePolyRing::new(Zn::new(65537), "X");
     let Fp = FpX.base_ring();
     let polys = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1, X.pow_ref(2) - 1]);
-    let circuit = paterson_stockmeyer_circuit(&FpX, &polys).unwrap();
+    let circuit = paterson_stockmeyer_circuit(&FpX, &polys);
+    assert_eq!(2, circuit.multiplication_gate_count());
     for i in 0..10 {
         assert_el_eq!(Fp, FpX.evaluate(&polys[0], &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
         assert_el_eq!(Fp, FpX.evaluate(&polys[1], &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[1]);
     }
 
-    let polys = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1, X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1, X.pow_ref(2) - 1]);
-    let circuit = paterson_stockmeyer_circuit(&FpX, &polys).unwrap();
+    let polys = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1, X.pow_ref(4) + 2 * X.pow_ref(2) - 4 * X + 1, X.pow_ref(2) - 1]);
+    let circuit = paterson_stockmeyer_circuit(&FpX, &polys);
+    assert_eq!(4, circuit.multiplication_gate_count());
     for i in 0..10 {
         assert_el_eq!(Fp, FpX.evaluate(&polys[0], &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
         assert_el_eq!(Fp, FpX.evaluate(&polys[1], &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[1]);
         assert_el_eq!(Fp, FpX.evaluate(&polys[2], &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[2]);
+    }
+}
+
+#[test]
+fn test_paterson_stockmeyer_monic_augmentation() {
+    // no monic augmentation
+    let FpX = DensePolyRing::new(Zn::new(65537 * 65537), "X");
+    let Fp = FpX.base_ring();
+    let [f] = FpX.with_wrapped_indeterminate(|X| [65536 * X.pow_ref(5) + 2 * X.pow_ref(4) - 4 * X + 1]);
+    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
+    assert_eq!(3, circuit.multiplication_gate_count());
+    for i in 0..10 {
+        assert_el_eq!(Fp, FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
+    }
+
+    // monic augmentation
+    let FpX = DensePolyRing::new(Zn::new(65537 * 65537), "X");
+    let Fp = FpX.base_ring();
+    let [f] = FpX.with_wrapped_indeterminate(|X| [65537 * X.pow_ref(5) + 2 * X.pow_ref(4) - 4 * X + 1]);
+    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
+    assert_eq!(5, circuit.multiplication_gate_count());
+    for i in 0..10 {
+        assert_el_eq!(Fp, FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()), circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]);
     }
 }
 
@@ -419,7 +547,11 @@ fn circuit_for_65537() {
     use feanor_math::rings::zn::zn_64::Zn;
     use crate::cache::*;
     use crate::number_ring::galois::*;
-    use crate::poly_eval::digit_extract::{centered_digit_extract_poly, cmod};
+    use crate::poly_eval::digit_extract::centered_digit_extract_poly;
+    
+    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer, tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
 
     let Zp2X = DensePolyRing::new(Zn::new(65537 * 65537), "X");
     let Zp2 = Zp2X.base_ring();
@@ -432,7 +564,7 @@ fn circuit_for_65537() {
     ).into();
     let circuit: PlaintextCircuit<feanor_math::rings::zn::zn_64::ZnBase> = create_cached::<_, _, _, true>(
         (Zp2X.base_ring(), &CyclotomicGaloisGroupBase::new(2).into().full_subgroup()),
-        || heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| paterson_stockmeyer_circuit(&Zp2X, &polys).unwrap(), Zp2.identity()),
+        || heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| paterson_stockmeyer_circuit(&Zp2X, &polys), Zp2.identity()),
         &filename_keys!(digit_extract, p: 65537, e: 2),
         Some("."),
         StoreAs::AlwaysJson
@@ -440,13 +572,6 @@ fn circuit_for_65537() {
     println!("p-s mults  {}", circuit.multiplication_gate_count());
     write!(BufWriter::new(File::create("./digit_extract_p65537_e2.fheir").unwrap()), "{}", circuit.to_ir(Zp2, None)).unwrap();
 
-    for x in 0..(65537 * 65537) {
-        assert_el_eq!(Zp2X.base_ring(), Zp2X.base_ring().coerce(&ZZi64, cmod(x, 65537)), circuit.evaluate_no_galois(&[Zp2X.base_ring().coerce(&ZZi64, x)], Zp2X.base_ring().identity()).pop().unwrap());
-        if x % 100 == 0 {
-            println!("{}", x);
-        }
-    }
-
-    let circuit = heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| poly_to_circuit(&Zp2X, &polys), Zp2.identity());
-    println!("bsgs mults {}", circuit.multiplication_gate_count());
+    let bsgs_circuit = heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| poly_to_circuit(&Zp2X, &polys), Zp2.identity());
+    println!("bsgs mults {}", bsgs_circuit.multiplication_gate_count());
 }

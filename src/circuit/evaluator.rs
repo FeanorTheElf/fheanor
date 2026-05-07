@@ -81,13 +81,11 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluator<R, S, H>
             Coefficient::Integer(x) => Some((r, self.hom.codomain().int_hom().map(*x))),
             Coefficient::Other(x) => Some((r, self.hom.map_ref(x)))
         }));
-        println!("inner prod: {}", self.hom.codomain().format(&result));
         return result;
     }
 
     fn add_constant(&mut self, mut val: S::Element, constant: &'a Coefficient<R>) -> S::Element {
         self.hom.codomain().add_assign(&mut val, self.hom.map(constant.clone(self.hom.domain()).to_ring_el(self.hom.domain())));
-        println!("add const: {}", self.hom.codomain().format(&val));
         return val;
     }
 
@@ -97,13 +95,11 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluator<R, S, H>
 
     fn mul(&mut self, lhs: S::Element, rhs: S::Element) -> S::Element {
         let result = self.hom.codomain().mul(lhs, rhs);
-        println!("mul: {}", self.hom.codomain().format(&result));
         return result;
     }
 
     fn square(&mut self, val: S::Element) -> S::Element {
         let result = self.hom.codomain().pow(val, 2);
-        println!("mul: {}", self.hom.codomain().format(&result));
         return result;
     }
 }
