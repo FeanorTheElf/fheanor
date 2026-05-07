@@ -1448,9 +1448,6 @@ fn generate_slots_to_coeffs() {
     );
     let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));
     write!(BufWriter::new(File::create(format!("./coeffs_to_slots_m{}_p65537_e{}_levels4.fheir", m, e + 1).as_str()).unwrap()), "{}", program).unwrap();
-    let a = serde_json::to_string_pretty(&SerializeSerializableWithData::new(&(&P, P.acting_galois_group()), &coeffs_to_slots)).unwrap();
-    let b = serde_json::to_string_pretty(&SerializeSerializableWithData::new(&(&P, P.acting_galois_group()), &PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program))).unwrap();
-    println!("{}", a == b);
     assert!(coeffs_to_slots.eq(&PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program), &P, Some(P.acting_galois_group())));
 
     let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e)));
