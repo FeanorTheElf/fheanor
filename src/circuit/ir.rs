@@ -23,7 +23,7 @@ use crate::number_ring::galois::*;
 use crate::number_ring::quotient_by_ideal::NumberRingQuotientByIdealBase;
 use crate::*;
 use crate::circuit::{Coefficient, PlaintextCircuit};
-use crate::number_ring::AbstractNumberRing;
+use crate::number_ring::NumberRingDescriptor;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 
 pub trait ElToIRRing: RingBase {
@@ -35,7 +35,7 @@ pub trait ElToIRRing: RingBase {
 }
 
 impl<NumberRing, ZnTy, A, C> ElToIRRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore + Clone,
         ZnTy::Type: NiceZn,
         <ZnTy::Type as ZnRing>::IntegerRing: Default,
@@ -55,7 +55,7 @@ impl<NumberRing, ZnTy, A, C> ElToIRRing for NumberRingQuotientByIntBase<NumberRi
 }
 
 impl<NumberRing, ZnTy, A, C> ElToIRRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore + Clone,
         ZnTy::Type: NiceZn,
         <ZnTy::Type as ZnRing>::IntegerRing: Default,

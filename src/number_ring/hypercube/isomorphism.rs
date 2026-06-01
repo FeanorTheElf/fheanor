@@ -819,7 +819,7 @@ impl<'de, R> Deserialize<'de> for HypercubeIsomorphism<R>
 #[cfg(test)]
 use feanor_math::rings::finite::*;
 #[cfg(test)]
-use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
+use crate::number_ring::tensor_ring::TensorProductNumberRing;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 #[cfg(test)]
@@ -850,7 +850,7 @@ fn test_ring2() -> (NumberRingQuotientByInt<Pow2CyclotomicNumberRing, zn_64::Zn>
 }
 
 #[cfg(test)]
-fn test_ring3() -> (NumberRingQuotientByInt<CompositeCyclotomicNumberRing, zn_64::Zn>, HypercubeStructure) {
+fn test_ring3() -> (NumberRingQuotientByInt<TensorProductNumberRing, zn_64::Zn>, HypercubeStructure) {
     let galois_group = CyclotomicGaloisGroupBase::new(11 * 13);
     let p = galois_group.from_representative(3);
     let gs = vec![galois_group.from_representative(79), galois_group.from_representative(67)];
@@ -861,7 +861,7 @@ fn test_ring3() -> (NumberRingQuotientByInt<CompositeCyclotomicNumberRing, zn_64
         vec![2, 4],
         gs
     );
-    let ring = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(11, 13), zn_64::Zn::new(3));
+    let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(11, 13), zn_64::Zn::new(3));
     return (ring, hypercube_structure);
 }
 

@@ -51,7 +51,7 @@ use crate::ZZbig;
 /// reduced, unless when required (e.g. in [`FreeAlgebra::wrt_canonical_basis()`]).
 /// 
 pub struct NumberRingQuotientByIntBase<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -69,7 +69,7 @@ pub struct NumberRingQuotientByIntBase<NumberRing, ZnTy, A = Global, C = Karatsu
 pub type NumberRingQuotientByInt<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> = RingValue<NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>>;
 
 pub struct NumberRingQuotientByIntEl<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -83,7 +83,7 @@ pub struct NumberRingQuotientByIntEl<NumberRing, ZnTy, A = Global, C = Karatsuba
 }
 
 pub struct NumberRingQuotientByIntPreparedMultiplicant<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -94,7 +94,7 @@ pub struct NumberRingQuotientByIntPreparedMultiplicant<NumberRing, ZnTy, A = Glo
 }
 
 impl<NumberRing, ZnTy> NumberRingQuotientByIntBase<NumberRing, ZnTy>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>
 {
@@ -104,7 +104,7 @@ impl<NumberRing, ZnTy> NumberRingQuotientByIntBase<NumberRing, ZnTy>
 }
 
 impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -127,7 +127,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
 }
 
 impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -143,7 +143,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
 }
 
 impl<NumberRing, ZnTy, A, C> Clone for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -160,7 +160,7 @@ impl<NumberRing, ZnTy, A, C> Clone for NumberRingQuotientByIntBase<NumberRing, Z
 }
 
 impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -196,7 +196,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIntBase<
 }
 
 impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -255,7 +255,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
 }
 
 impl<NumberRing, ZnTy, A, C> PartialEq for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -267,7 +267,7 @@ impl<NumberRing, ZnTy, A, C> PartialEq for NumberRingQuotientByIntBase<NumberRin
 }
 
 impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -399,7 +399,7 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing
 }
 
 impl<NumberRing, ZnTy, A, C> RingExtension for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -447,7 +447,7 @@ impl<NumberRing, ZnTy, A, C> RingExtension for NumberRingQuotientByIntBase<Numbe
 }
 
 impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -509,7 +509,7 @@ impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIntBase<NumberR
 }
 
 pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -519,7 +519,7 @@ pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
 }
 
 impl<'a, NumberRing, ZnTy, A, C> Copy for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -527,7 +527,7 @@ impl<'a, NumberRing, ZnTy, A, C> Copy for WRTCanonicalBasisElementCreator<'a, Nu
 {}
 
 impl<'a, NumberRing, ZnTy, A, C> Clone for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -539,7 +539,7 @@ impl<'a, NumberRing, ZnTy, A, C> Clone for WRTCanonicalBasisElementCreator<'a, N
 }
 
 impl<'a, 'b, NumberRing, ZnTy, A, C> FnOnce<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -553,7 +553,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> FnOnce<(&'b [El<ZnTy>],)> for WRTCanonicalB
 }
 
 impl<'a, 'b, NumberRing, ZnTy, A, C> FnMut<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -565,7 +565,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> FnMut<(&'b [El<ZnTy>],)> for WRTCanonicalBa
 }
 
 impl<'a, 'b, NumberRing, ZnTy, A, C> Fn<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -577,7 +577,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> Fn<(&'b [El<ZnTy>],)> for WRTCanonicalBasis
 }
 
 impl<NumberRing, ZnTy, A, C> FiniteRingSpecializable for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -589,7 +589,7 @@ impl<NumberRing, ZnTy, A, C> FiniteRingSpecializable for NumberRingQuotientByInt
 }
 
 impl<NumberRing, ZnTy, A, C> FiniteRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -626,7 +626,7 @@ impl<NumberRing, ZnTy, A, C> FiniteRing for NumberRingQuotientByIntBase<NumberRi
 }
 
 impl<NumberRing, ZnTy, A, C> DivisibilityRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -648,7 +648,7 @@ impl<NumberRing, ZnTy, A, C> DivisibilityRing for NumberRingQuotientByIntBase<Nu
 }
 
 impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: SerializableElementRing + ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -687,7 +687,7 @@ impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByInt
 }
 
 impl<NumberRing, ZnTy, A, C> CanHomFrom<BigIntRingBase> for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone,
@@ -713,7 +713,7 @@ impl<NumberRing, ZnTy, A, C> CanHomFrom<BigIntRingBase> for NumberRingQuotientBy
 }
 
 impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2>> for NumberRingQuotientByIntBase<NumberRing, ZnTy1, A1, C1>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy1: RingStore + Clone,
         ZnTy1::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A1: Allocator + Clone,
@@ -747,7 +747,7 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientByIn
 }
 
 impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2>> for NumberRingQuotientByIntBase<NumberRing, ZnTy1, A1, C1>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy1: RingStore + Clone,
         ZnTy1::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A1: Allocator + Clone,
@@ -781,7 +781,7 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientBy
 }
 
 #[cfg(test)]
-pub fn test_with_number_ring<NumberRing: AbstractNumberRing>(number_ring: NumberRing) {
+pub fn test_with_number_ring<NumberRing: NumberRingDescriptor>(number_ring: NumberRing) {
 
     let base_ring = zn_64::Zn::new(5);
     let rank = number_ring.rank();

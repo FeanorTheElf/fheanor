@@ -24,7 +24,7 @@ use tracing::instrument;
 use crate::bfv::default_impl_lift_to_Cmul;
 use crate::bfv::force_double_rns_repr;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::BGFVCiphertextRing;
+use crate::ciphertext_ring::NumberRingRNSQuotient;
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::gadget_product::*;
 use crate::number_ring::galois::*;
@@ -36,7 +36,7 @@ use crate::number_ring::*;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::ntt::FheanorNegacyclicNTT;
-use crate::number_ring::composite_cyclotomic::*;
+use crate::number_ring::tensor_ring::*;
 use crate::rns_conv::RNSOperation;
 use crate::rns_conv::bfv_rescale::RNSRescalingConversion;
 use crate::bfv::{Pow2BFV, CompositeBFV};
@@ -103,7 +103,7 @@ pub trait CLPXInstantiation {
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing + FiniteRing;
+    type CiphertextRing: NumberRingRNSQuotient + FiniteRing;
     
     ///
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
@@ -625,9 +625,9 @@ pub type CompositeCLPX<A = DefaultCiphertextAllocator> = CompositeBFV<A>;
 
 impl<A: Allocator + Clone > CLPXInstantiation for CompositeCLPX<A> {
 
-    type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
+    type CiphertextRing = ManagedDoubleRNSRingBase<TensorProductNumberRing, A>;
     
-    fn number_ring(&self) -> &CompositeCyclotomicNumberRing {
+    fn number_ring(&self) -> &TensorProductNumberRing {
         crate::bfv::BFVInstantiation::number_ring(self)
     }
 

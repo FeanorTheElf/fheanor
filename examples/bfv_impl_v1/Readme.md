@@ -32,7 +32,7 @@ In particular, we will have to perform arithmetic operations in `R_t` and in `R_
 Fortunately, there are already various ring implementations available, in both `feanor-math` and `fheanor`.
 For `R_t`, we have the following options:
  - Use [`FreeAlgebraImpl`], this is a general implementation of ring extensions of the form `BaseRing[X]/(f(X))`. By choosing `BaseRing` to be `Z/(t)` and `f(X) = Phi_m(X)`, we get the desired ring.
- - Use [`NumberRingQuotientByInt`], which is an implementation of `R/(t)` for any integer `t` and ring `R` that is represented abstractly using [`AbstractNumberRing`].
+ - Use [`NumberRingQuotientByInt`], which is an implementation of `R/(t)` for any integer `t` and ring `R` that is represented abstractly using [`NumberRingDescriptor`].
  - Implement our own ring!
 
 Perhaps unsurprisingly, `NumberRingQuotientByInt` is actually perfectly suited for this purpose (after all, this is what it was designed to do).
@@ -965,7 +965,7 @@ We discuss a more efficient implementation in [`crate::examples::bfv_impl_v2`].
 
 [`FreeAlgebraImpl`]: feanor_math::rings::extension::extension_impl::FreeAlgebraImpl
 [`NumberRingQuotientByInt`]: crate::number_ring::quotient_by_int::NumberRingQuotientByInt
-[`AbstractNumberRing`]: crate::number_ring::AbstractNumberRing
+[`NumberRingDescriptor`]: crate::number_ring::NumberRingDescriptor
 [`SingleRNSRing`]: crate::ciphertext_ring::single_rns_ring::SingleRNSRing
 [`DoubleRNSRing`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRing
 [`RingStore`]: feanor_math::ring::RingStore

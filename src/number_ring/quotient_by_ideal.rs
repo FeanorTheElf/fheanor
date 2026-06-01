@@ -50,7 +50,7 @@ use crate::*;
 /// [`NumberRingQuotientByIntBase`]: crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase
 /// 
 pub struct NumberRingQuotientByIdealBase<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -69,7 +69,7 @@ pub struct NumberRingQuotientByIdealBase<NumberRing, ZnTy, A = Global, C = Karat
 pub type NumberRingQuotientByIdeal<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> = RingValue<NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>>;
 
 pub struct NumberRingQuotientByIdealEl<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -80,7 +80,7 @@ pub struct NumberRingQuotientByIdealEl<NumberRing, ZnTy, A = Global, C = Karatsu
 }
 
 pub struct NumberRingQuotientPreparedMultiplicant<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -91,7 +91,7 @@ pub struct NumberRingQuotientPreparedMultiplicant<NumberRing, ZnTy, A = Global, 
 }
 
 impl<NumberRing, ZnTy> NumberRingQuotientByIdealBase<NumberRing, ZnTy>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn
 {
@@ -106,7 +106,7 @@ impl<NumberRing, ZnTy> NumberRingQuotientByIdealBase<NumberRing, ZnTy>
 }
 
 impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -239,7 +239,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
 }
 
 impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -251,7 +251,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
 }
 
 impl<NumberRing, ZnTy, A, C> Clone for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -269,7 +269,7 @@ impl<NumberRing, ZnTy, A, C> Clone for NumberRingQuotientByIdealBase<NumberRing,
 }
 
 impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -301,7 +301,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIdealBas
 }
 
 impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -355,7 +355,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
 }
 
 impl<NumberRing, ZnTy, A, C> PartialEq for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -367,7 +367,7 @@ impl<NumberRing, ZnTy, A, C> PartialEq for NumberRingQuotientByIdealBase<NumberR
 }
 
 impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -498,7 +498,7 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIdealBase<NumberRi
 }
 
 impl<NumberRing, ZnTy, A, C> RingExtension for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -544,7 +544,7 @@ impl<NumberRing, ZnTy, A, C> RingExtension for NumberRingQuotientByIdealBase<Num
 }
 
 impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -596,7 +596,7 @@ impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIdealBase<Numbe
 }
 
 pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -606,7 +606,7 @@ pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
 }
 
 impl<'a, NumberRing, ZnTy, A, C> Copy for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -614,7 +614,7 @@ impl<'a, NumberRing, ZnTy, A, C> Copy for WRTCanonicalBasisElementCreator<'a, Nu
 {}
 
 impl<'a, NumberRing, ZnTy, A, C> Clone for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -626,7 +626,7 @@ impl<'a, NumberRing, ZnTy, A, C> Clone for WRTCanonicalBasisElementCreator<'a, N
 }
 
 impl<'a, 'b, NumberRing, ZnTy, A, C> FnOnce<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -640,7 +640,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> FnOnce<(&'b [El<ZnTy>],)> for WRTCanonicalB
 }
 
 impl<'a, 'b, NumberRing, ZnTy, A, C> FnMut<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -652,7 +652,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> FnMut<(&'b [El<ZnTy>],)> for WRTCanonicalBa
 }
 
 impl<'a, 'b, NumberRing, ZnTy, A, C> Fn<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -664,7 +664,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> Fn<(&'b [El<ZnTy>],)> for WRTCanonicalBasis
 }
 
 impl<NumberRing, ZnTy, A, C> FiniteRingSpecializable for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -676,7 +676,7 @@ impl<NumberRing, ZnTy, A, C> FiniteRingSpecializable for NumberRingQuotientByIde
 }
 
 impl<NumberRing, ZnTy, A, C> FiniteRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -711,7 +711,7 @@ impl<NumberRing, ZnTy, A, C> FiniteRing for NumberRingQuotientByIdealBase<Number
 }
 
 impl<NumberRing, ZnTy, A, C> DivisibilityRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -733,7 +733,7 @@ impl<NumberRing, ZnTy, A, C> DivisibilityRing for NumberRingQuotientByIdealBase<
 }
 
 impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -764,7 +764,7 @@ impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByIde
 }
 
 impl<NumberRing, ZnTy, A, C> CanHomFrom<BigIntRingBase> for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -790,7 +790,7 @@ impl<NumberRing, ZnTy, A, C> CanHomFrom<BigIntRingBase> for NumberRingQuotientBy
 }
 
 impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>> for NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy1: RingStore,
         ZnTy1::Type: NiceZn,
         A1: Allocator + Clone,
@@ -823,7 +823,7 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientById
 }
 
 impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>> for NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy1: RingStore,
         ZnTy1::Type: NiceZn,
         A1: Allocator + Clone,

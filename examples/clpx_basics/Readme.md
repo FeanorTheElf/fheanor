@@ -54,7 +54,7 @@ Hence, we can use CLPX as follows:
 ```rust
 # use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
 # use fheanor::DefaultNegacyclicNTT;
-# use fheanor::number_ring::AbstractNumberRing;
+# use fheanor::number_ring::NumberRingDescriptor;
 # use fheanor::number_ring::galois::CyclotomicGaloisGroupOps;
 # use feanor_math::group::AbelianGroupStore;
 # use feanor_math::rings::poly::dense_poly::DensePolyRing;
@@ -88,7 +88,7 @@ Applying homomorphic operations is just as easy as for BFV as well.
 # use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-# use fheanor::number_ring::AbstractNumberRing;
+# use fheanor::number_ring::NumberRingDescriptor;
 # use fheanor::number_ring::galois::CyclotomicGaloisGroupOps;
 # use feanor_math::group::AbelianGroupStore;
 # use feanor_math::rings::poly::dense_poly::DensePolyRing;

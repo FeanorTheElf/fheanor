@@ -74,7 +74,7 @@ impl<N> PartialEq for Pow2CyclotomicNumberRing<N> {
     }
 }
 
-impl<N> AbstractNumberRing for Pow2CyclotomicNumberRing<N>
+impl<N> NumberRingDescriptor for Pow2CyclotomicNumberRing<N>
     where N: FheanorNegacyclicNTT<zn_64::Zn>
 {
     type NumberRingQuotientBases = Pow2CyclotomicNumberRingQuotientBases<N, Global>;

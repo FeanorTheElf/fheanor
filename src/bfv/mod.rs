@@ -26,7 +26,7 @@ use tracing::instrument;
 
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::perform_rns_op;
-use crate::ciphertext_ring::BGFVCiphertextRing;
+use crate::ciphertext_ring::NumberRingRNSQuotient;
 use crate::circuit::PlaintextCircuit;
 use crate::gadget_product::digits::*;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
@@ -39,7 +39,7 @@ use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use crate::number_ring::*;
 use crate::number_ring::galois::CyclotomicGaloisGroupOps;
 use crate::number_ring::pow2_cyclotomic::*;
-use crate::number_ring::composite_cyclotomic::*;
+use crate::number_ring::tensor_ring::*;
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
 use crate::rns_conv::bfv_rescale::{RNSRescaling, RNSRescalingConversion};
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
@@ -126,12 +126,12 @@ pub trait BFVInstantiation {
     ///
     /// The number ring which this instantiation of BFV is based on.
     /// 
-    type NumberRing: AbstractNumberRing;
+    type NumberRing: NumberRingDescriptor;
 
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + FiniteRing;
+    type CiphertextRing: NumberRingRNSQuotient<NumberRing = Self::NumberRing> + FiniteRing;
 
     ///
     /// Type of the plaintext base ring `Z/tZ`.
@@ -964,7 +964,7 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Po
 /// 
 #[derive(Clone, Debug)]
 pub struct CompositeBFV<A: Allocator + Clone  = DefaultCiphertextAllocator> {
-    number_ring: CompositeCyclotomicNumberRing,
+    number_ring: TensorProductNumberRing,
     ciphertext_allocator: A
 }
 
@@ -987,7 +987,7 @@ impl<A: Allocator + Clone > CompositeBFV<A> {
     #[instrument(skip_all)]
     pub fn new_with_alloc(m1: usize, m2: usize, allocator: A) -> Self {
         Self { 
-            number_ring: CompositeCyclotomicNumberRing::new(m1, m2), 
+            number_ring: TensorProductNumberRing::new(m1, m2), 
             ciphertext_allocator: allocator
         }
     }
@@ -1007,13 +1007,13 @@ impl<A: Allocator + Clone > CompositeBFV<A> {
 
 impl<A: Allocator + Clone > BFVInstantiation for CompositeBFV<A> {
 
-    type NumberRing = CompositeCyclotomicNumberRing;
-    type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
-    type PlaintextRing = NumberRingQuotientByIntBase<CompositeCyclotomicNumberRing, Zn>;
+    type NumberRing = TensorProductNumberRing;
+    type CiphertextRing = ManagedDoubleRNSRingBase<TensorProductNumberRing, A>;
+    type PlaintextRing = NumberRingQuotientByIntBase<TensorProductNumberRing, Zn>;
     type PlaintextZnRing = ZnBase;
 
     #[instrument(skip_all)]
-    fn number_ring(&self) -> &CompositeCyclotomicNumberRing {
+    fn number_ring(&self) -> &TensorProductNumberRing {
         &self.number_ring
     }
 
@@ -1068,7 +1068,7 @@ impl<A: Allocator + Clone > BFVInstantiation for CompositeBFV<A> {
 /// 
 #[derive(Debug)]
 pub struct CompositeSingleRNSBFV<A: Allocator + Clone  = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
-    number_ring: CompositeCyclotomicNumberRing,
+    number_ring: TensorProductNumberRing,
     ciphertext_allocator: A,
     convolution: PhantomData<C>
 }
@@ -1085,7 +1085,7 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> CompositeSingleRNSBFV<A, 
     #[instrument(skip_all)]
     pub fn new_with_alloc(m1: usize, m2: usize, alloc: A) -> Self {
         Self {
-            number_ring: CompositeCyclotomicNumberRing::new(m1, m2),
+            number_ring: TensorProductNumberRing::new(m1, m2),
             ciphertext_allocator: alloc,
             convolution: PhantomData::<C>
         }
@@ -1116,13 +1116,13 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> Display for CompositeSing
 
 impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BFVInstantiation for CompositeSingleRNSBFV<A, C> {
 
-    type NumberRing = CompositeCyclotomicNumberRing;
-    type CiphertextRing = SingleRNSRingBase<CompositeCyclotomicNumberRing, A, C>;
-    type PlaintextRing = NumberRingQuotientByIntBase<CompositeCyclotomicNumberRing, Zn>;
+    type NumberRing = TensorProductNumberRing;
+    type CiphertextRing = SingleRNSRingBase<TensorProductNumberRing, A, C>;
+    type PlaintextRing = NumberRingQuotientByIntBase<TensorProductNumberRing, Zn>;
     type PlaintextZnRing = ZnBase;
 
     #[instrument(skip_all)]
-    fn number_ring(&self) -> &CompositeCyclotomicNumberRing {
+    fn number_ring(&self) -> &TensorProductNumberRing {
         &self.number_ring
     }
 
@@ -1171,7 +1171,7 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BFVInstantiation for Comp
 /// to the benchmarked code have.
 /// 
 pub fn force_double_rns_repr<NumberRing, A>(C: &ManagedDoubleRNSRing<NumberRing, A>, x: El<ManagedDoubleRNSRing<NumberRing, A>>) -> El<ManagedDoubleRNSRing<NumberRing, A>>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     C.get_ring().into_doublerns(x).map(|x| C.get_ring().from_doublerns(x)).unwrap_or(C.zero())
@@ -1223,7 +1223,7 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
     prepare_delta: F
 ) -> Box<dyn 'a + for<'b> FnMut(&'b El<R>) -> El<R>>
     where R: RingStore, 
-        R::Type: Sized + BGFVCiphertextRing,
+        R::Type: Sized + NumberRingRNSQuotient,
         F: 'a + Fn(&RingValue<R::Type>, El<R>) -> El<R>
 {
     let C_delta = C_mul.get_ring().drop_rns_factor(&RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len()));
@@ -1247,7 +1247,7 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
         prepare_delta: &F
     ) -> El<R>
         where R: RingStore,
-            R::Type: Sized + BGFVCiphertextRing,
+            R::Type: Sized + NumberRingRNSQuotient,
             F: Fn(&RingValue<R::Type>, El<R>) -> El<R>
     {
         C.get_ring().as_representation_wrt_small_generating_set(&c, tmp_in.data_mut());

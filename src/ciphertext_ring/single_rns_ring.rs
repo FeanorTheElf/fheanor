@@ -38,7 +38,7 @@ use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ntt::FheanorConvolution;
 
 use super::serialization::{deserialize_rns_data, serialize_rns_data};
-use super::BGFVCiphertextRing;
+use super::NumberRingRNSQuotient;
 
 ///
 /// Implementation of the ring `Z[𝝵_m]/(q)`, where `q = p1 ... pr` is a product of "RNS factors".
@@ -73,7 +73,7 @@ use super::BGFVCiphertextRing;
 /// [`DoubleRNSRing`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRing
 /// 
 pub struct SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -96,7 +96,7 @@ pub type SingleRNSRing<NumberRing, A = Global, C = DefaultConvolution> = RingVal
 /// Type of elements of [`SingleRNSRingBase`]
 /// 
 pub struct SingleRNSRingEl<NumberRing, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -107,7 +107,7 @@ pub struct SingleRNSRingEl<NumberRing, A, C>
 }
 
 pub struct SingleRNSRingPreparedMultiplicant<NumberRing, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -116,7 +116,7 @@ pub struct SingleRNSRingPreparedMultiplicant<NumberRing, A, C>
 }
 
 impl<NumberRing, C> SingleRNSRingBase<NumberRing, Global, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         C: FheanorConvolution<Zn>
 {
     ///
@@ -134,7 +134,7 @@ impl<NumberRing, C> SingleRNSRingBase<NumberRing, Global, C>
 }
 
 impl<NumberRing, A, C> Clone for SingleRNSRingBase<NumberRing, A, C>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -151,7 +151,7 @@ impl<NumberRing, A, C> Clone for SingleRNSRingBase<NumberRing, A, C>
 }
 
 impl<NumberRing, A, C> SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -235,7 +235,7 @@ impl<NumberRing, A, C> SingleRNSRingBase<NumberRing, A, C>
 }
 
 impl<NumberRing, A, C> PreparedMultiplicationRing for SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -346,8 +346,8 @@ impl<NumberRing, A, C> PreparedMultiplicationRing for SingleRNSRingBase<NumberRi
     }
 }
 
-impl<NumberRing, A, C> BGFVCiphertextRing for SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+impl<NumberRing, A, C> NumberRingRNSQuotient for SingleRNSRingBase<NumberRing, A, C> 
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -481,7 +481,7 @@ impl<NumberRing, A, C> BGFVCiphertextRing for SingleRNSRingBase<NumberRing, A, C
 }
 
 pub struct SingleRNSRingBaseElVectorRepresentation<'a, NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -490,7 +490,7 @@ pub struct SingleRNSRingBaseElVectorRepresentation<'a, NumberRing, A, C>
 }
 
 impl<'a, NumberRing, A, C> VectorFn<El<zn_rns::Zn<Zn, BigIntRing>>> for SingleRNSRingBaseElVectorRepresentation<'a, NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -505,7 +505,7 @@ impl<'a, NumberRing, A, C> VectorFn<El<zn_rns::Zn<Zn, BigIntRing>>> for SingleRN
 }
 
 impl<NumberRing, A, C> PartialEq for SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -515,7 +515,7 @@ impl<NumberRing, A, C> PartialEq for SingleRNSRingBase<NumberRing, A, C>
 }
 
 impl<NumberRing, A, C> RingBase for SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing, 
+    where NumberRing: NumberRingDescriptor, 
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -660,7 +660,7 @@ impl<NumberRing, A, C> RingBase for SingleRNSRingBase<NumberRing, A, C>
 }
 
 impl<NumberRing, A, C> RingExtension for SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -694,7 +694,7 @@ impl<NumberRing, A, C> RingExtension for SingleRNSRingBase<NumberRing, A, C>
 }
 
 impl<NumberRing, A, C> FreeAlgebra for SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -743,7 +743,7 @@ impl<NumberRing, A, C> FreeAlgebra for SingleRNSRingBase<NumberRing, A, C>
 }
 
 impl<NumberRing, A, C> NumberRingQuotient for SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -777,7 +777,7 @@ impl<NumberRing, A, C> NumberRingQuotient for SingleRNSRingBase<NumberRing, A, C
 }
 
 pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -785,7 +785,7 @@ pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, A, C>
 }
 
 impl<'a, 'b, NumberRing, A, C> Clone for WRTCanonicalBasisElementCreator<'a, NumberRing, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -795,7 +795,7 @@ impl<'a, 'b, NumberRing, A, C> Clone for WRTCanonicalBasisElementCreator<'a, Num
 }
 
 impl<'a, 'b, NumberRing, A, C> Fn<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -805,7 +805,7 @@ impl<'a, 'b, NumberRing, A, C> Fn<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for W
 }
 
 impl<'a, 'b, NumberRing, A, C> FnMut<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -815,7 +815,7 @@ impl<'a, 'b, NumberRing, A, C> FnMut<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> fo
 }
 
 impl<'a, 'b, NumberRing, A, C> FnOnce<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -827,7 +827,7 @@ impl<'a, 'b, NumberRing, A, C> FnOnce<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> f
 }
 
 impl<NumberRing, A, C> FiniteRingSpecializable for SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -837,7 +837,7 @@ impl<NumberRing, A, C> FiniteRingSpecializable for SingleRNSRingBase<NumberRing,
 }
 
 impl<NumberRing, A, C> SerializableElementRing for SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -877,7 +877,7 @@ impl<NumberRing, A, C> SerializableElementRing for SingleRNSRingBase<NumberRing,
 }
 
 impl<NumberRing, A, C> FiniteRing for SingleRNSRingBase<NumberRing, A, C> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
@@ -916,7 +916,7 @@ impl<NumberRing, A, C> FiniteRing for SingleRNSRingBase<NumberRing, A, C>
 }
 
 impl<NumberRing, A1, A2, C1, C2> CanHomFrom<SingleRNSRingBase<NumberRing, A2, C2>> for SingleRNSRingBase<NumberRing, A1, C1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
         C1: ConvolutionAlgorithm<ZnBase>,
@@ -950,7 +950,7 @@ impl<NumberRing, A1, A2, C1, C2> CanHomFrom<SingleRNSRingBase<NumberRing, A2, C2
 }
 
 impl<NumberRing, A1, A2, C1> CanHomFrom<DoubleRNSRingBase<NumberRing, A2>> for SingleRNSRingBase<NumberRing, A1, C1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
         C1: ConvolutionAlgorithm<ZnBase>
@@ -967,7 +967,7 @@ impl<NumberRing, A1, A2, C1> CanHomFrom<DoubleRNSRingBase<NumberRing, A2>> for S
 }
 
 impl<NumberRing, A1, A2, C1> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A2>> for SingleRNSRingBase<NumberRing, A1, C1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
         C1: ConvolutionAlgorithm<ZnBase>
@@ -984,7 +984,7 @@ impl<NumberRing, A1, A2, C1> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A2>> for
 }
 
 impl<NumberRing, A1, A2, C1, C2> CanIsoFromTo<SingleRNSRingBase<NumberRing, A2, C2>> for SingleRNSRingBase<NumberRing, A1, C1>
-    where NumberRing: AbstractNumberRing, 
+    where NumberRing: NumberRingDescriptor, 
         A1: Allocator + Clone,
         A2: Allocator + Clone,
         C1: ConvolutionAlgorithm<ZnBase>,
@@ -1022,10 +1022,10 @@ use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
 #[cfg(test)]
 use feanor_math::rings::poly::PolyRingStore;
 #[cfg(test)]
-use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
+use crate::number_ring::tensor_ring::TensorProductNumberRing;
 
 #[cfg(any(test, feature = "generic_tests"))]
-pub fn test_with_number_ring<NumberRing: Clone + AbstractNumberRing>(number_ring: NumberRing) {
+pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ring: NumberRing) {
     use feanor_math::algorithms::eea::signed_lcm;
     use feanor_math::assert_el_eq;
     use crate::number_ring::largest_prime_leq_congruent_to_one;
@@ -1188,7 +1188,7 @@ fn test_two_by_two_convolution() {
 #[test]
 fn test_galois_automorphisms() {
     let rns_base = zn_rns::Zn::new(vec![Zn::new(65537), Zn::new(4481)], BigIntRing::RING);
-    let ring: SingleRNSRing<_> = SingleRNSRingBase::new(CompositeCyclotomicNumberRing::new(5, 7), rns_base.clone());
+    let ring: SingleRNSRing<_> = SingleRNSRingBase::new(TensorProductNumberRing::new(5, 7), rns_base.clone());
     let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
     let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
     let Phi_m = poly_ring.coerce(&ZZX, cyclotomic_polynomial(&ZZX, 35));

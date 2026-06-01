@@ -89,9 +89,9 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// 
     /// Note that the powerful basis means the tensor product of the coefficient
     /// bases of all prime-power cyclotomic subfields. This is sometimes, but not
-    /// necessarily, the "small basis" as given by [`CompositeCyclotomicNumberRing`].
+    /// necessarily, the "small basis" as given by [`TensorProductNumberRing`].
     /// 
-    /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
+    /// [`TensorProductNumberRing`]: crate::number_ring::tensor_ring::TensorProductNumberRing
     /// 
     pub fn caninf_to_powinf_expansion(&self) -> f64 {
         // if `m = p` is a prime, we can give an explicit inverse to the matrix
@@ -114,9 +114,9 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// 
     /// Note that the powerful basis means the tensor product of the coefficient
     /// bases of all prime-power cyclotomic subfields. This is sometimes, but not
-    /// necessarily, the "small basis" as given by [`CompositeCyclotomicNumberRing`].
+    /// necessarily, the "small basis" as given by [`TensorProductNumberRing`].
     /// 
-    /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
+    /// [`TensorProductNumberRing`]: crate::number_ring::tensor_ring::TensorProductNumberRing
     /// 
     pub fn powinf_to_coeffinf_expansion(&self) -> f64 {
         self.powinf_to_coeffinf_expansion
@@ -133,9 +133,9 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// 
     /// Note that the powerful basis means the tensor product of the coefficient
     /// bases of all prime-power cyclotomic subfields. This is sometimes, but not
-    /// necessarily, the "small basis" as given by [`CompositeCyclotomicNumberRing`].
+    /// necessarily, the "small basis" as given by [`TensorProductNumberRing`].
     /// 
-    /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
+    /// [`TensorProductNumberRing`]: crate::number_ring::tensor_ring::TensorProductNumberRing
     /// 
     pub fn coeffinf_to_powinf_expansion(&self) -> f64 {
         self.coeffinf_to_powinf_expansion
@@ -151,9 +151,9 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// 
     /// Note that the powerful basis means the tensor product of the coefficient
     /// bases of all prime-power cyclotomic subfields. This is sometimes, but not
-    /// necessarily, the "small basis" as given by [`CompositeCyclotomicNumberRing`].
+    /// necessarily, the "small basis" as given by [`TensorProductNumberRing`].
     /// 
-    /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
+    /// [`TensorProductNumberRing`]: crate::number_ring::tensor_ring::TensorProductNumberRing
     /// 
     pub fn powinf_basis_product_expansion_factor(&self) -> f64 {
         self.m() as f64 * 2f64.powi(self.m_factorization_squarefree.len() as i32)
@@ -258,7 +258,7 @@ impl PartialEq for OddSquarefreeCyclotomicNumberRing {
     }
 }
 
-impl AbstractNumberRing for OddSquarefreeCyclotomicNumberRing {
+impl NumberRingDescriptor for OddSquarefreeCyclotomicNumberRing {
 
     type NumberRingQuotientBases = OddSquarefreeCyclotomicDecomposedNumberRing<BluesteinFFT<ZnBase, ZnFastmulBase, CanHom<ZnFastmul, Zn>, AllocArc<DynLayoutMempool<Global>>>, AllocArc<DynLayoutMempool<Global>>>;
 

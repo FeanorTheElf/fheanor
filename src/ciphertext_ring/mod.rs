@@ -72,11 +72,13 @@ pub fn add_rns_factor_list_of_congruences<'a, R, E>(to: &'a R, from: &'a R, adde
 }
 
 ///
-/// Trait for rings `R/qR` with a number ring `R` and modulus `q = p1 ... pr` represented as 
-/// RNS basis, which provide all necessary operations for use as ciphertext ring in BFV/BGV-style
-/// HE schemes.
+/// Trait for number ring quotients `R/qR` where the modulus `q` factors into distinct primes `q = p1 ... pr`,
+/// and thus the Residue number system (RNS) is used to represent coefficients, or generally elements of `Z/qZ`.
 /// 
-pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>> {
+/// This trait also defines additional RNS-related functionality that is often required when building FHE
+/// from such rings.
+/// 
+pub trait NumberRingRNSQuotient: NumberRingQuotient + PreparedMultiplicationRing + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>> {
 
     ///
     /// Computes the element of this ring that satisfies the given congruences.
@@ -173,15 +175,15 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
     ///  - [`single_rns_ring::SingleRNSRing`] will currently return the coefficients of a polynomial
     ///    of degree `< m` (not necessarily `< phi(m)`) that gives the element when evaluated at `𝝵`
     ///  - [`double_rns_managed::ManagedDoubleRNSRing`] will currently return the coefficients w.r.t.
-    ///    the "small basis" as specified by [`AbstractNumberRing`]. If `m` is a product of two primes
-    ///    and represented as a [`CompositeCyclotomicNumberRing`], this is the powerful basis.
+    ///    the "small basis" as specified by [`NumberRingDescriptor`]. If `m` is a product of two primes
+    ///    and represented as a [`TensorProductNumberRing`], this is the powerful basis.
     /// 
     /// Currently, this function is only used for gadget products and modulus-switching. In these
     /// cases, it is indeed ok if the representation is not unique, as long as it is w.r.t. a small
     /// generating set.
     /// 
-    /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
-    /// [`AbstractNumberRing`]: crate::number_ring::AbstractNumberRing
+    /// [`TensorProductNumberRing`]: crate::number_ring::tensor_ring::TensorProductNumberRing
+    /// [`NumberRingDescriptor`]: crate::number_ring::NumberRingDescriptor
     /// [`FreeAlgebra::from_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()
     /// [`FreeAlgebra::wrt_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()
     /// 
@@ -233,7 +235,7 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
 /// 
 #[instrument(skip_all)]
 pub fn perform_rns_op<R, Op>(to: &R, from: &R, el: &R::Element, op: &Op) -> R::Element
-    where R: BGFVCiphertextRing,
+    where R: NumberRingRNSQuotient,
         Op: RNSOperation<RingType = ZnBase>
 {
     assert!(from.number_ring() == to.number_ring());

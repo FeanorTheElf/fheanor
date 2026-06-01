@@ -32,7 +32,7 @@ use crate::NiceZn;
 use crate::{log_time, ZZbig, ZZi64};
 
 pub struct CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -51,7 +51,7 @@ pub struct CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
 pub type CLPXPlaintextRing<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> = RingValue<CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>>;
 
 impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -203,7 +203,7 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
 }
 
 impl<NumberRing, ZnTy, A, C> PartialEq for CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -215,7 +215,7 @@ impl<NumberRing, ZnTy, A, C> PartialEq for CLPXPlaintextRingBase<NumberRing, ZnT
 }
 
 impl<NumberRing, ZnTy, A, C> DelegateRing for CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -235,7 +235,7 @@ impl<NumberRing, ZnTy, A, C> DelegateRing for CLPXPlaintextRingBase<NumberRing, 
 }
 
 impl<NumberRing, ZnTy, A, C> DelegateRingImplFiniteRing for CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -243,7 +243,7 @@ impl<NumberRing, ZnTy, A, C> DelegateRingImplFiniteRing for CLPXPlaintextRingBas
 {}
 
 impl<NumberRing, ZnTy, A, C> NumberRingQuotient for CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
         A: Allocator + Clone,
@@ -269,7 +269,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for CLPXPlaintextRingBase<Number
 }
 
 impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>> for CLPXPlaintextRingBase<NumberRing, ZnTy1, A1, C1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy1: RingStore,
         ZnTy1::Type: NiceZn + CanHomFrom<ZnTy2::Type>,
         ZnTy2: RingStore,
@@ -308,7 +308,7 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<CLPXPlaintextRingBase<
 
 
 impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>> for CLPXPlaintextRingBase<NumberRing, ZnTy1, A1, C1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy1: RingStore,
         ZnTy1::Type: NiceZn + CanIsoFromTo<ZnTy2::Type>,
         ZnTy2: RingStore,
@@ -330,7 +330,7 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<CLPXPlaintextRingBas
 }
 
 impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>> for CLPXPlaintextRingBase<NumberRing, ZnTy1, A1, C1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy1: RingStore,
         ZnTy1::Type: NiceZn + CanHomFrom<ZnTy2::Type>,
         ZnTy2: RingStore,
@@ -368,7 +368,7 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientById
 }
 
 impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>> for CLPXPlaintextRingBase<NumberRing, ZnTy1, A1, C1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         ZnTy1: RingStore,
         ZnTy1::Type: NiceZn + CanIsoFromTo<ZnTy2::Type>,
         ZnTy2: RingStore,

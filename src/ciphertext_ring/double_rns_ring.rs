@@ -40,7 +40,7 @@ use crate::number_ring::*;
 use super::serialization::deserialize_rns_data;
 use super::serialization::serialize_rns_data;
 use super::single_rns_ring::*;
-use super::BGFVCiphertextRing;
+use super::NumberRingRNSQuotient;
 use super::PreparedMultiplicationRing;
 
 ///
@@ -64,13 +64,13 @@ use super::PreparedMultiplicationRing;
 /// In particular, multiplication of elements refers to component-wise multiplication of these vectors.
 /// 
 pub struct DoubleRNSRingBase<NumberRing, A = Global> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     /// The number ring whose quotient we represent
     number_ring: NumberRing,
     /// The number ring modulo each RNS factor `pi`, use for conversion between small and multiplicative basis
-    ring_decompositions: Vec<Arc<<NumberRing as AbstractNumberRing>::NumberRingQuotientBases>>,
+    ring_decompositions: Vec<Arc<<NumberRing as NumberRingDescriptor>::NumberRingQuotientBases>>,
     /// The current RNS base
     rns_base: zn_rns::Zn<Zn, BigIntRing>,
     /// Use to allocate memory for ring elements
@@ -88,7 +88,7 @@ pub type DoubleRNSRing<NumberRing, A = Global> = RingValue<DoubleRNSRingBase<Num
 /// In particular, this is the only representation that allows for multiplications.
 /// 
 pub struct DoubleRNSEl<NumberRing, A = Global>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     number_ring: PhantomData<NumberRing>,
@@ -100,7 +100,7 @@ pub struct DoubleRNSEl<NumberRing, A = Global>
 /// A [`DoubleRNSRing`] element, stored by its coefficients w.r.t. the "small basis".
 /// 
 pub struct SmallBasisEl<NumberRing, A = Global>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     number_ring: PhantomData<NumberRing>,
@@ -109,13 +109,13 @@ pub struct SmallBasisEl<NumberRing, A = Global>
 }
 
 impl<NumberRing> DoubleRNSRingBase<NumberRing> 
-    where NumberRing: AbstractNumberRing
+    where NumberRing: NumberRingDescriptor
 {
     ///
     /// Creates a new [`DoubleRNSRing`].
     /// 
     /// Each RNS factor `Z/(pi)` in `rns_base` must have suitable roots of unity,
-    /// as specified by [`AbstractNumberRing::mod_p_required_root_of_unity()`].
+    /// as specified by [`NumberRingDescriptor::mod_p_required_root_of_unity()`].
     /// 
     #[instrument(skip_all)]
     pub fn new(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> RingValue<Self> {
@@ -124,7 +124,7 @@ impl<NumberRing> DoubleRNSRingBase<NumberRing>
 }
 
 impl<NumberRing, A> Clone for DoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         A: Allocator + Clone
 {
     fn clone(&self) -> Self {
@@ -139,14 +139,14 @@ impl<NumberRing, A> Clone for DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     ///
     /// Creates a new [`DoubleRNSRing`].
     /// 
     /// Each RNS factor `Z/(pi)` in `rns_base` must have suitable roots of unity,
-    /// as specified by [`AbstractNumberRing::mod_p_required_root_of_unity()`].
+    /// as specified by [`NumberRingDescriptor::mod_p_required_root_of_unity()`].
     /// 
     #[instrument(skip_all)]
     pub fn new_with_alloc(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>, allocator: A) -> RingValue<Self> {
@@ -161,10 +161,10 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     }
 
     ///
-    /// Returns the decompositions of the used [`AbstractNumberRing`] modulo the RNS factors,
+    /// Returns the decompositions of the used [`NumberRingDescriptor`] modulo the RNS factors,
     /// which are used to represent elements of the ring (and change their representations).
     /// 
-    pub fn ring_decompositions<'a>(&'a self) -> impl VectorFn<&'a <NumberRing as AbstractNumberRing>::NumberRingQuotientBases> + use<'a, NumberRing, A> {
+    pub fn ring_decompositions<'a>(&'a self) -> impl VectorFn<&'a <NumberRing as NumberRingDescriptor>::NumberRingQuotientBases> + use<'a, NumberRing, A> {
         self.ring_decompositions.as_fn().map_fn(|x| &**x)
     }
 
@@ -181,7 +181,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     /// In particular, the `i`-th row of the returned matrix contains the coefficients of the element 
     /// modulo the `i`-th RNS factor w.r.t. the small basis, as specified by the `i`-th ring decomposition.
     /// 
-    /// Note that the actual choice of the "small basis" is up to the used [`AbstractNumberRing`].
+    /// Note that the actual choice of the "small basis" is up to the used [`NumberRingDescriptor`].
     /// 
     pub fn as_matrix_wrt_small_basis<'a>(&self, element: &'a SmallBasisEl<NumberRing, A>) -> Submatrix<'a, AsFirstElement<ZnEl>, ZnEl> {
         Submatrix::from_1d(&element.el_wrt_small_basis, self.base_ring().len(), self.rank())
@@ -192,7 +192,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     /// In particular, the `i`-th row of the returned matrix contains the coefficients of the element 
     /// modulo the `i`-th RNS factor w.r.t. the small basis, as specified by the `i`-th ring decomposition.
     /// 
-    /// Note that the actual choice of the "small basis" is up to the used [`AbstractNumberRing`].
+    /// Note that the actual choice of the "small basis" is up to the used [`NumberRingDescriptor`].
     /// 
     pub fn as_matrix_wrt_small_basis_mut<'a>(&self, element: &'a mut SmallBasisEl<NumberRing, A>) -> SubmatrixMut<'a, AsFirstElement<ZnEl>, ZnEl> {
         SubmatrixMut::from_1d(&mut element.el_wrt_small_basis, self.base_ring().len(), self.rank())
@@ -203,7 +203,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     /// In particular, the `i`-th row of the returned matrix contains the coefficients of the element 
     /// modulo the `i`-th RNS factor w.r.t. the multiplicative basis, as specified by the `i`-th ring decomposition.
     /// 
-    /// Note that the actual choice of the "multiplicative basis" is up to the used [`AbstractNumberRing`].
+    /// Note that the actual choice of the "multiplicative basis" is up to the used [`NumberRingDescriptor`].
     ///
     pub fn as_matrix_wrt_mult_basis<'a>(&self, element: &'a DoubleRNSEl<NumberRing, A>) -> Submatrix<'a, AsFirstElement<ZnEl>, ZnEl> {
         Submatrix::from_1d(&element.el_wrt_mult_basis, self.base_ring().len(), self.rank())
@@ -214,7 +214,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     /// In particular, the `i`-th row of the returned matrix contains the coefficients of the element 
     /// modulo the `i`-th RNS factor w.r.t. the multiplicative basis, as specified by the `i`-th ring decomposition.
     /// 
-    /// Note that the actual choice of the "multiplicative basis" is up to the used [`AbstractNumberRing`].
+    /// Note that the actual choice of the "multiplicative basis" is up to the used [`NumberRingDescriptor`].
     ///
     pub fn as_matrix_wrt_mult_basis_mut<'a>(&self, element: &'a mut DoubleRNSEl<NumberRing, A>) -> SubmatrixMut<'a, AsFirstElement<ZnEl>, ZnEl> {
         SubmatrixMut::from_1d(&mut element.el_wrt_mult_basis, self.base_ring().len(), self.rank())
@@ -560,8 +560,8 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     }
 }
 
-impl<NumberRing, A> BGFVCiphertextRing for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+impl<NumberRing, A> NumberRingRNSQuotient for DoubleRNSRingBase<NumberRing, A> 
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     #[instrument(skip_all)]
@@ -638,7 +638,7 @@ impl<NumberRing, A> BGFVCiphertextRing for DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> PartialEq for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn eq(&self, other: &Self) -> bool {
@@ -647,7 +647,7 @@ impl<NumberRing, A> PartialEq for DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type Element = DoubleRNSEl<NumberRing, A>;
@@ -847,7 +847,7 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> NumberRingQuotient for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type NumberRing = NumberRing;
@@ -876,7 +876,7 @@ impl<NumberRing, A> NumberRingQuotient for DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> DivisibilityRing for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     #[instrument(skip_all)]
@@ -896,7 +896,7 @@ impl<NumberRing, A> DivisibilityRing for DoubleRNSRingBase<NumberRing, A>
 }
 
 pub struct DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     el_wrt_coeff_basis: Vec<ZnEl, A>,
@@ -904,7 +904,7 @@ pub struct DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A>
 }
 
 impl<'a, NumberRing, A> VectorFn<El<zn_rns::Zn<Zn, BigIntRing>>> for DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn len(&self) -> usize {
@@ -918,7 +918,7 @@ impl<'a, NumberRing, A> VectorFn<El<zn_rns::Zn<Zn, BigIntRing>>> for DoubleRNSRi
 }
 
 impl<NumberRing, A> FreeAlgebra for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type VectorRepresentation<'a> = DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> 
@@ -956,7 +956,7 @@ impl<NumberRing, A> FreeAlgebra for DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> RingExtension for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type BaseRing = zn_rns::Zn<Zn, BigIntRing>;
@@ -1013,7 +1013,7 @@ impl<NumberRing, A> RingExtension for DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> PreparedMultiplicationRing for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type PreparedMultiplicant = ();
@@ -1039,14 +1039,14 @@ impl<NumberRing, A> PreparedMultiplicationRing for DoubleRNSRingBase<NumberRing,
 }
 
 pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     ring: &'a DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<'a, 'b, NumberRing, A> Clone for WRTCanonicalBasisElementCreator<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn clone(&self) -> Self {
@@ -1055,7 +1055,7 @@ impl<'a, 'b, NumberRing, A> Clone for WRTCanonicalBasisElementCreator<'a, Number
 }
 
 impl<'a, 'b, NumberRing, A> Fn<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     extern "rust-call" fn call(&self, args: (&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)) -> Self::Output {
@@ -1064,7 +1064,7 @@ impl<'a, 'b, NumberRing, A> Fn<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTC
 }
 
 impl<'a, 'b, NumberRing, A> FnMut<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     extern "rust-call" fn call_mut(&mut self, args: (&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)) -> Self::Output {
@@ -1073,7 +1073,7 @@ impl<'a, 'b, NumberRing, A> FnMut<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for W
 }
 
 impl<'a, 'b, NumberRing, A> FnOnce<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type Output = El<DoubleRNSRing<NumberRing, A>>;
@@ -1084,7 +1084,7 @@ impl<'a, 'b, NumberRing, A> FnOnce<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for 
 }
 
 impl<NumberRing, A> FiniteRingSpecializable for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn specialize<O: FiniteRingOperation<Self>>(op: O) -> O::Output {
@@ -1093,7 +1093,7 @@ impl<NumberRing, A> FiniteRingSpecializable for DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> FiniteRing for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type ElementsIter<'a> = MultiProduct<
@@ -1130,7 +1130,7 @@ impl<NumberRing, A> FiniteRing for DoubleRNSRingBase<NumberRing, A>
 }
 
 pub struct SerializableSmallBasisElWithRing<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     ring: &'a DoubleRNSRingBase<NumberRing, A>,
@@ -1138,7 +1138,7 @@ pub struct SerializableSmallBasisElWithRing<'a, NumberRing, A>
 }
 
 impl<'a, NumberRing, A> SerializableSmallBasisElWithRing<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     pub fn new(ring: &'a DoubleRNSRingBase<NumberRing, A>, el: &'a SmallBasisEl<NumberRing, A>) -> Self {
@@ -1147,7 +1147,7 @@ impl<'a, NumberRing, A> SerializableSmallBasisElWithRing<'a, NumberRing, A>
 }
 
 impl<'a, NumberRing, A> serde::Serialize for SerializableSmallBasisElWithRing<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -1161,14 +1161,14 @@ impl<'a, NumberRing, A> serde::Serialize for SerializableSmallBasisElWithRing<'a
     }
 }
 pub struct DeserializeSeedSmallBasisElWithRing<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     ring: &'a DoubleRNSRingBase<NumberRing, A>,
 }
 
 impl<'a, 'de, NumberRing, A> DeserializeSeedSmallBasisElWithRing<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     pub fn new(ring: &'a DoubleRNSRingBase<NumberRing, A>) -> Self {
@@ -1177,7 +1177,7 @@ impl<'a, 'de, NumberRing, A> DeserializeSeedSmallBasisElWithRing<'a, NumberRing,
 }
 
 impl<'a, 'de, NumberRing, A> serde::de::DeserializeSeed<'de> for DeserializeSeedSmallBasisElWithRing<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type Value = SmallBasisEl<NumberRing, A>;
@@ -1204,7 +1204,7 @@ impl<'a, 'de, NumberRing, A> serde::de::DeserializeSeed<'de> for DeserializeSeed
 }
 
 impl<NumberRing, A> SerializableElementRing for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn serialize<S>(&self, el: &Self::Element, serializer: S) -> Result<S::Ok, S::Error>
@@ -1231,7 +1231,7 @@ impl<NumberRing, A> SerializableElementRing for DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> CanHomFrom<BigIntRingBase> for DoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
 {
     type Homomorphism = <zn_rns::ZnBase<Zn, BigIntRing> as CanHomFrom<BigIntRingBase>>::Homomorphism;
@@ -1250,7 +1250,7 @@ impl<NumberRing, A> CanHomFrom<BigIntRingBase> for DoubleRNSRingBase<NumberRing,
 }
 
 impl<NumberRing, A1, A2> CanHomFrom<DoubleRNSRingBase<NumberRing, A2>> for DoubleRNSRingBase<NumberRing, A1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
 {
@@ -1284,7 +1284,7 @@ impl<NumberRing, A1, A2> CanHomFrom<DoubleRNSRingBase<NumberRing, A2>> for Doubl
 }
 
 impl<NumberRing, A1, A2, C2> CanHomFrom<SingleRNSRingBase<NumberRing, A2, C2>> for DoubleRNSRingBase<NumberRing, A1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
         C2: ConvolutionAlgorithm<ZnBase>
@@ -1305,7 +1305,7 @@ impl<NumberRing, A1, A2, C2> CanHomFrom<SingleRNSRingBase<NumberRing, A2, C2>> f
 }
 
 impl<NumberRing, A1, A2, C2> CanIsoFromTo<SingleRNSRingBase<NumberRing, A2, C2>> for DoubleRNSRingBase<NumberRing, A1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
         C2: ConvolutionAlgorithm<ZnBase>
@@ -1326,7 +1326,7 @@ impl<NumberRing, A1, A2, C2> CanIsoFromTo<SingleRNSRingBase<NumberRing, A2, C2>>
 }
 
 impl<NumberRing, A1, A2> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A2>> for DoubleRNSRingBase<NumberRing, A1>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
 {
@@ -1363,7 +1363,7 @@ use feanor_math::assert_el_eq;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 
 #[cfg(any(test, feature = "generic_tests"))]
-pub fn test_with_number_ring<NumberRing: Clone + AbstractNumberRing>(number_ring: NumberRing) {
+pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ring: NumberRing) {
     use feanor_math::algorithms::eea::signed_lcm;
     use feanor_math::assert_el_eq;
     use feanor_math::primitive_int::*;

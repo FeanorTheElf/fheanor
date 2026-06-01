@@ -23,11 +23,11 @@ use crate::boo::{Boo, MappedRwLockReadGuardType};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::RNSFactorCongruence;
 use crate::number_ring::galois::*;
-use crate::number_ring::{AbstractNumberRing, NumberRingQuotient};
+use crate::number_ring::{NumberRingDescriptor, NumberRingQuotient};
 
 use super::double_rns_ring::*;
 use super::single_rns_ring::*;
-use super::BGFVCiphertextRing;
+use super::NumberRingRNSQuotient;
 use super::PreparedMultiplicationRing;
 
 ///
@@ -81,7 +81,7 @@ use super::PreparedMultiplicationRing;
 /// ```
 /// 
 pub struct ManagedDoubleRNSRingBase<NumberRing, A = Global> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     base: DoubleRNSRingBase<NumberRing, A>,
@@ -91,7 +91,7 @@ pub struct ManagedDoubleRNSRingBase<NumberRing, A = Global>
 pub type ManagedDoubleRNSRing<NumberRing, A = Global> = RingValue<ManagedDoubleRNSRingBase<NumberRing, A>>;
 
 impl<NumberRing> ManagedDoubleRNSRingBase<NumberRing, Global> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
 {
     pub fn new(number_ring: NumberRing, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>) -> RingValue<Self> {
         Self::new_with_alloc(number_ring, rns_base, Global)
@@ -126,7 +126,7 @@ impl ManagedDoubleRNSElRepresentationKind {
 }
 
 enum ManagedDoubleRNSElRepresentation<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     Sum(Boo<'a, (SmallBasisEl<NumberRing, A>, DoubleRNSEl<NumberRing, A>), MappedRwLockReadGuardType<(SmallBasisEl<NumberRing, A>, DoubleRNSEl<NumberRing, A>)>>),
@@ -137,7 +137,7 @@ enum ManagedDoubleRNSElRepresentation<'a, NumberRing, A>
 }
 
 impl<'a, NumberRing, A> ManagedDoubleRNSElRepresentation<'a, NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn get_kind(&self) -> ManagedDoubleRNSElRepresentationKind {
@@ -152,7 +152,7 @@ impl<'a, NumberRing, A> ManagedDoubleRNSElRepresentation<'a, NumberRing, A>
 }
 
 struct DoubleRNSElInternal<NumberRing, A = Global> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     small_basis_repr: OnceLock<SmallBasisEl<NumberRing, A>>,
@@ -161,7 +161,7 @@ struct DoubleRNSElInternal<NumberRing, A = Global>
 }
 
 impl<NumberRing, A> DoubleRNSElInternal<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn get_repr<'a>(&'a self) -> ManagedDoubleRNSElRepresentation<'a, NumberRing, A> {
@@ -215,14 +215,14 @@ impl<NumberRing, A> DoubleRNSElInternal<NumberRing, A>
 }
 
 pub struct ManagedDoubleRNSEl<NumberRing, A = Global> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     internal: Arc<DoubleRNSElInternal<NumberRing, A>>
 }
 
 impl<NumberRing, A> Clone for ManagedDoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing + Clone,
+    where NumberRing: NumberRingDescriptor + Clone,
         A: Allocator + Clone
 {
     fn clone(&self) -> Self {
@@ -234,7 +234,7 @@ impl<NumberRing, A> Clone for ManagedDoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     pub fn new_with_alloc(number_ring: NumberRing, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>, allocator: A) -> RingValue<ManagedDoubleRNSRingBase<NumberRing, A>> {
@@ -600,7 +600,7 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> PreparedMultiplicationRing for ManagedDoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type PreparedMultiplicant = ();
@@ -626,8 +626,8 @@ impl<NumberRing, A> PreparedMultiplicationRing for ManagedDoubleRNSRingBase<Numb
     }
 }
 
-impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+impl<NumberRing, A> NumberRingRNSQuotient for ManagedDoubleRNSRingBase<NumberRing, A> 
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn drop_rns_factor(&self, drop_rns_factors: &RNSFactorIndexList) -> Self {
@@ -739,7 +739,7 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
 }
 
 impl<NumberRing, A> NumberRingQuotient for ManagedDoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type NumberRing = NumberRing;
@@ -763,7 +763,7 @@ impl<NumberRing, A> NumberRingQuotient for ManagedDoubleRNSRingBase<NumberRing, 
 }
 
 impl<NumberRing, A> PartialEq for ManagedDoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn eq(&self, other: &Self) -> bool {
@@ -772,7 +772,7 @@ impl<NumberRing, A> PartialEq for ManagedDoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> RingBase for ManagedDoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type Element = ManagedDoubleRNSEl<NumberRing, A>;
@@ -1006,7 +1006,7 @@ impl<NumberRing, A> RingBase for ManagedDoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> ComputeInnerProduct for ManagedDoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     default fn inner_product<I: Iterator<Item = (Self::Element, Self::Element)>>(&self, els: I) -> Self::Element {
@@ -1034,7 +1034,7 @@ impl<NumberRing, A> ComputeInnerProduct for ManagedDoubleRNSRingBase<NumberRing,
 }
 
 impl<NumberRing, A> RingExtension for ManagedDoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type BaseRing = <DoubleRNSRingBase<NumberRing, A> as RingExtension>::BaseRing;
@@ -1055,7 +1055,7 @@ impl<NumberRing, A> RingExtension for ManagedDoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> FreeAlgebra for ManagedDoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type VectorRepresentation<'a> = DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> 
@@ -1088,7 +1088,7 @@ impl<NumberRing, A> FreeAlgebra for ManagedDoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> FiniteRingSpecializable for ManagedDoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn specialize<O: FiniteRingOperation<Self>>(op: O) -> O::Output {
@@ -1097,7 +1097,7 @@ impl<NumberRing, A> FiniteRingSpecializable for ManagedDoubleRNSRingBase<NumberR
 }
 
 impl<NumberRing, A> FiniteRing for ManagedDoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type ElementsIter<'a> = std::iter::Map<<DoubleRNSRingBase<NumberRing, A> as FiniteRing>::ElementsIter<'a>, fn(DoubleRNSEl<NumberRing, A>) -> ManagedDoubleRNSEl<NumberRing, A>>
@@ -1105,7 +1105,7 @@ impl<NumberRing, A> FiniteRing for ManagedDoubleRNSRingBase<NumberRing, A>
 
     fn elements<'a>(&'a self) -> Self::ElementsIter<'a> {
         fn from_doublerns<NumberRing, A>(x: DoubleRNSEl<NumberRing, A>) -> ManagedDoubleRNSEl<NumberRing, A>
-            where NumberRing: AbstractNumberRing,
+            where NumberRing: NumberRingDescriptor,
                 A: Allocator + Clone
         {
             return ManagedDoubleRNSEl { internal: Arc::new(DoubleRNSElInternal {
@@ -1133,7 +1133,7 @@ impl<NumberRing, A> FiniteRing for ManagedDoubleRNSRingBase<NumberRing, A>
 }
 
 impl<NumberRing, A> SerializableElementRing for ManagedDoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     fn serialize<S>(&self, el: &Self::Element, serializer: S) -> Result<S::Ok, S::Error>
@@ -1162,13 +1162,13 @@ impl<NumberRing, A> SerializableElementRing for ManagedDoubleRNSRingBase<NumberR
         }
 
         struct ResultVisitor<'a, NumberRing, A>
-            where NumberRing: AbstractNumberRing,
+            where NumberRing: NumberRingDescriptor,
                 A: Allocator + Clone
         {
             ring: &'a ManagedDoubleRNSRingBase<NumberRing, A>,
         }
         impl<'a, 'de, NumberRing, A> serde::de::Visitor<'de> for ResultVisitor<'a, NumberRing, A>
-            where NumberRing: AbstractNumberRing,
+            where NumberRing: NumberRingDescriptor,
                 A: Allocator + Clone
         {
             type Value = ManagedDoubleRNSEl<NumberRing, A>;
@@ -1232,7 +1232,7 @@ impl<NumberRing, A> SerializableElementRing for ManagedDoubleRNSRingBase<NumberR
 }
 
 impl<NumberRing, A> CanHomFrom<BigIntRingBase> for ManagedDoubleRNSRingBase<NumberRing, A>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     type Homomorphism = <zn_rns::ZnBase<zn_64::Zn, BigIntRing> as CanHomFrom<BigIntRingBase>>::Homomorphism;
@@ -1255,7 +1255,7 @@ impl<NumberRing, A> CanHomFrom<BigIntRingBase> for ManagedDoubleRNSRingBase<Numb
 }
 
 impl<NumberRing, A1, A2, C> CanHomFrom<SingleRNSRingBase<NumberRing, A1, C>> for ManagedDoubleRNSRingBase<NumberRing, A2>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
         C: ConvolutionAlgorithm<zn_64::ZnBase>
@@ -1275,7 +1275,7 @@ impl<NumberRing, A1, A2, C> CanHomFrom<SingleRNSRingBase<NumberRing, A1, C>> for
 }
 
 impl<NumberRing, A1, A2> CanHomFrom<DoubleRNSRingBase<NumberRing, A1>> for ManagedDoubleRNSRingBase<NumberRing, A2>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone
 {
@@ -1294,7 +1294,7 @@ impl<NumberRing, A1, A2> CanHomFrom<DoubleRNSRingBase<NumberRing, A1>> for Manag
 }
 
 impl<NumberRing, A1, A2> CanHomFrom<ManagedDoubleRNSRingBase<NumberRing, A1>> for ManagedDoubleRNSRingBase<NumberRing, A2>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone
 {
@@ -1318,7 +1318,7 @@ impl<NumberRing, A1, A2> CanHomFrom<ManagedDoubleRNSRingBase<NumberRing, A1>> fo
 }
 
 impl<NumberRing, A1, A2, C> CanIsoFromTo<SingleRNSRingBase<NumberRing, A1, C>> for ManagedDoubleRNSRingBase<NumberRing, A2>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
         C: ConvolutionAlgorithm<zn_64::ZnBase>
@@ -1339,7 +1339,7 @@ impl<NumberRing, A1, A2, C> CanIsoFromTo<SingleRNSRingBase<NumberRing, A1, C>> f
 }
 
 impl<NumberRing, A1, A2> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A1>> for ManagedDoubleRNSRingBase<NumberRing, A2>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone
 {
@@ -1359,7 +1359,7 @@ impl<NumberRing, A1, A2> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A1>> for Man
 }
 
 impl<NumberRing, A1, A2> CanIsoFromTo<ManagedDoubleRNSRingBase<NumberRing, A1>> for ManagedDoubleRNSRingBase<NumberRing, A2>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone
 {

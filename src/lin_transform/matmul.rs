@@ -942,7 +942,7 @@ impl<R> MatmulTransform<R>
 }
 
 impl<NumberRing, A> NumberRingQuotientByIntBase<NumberRing, Zn, A> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     #[instrument(skip_all)]
@@ -966,7 +966,7 @@ pub struct BabyStepGiantStepParams {
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::*;
 #[cfg(test)]
-use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
+use crate::number_ring::tensor_ring::TensorProductNumberRing;
 #[cfg(test)]
 use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
 #[cfg(test)]
@@ -1148,7 +1148,7 @@ fn test_to_circuit_many() {
 
 #[test]
 fn test_compute_automorphisms_per_dimension() {
-    let ring = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(3, 19), Zn::new(7));
+    let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(3, 19), Zn::new(7));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(7, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
     assert_eq!(2, H.hypercube().dim_count());

@@ -12,9 +12,9 @@ use tracing::instrument;
 
 use crate::ciphertext_ring::double_rns_ring::{DoubleRNSRing, DoubleRNSRingBase, SmallBasisEl};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::BGFVCiphertextRing;
+use crate::ciphertext_ring::NumberRingRNSQuotient;
 use crate::number_ring::galois::*;
-use crate::number_ring::{AbstractNumberRing, NumberRingQuotient};
+use crate::number_ring::{NumberRingDescriptor, NumberRingQuotient};
 use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
@@ -46,7 +46,7 @@ pub struct RNSGadgetProductLhsOperand<R: PreparedMultiplicationRing> {
     element_decomposition: Vec<Option<(R::PreparedMultiplicant, R::Element)>>
 }
 
-impl<R: BGFVCiphertextRing> RNSGadgetProductLhsOperand<R> {
+impl<R: NumberRingRNSQuotient> RNSGadgetProductLhsOperand<R> {
 
     ///
     /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits`.
@@ -100,7 +100,7 @@ impl<R: BGFVCiphertextRing> RNSGadgetProductLhsOperand<R> {
 }
 
 impl<NumberRing, A> RNSGadgetProductLhsOperand<DoubleRNSRingBase<NumberRing, A>> 
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
     ///
@@ -288,8 +288,8 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
  
 #[instrument(skip_all)]
 fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S) -> Vec<(S::PreparedMultiplicant, S::Element)>
-    where R: BGFVCiphertextRing,
-        S: BGFVCiphertextRing,
+    where R: NumberRingRNSQuotient,
+        S: NumberRingRNSQuotient,
         I: Iterator<Item = Range<usize>>
 {
     let mut result = Vec::new();
@@ -325,7 +325,7 @@ fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S)
 
 #[instrument(skip_all)]
 fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: I) -> Vec<(<DoubleRNSRingBase<NumberRing, A> as PreparedMultiplicationRing>::PreparedMultiplicant, El<DoubleRNSRing<NumberRing, A>>)>
-    where NumberRing: AbstractNumberRing,
+    where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
         I: Iterator<Item = Range<usize>>
 {
@@ -475,7 +475,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductRhsOperand<R> {
     }
 }
 
-impl<R: BGFVCiphertextRing> RNSGadgetProductRhsOperand<R> {
+impl<R: NumberRingRNSQuotient> RNSGadgetProductRhsOperand<R> {
 
     ///
     /// Modulus-switches this [`RNSGadgetProductRhsOperand`], i.e. reduces each of

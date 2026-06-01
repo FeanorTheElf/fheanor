@@ -29,7 +29,7 @@ use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 /// `Z[𝝵_m] = Z[𝝵_m1] ⊗ Z[𝝵_m2]` for various computational tasks (where `m = m1 * m2`
 /// is a factorization into coprime factors).
 /// 
-pub struct CompositeCyclotomicNumberRing<L: AbstractNumberRing = OddSquarefreeCyclotomicNumberRing, R: AbstractNumberRing = OddSquarefreeCyclotomicNumberRing> {
+pub struct TensorProductNumberRing<L: NumberRingDescriptor = OddSquarefreeCyclotomicNumberRing, R: NumberRingDescriptor = OddSquarefreeCyclotomicNumberRing> {
     left_factor: L,
     right_factor: R,
     joint_galois_group: CyclotomicGaloisGroup,
@@ -37,14 +37,14 @@ pub struct CompositeCyclotomicNumberRing<L: AbstractNumberRing = OddSquarefreeCy
     coeffinf_to_powinf_expansion: f64
 }
 
-impl CompositeCyclotomicNumberRing {
+impl TensorProductNumberRing {
 
     pub fn new(m1: usize, m2: usize) -> Self {
         Self::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(m1), OddSquarefreeCyclotomicNumberRing::new(m2))
     }
 }
 
-impl<L: AbstractNumberRing, R: AbstractNumberRing> CompositeCyclotomicNumberRing<L, R> {
+impl<L: NumberRingDescriptor, R: NumberRingDescriptor> TensorProductNumberRing<L, R> {
 
     pub fn new_with_factors(left: L, right: R) -> Self {
         let m1 = left.galois_group().m();
@@ -91,7 +91,7 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> CompositeCyclotomicNumberRing
     }
 }
 
-impl<L: AbstractNumberRing, R: AbstractNumberRing> Clone for CompositeCyclotomicNumberRing<L, R> {
+impl<L: NumberRingDescriptor, R: NumberRingDescriptor> Clone for TensorProductNumberRing<L, R> {
     
     fn clone(&self) -> Self {
         Self {
@@ -104,21 +104,21 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> Clone for CompositeCyclotomic
     }
 }
 
-impl<L: AbstractNumberRing + Debug, R: AbstractNumberRing + Debug> Debug for CompositeCyclotomicNumberRing<L, R> {
+impl<L: NumberRingDescriptor + Debug, R: NumberRingDescriptor + Debug> Debug for TensorProductNumberRing<L, R> {
     
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?} ⊗ {:?}", self.left_factor, self.right_factor)
     }
 }
 
-impl<L: AbstractNumberRing, R: AbstractNumberRing> PartialEq for CompositeCyclotomicNumberRing<L, R> {
+impl<L: NumberRingDescriptor, R: NumberRingDescriptor> PartialEq for TensorProductNumberRing<L, R> {
 
     fn eq(&self, other: &Self) -> bool {
         self.left_factor == other.left_factor && self.right_factor == other.right_factor
     }
 }
 
-impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for CompositeCyclotomicNumberRing<L, R> {
+impl<L: NumberRingDescriptor, R: NumberRingDescriptor> NumberRingDescriptor for TensorProductNumberRing<L, R> {
 
     type NumberRingQuotientBases = CompositeCyclotomicNumberRingQuotientBases<L::NumberRingQuotientBases, R::NumberRingQuotientBases>;
 
@@ -219,7 +219,7 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
 }
 
 ///
-/// The [`NumberRingQuotientBases`] for [`CompositeCyclotomicNumberRing`].
+/// The [`NumberRingQuotientBases`] for [`TensorProductNumberRing`].
 /// 
 /// The small basis is given by 
 /// ```text
@@ -407,29 +407,29 @@ use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 
 #[test]
 fn test_odd_cyclotomic_double_rns_ring() {
-    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
-    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
-    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+    double_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 5));
+    double_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 7));
+    double_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
 }
 
 #[test]
 fn test_odd_cyclotomic_single_rns_ring() {
-    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
-    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
-    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+    single_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 5));
+    single_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 7));
+    single_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
 }
 
 #[test]
 fn test_odd_cyclotomic_decomposition_ring() {
-    quotient_by_int::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
-    quotient_by_int::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
-    quotient_by_int::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+    quotient_by_int::test_with_number_ring(TensorProductNumberRing::new(3, 5));
+    quotient_by_int::test_with_number_ring(TensorProductNumberRing::new(3, 7));
+    quotient_by_int::test_with_number_ring(TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
 }
 
 #[test]
 fn test_small_coeff_basis_conversion() {
     let ring = zn_64::Zn::new(241);
-    let number_ring = CompositeCyclotomicNumberRing::new(3, 5);
+    let number_ring = TensorProductNumberRing::new(3, 5);
     let decomposition = number_ring.bases_mod_p(ring);
 
     let arr_create = |data: [i32; 8]| std::array::from_fn::<_, 8, _>(|i| ring.int_hom().map(data[i]));
@@ -481,7 +481,7 @@ fn test_small_coeff_basis_conversion() {
     decomposition.small_basis_to_coeff_basis(&mut actual);
     assert_arr_eq(original, actual);
 
-    let number_ring = CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8));
+    let number_ring = TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8));
     let decomposition = number_ring.bases_mod_p(ring);
     let original = arr_create([-1, 0, 0, 0, 1, 0, 0, 0]);
     let expected = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
@@ -495,7 +495,7 @@ fn test_small_coeff_basis_conversion() {
 #[test]
 fn test_permute_galois_automorphism() {
     let Fp = zn_64::Zn::new(257);
-    let R = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(5, 3), Fp);
+    let R = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 3), Fp);
     let gal_el = |x: i64| R.number_ring().galois_group().from_representative(x);
 
     assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(2)));

@@ -152,7 +152,7 @@ use crate::ntt::dyn_convolution::*;
 #[cfg(test)]
 use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
 #[cfg(test)]
-use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
+use crate::number_ring::tensor_ring::TensorProductNumberRing;
 #[cfg(test)]
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 #[cfg(test)]
@@ -203,7 +203,7 @@ fn test_trace_circuit() {
     let expected = ring.sum([ring.canonical_gen(), ring.pow(ring.canonical_gen(), 2), ring.pow(ring.canonical_gen(), 4)]);
     assert_el_eq!(&ring, expected, actual);
 
-    let ring = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(5, 7), Zn::new(65537));
+    let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 7), Zn::new(65537));
     let full_galois_group = ring.number_ring().galois_group();
     let trace = trace_circuit(&ring, &full_galois_group.get_group().clone().full_subgroup());
     for i in 0..24 {
