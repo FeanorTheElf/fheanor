@@ -8,6 +8,10 @@ pub mod addition_chains;
 /// this is used internally by [`to_circuit::poly_to_circuit()`].
 /// 
 pub mod paterson_stockmeyer;
+///
+/// Contains Galois-based algorithms for polynomial evaluation, along the lines of
+/// <https://ia.cr/2023/1304>.
+/// 
 pub mod galois_based;
 ///
 /// Contains [`digit_extract::DigitExtract`] that bundles all circuits required

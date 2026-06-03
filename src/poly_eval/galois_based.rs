@@ -161,6 +161,13 @@ fn find_irreducible_modification<P, R>(
     return Err(());
 }
 
+///
+/// Attempts to find a Galois-based circuit for evaluating the given polynomial, using the
+/// algorithms of <https://ia.cr/2023/1304>.
+/// 
+/// This only supports the evaluation of a single polynomial, since for multiple polynomials,
+/// the norm-based algorithm is usually not optimal.
+/// 
 #[instrument(skip_all)]
 pub fn poly_circuit_via_norm<P, R>(hypercube_iso: &HypercubeIsomorphism<R>, poly_ring: P, poly: &El<P>) -> Result<PlaintextCircuit<R::Type>, ()>
     where P: RingStore,
