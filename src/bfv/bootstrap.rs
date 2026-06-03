@@ -75,20 +75,20 @@ use super::*;
 /// assert_el_eq!(P, P.int_hom().map(2), Pow2BFV::dec(&P, &C, res_ct, &sk));
 /// ```
 /// 
-pub struct ThinBootstrapper<Params: BFVInstantiation> {
-    digit_extract: DigitExtract<Params::PlaintextRing>,
-    slots_to_coeffs_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Params>>,
-    coeffs_to_slots_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Params>>,
+pub struct ThinBootstrapper<Inst: BFVInstantiation> {
+    digit_extract: DigitExtract<Inst::PlaintextRing>,
+    slots_to_coeffs_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Inst>>,
+    coeffs_to_slots_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Inst>>,
     /// 
     /// The plaintext rings `R/p^kR` for every `r < k < e`, which all are used
     /// as intermediate plaintext rings during bootstrapping.
     /// 
-    plaintext_ring_hierarchy: Vec<PlaintextRing<Params>>,
-    slots_to_coeffs_plaintext_ring: EncodedBFVPlaintextRing<Params>,
-    intermediate_plaintext_ring: EncodedBFVPlaintextRing<Params>
+    plaintext_ring_hierarchy: Vec<PlaintextRing<Inst>>,
+    slots_to_coeffs_plaintext_ring: EncodedBFVPlaintextRing<Inst>,
+    intermediate_plaintext_ring: EncodedBFVPlaintextRing<Inst>
 }
 
-impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
+impl<Inst: BFVInstantiation> ThinBootstrapper<Inst> {
 
     ///
     /// Creates a new [`ThinBootstrapper`]. In many cases, it is easier to create
@@ -138,14 +138,14 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     /// 
     #[instrument(skip_all)]
     pub fn create(
-        instantiation: &Params,
-        original_plaintext_ring: PlaintextRing<Params>,
-        intermediate_plaintext_ring: PlaintextRing<Params>,
-        C: CiphertextRing<Params>,
-        slots_to_coeffs_thin: PlaintextCircuit<Params::PlaintextRing>, 
-        coeffs_to_slots_thin: PlaintextCircuit<Params::PlaintextRing>,
-        digit_extract: DigitExtract<Params::PlaintextRing>, 
-        slots_to_coeffs_ciphertext_ring: CiphertextRing<Params>
+        instantiation: &Inst,
+        original_plaintext_ring: PlaintextRing<Inst>,
+        intermediate_plaintext_ring: PlaintextRing<Inst>,
+        C: CiphertextRing<Inst>,
+        slots_to_coeffs_thin: PlaintextCircuit<Inst::PlaintextRing>, 
+        coeffs_to_slots_thin: PlaintextCircuit<Inst::PlaintextRing>,
+        digit_extract: DigitExtract<Inst::PlaintextRing>, 
+        slots_to_coeffs_ciphertext_ring: CiphertextRing<Inst>
     ) -> Self {
         let p = digit_extract.p();
         let r = digit_extract.r();
@@ -153,10 +153,10 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         let plaintext_ring_hierarchy = ((r + 1)..e).map(|k| instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
         let slots_to_coeffs_plaintext_ring = EncodedBFVPlaintextRingBase::new(original_plaintext_ring, slots_to_coeffs_ciphertext_ring);
         let intermediate_plaintext_ring = EncodedBFVPlaintextRingBase::new(intermediate_plaintext_ring, C);
-        let coeffs_to_slots_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Params>> = coeffs_to_slots_thin.change_ring_uniform(|x| 
+        let coeffs_to_slots_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Inst>> = coeffs_to_slots_thin.change_ring_uniform(|x| 
             x.change_ring(|x| WrapHom::to_delegate_ring(intermediate_plaintext_ring.get_ring()).map(x))
         );
-        let slots_to_coeffs_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Params>> = slots_to_coeffs_thin.change_ring_uniform(|x| 
+        let slots_to_coeffs_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Inst>> = slots_to_coeffs_thin.change_ring_uniform(|x| 
             x.change_ring(|x| WrapHom::to_delegate_ring(slots_to_coeffs_plaintext_ring.get_ring()).map(x))
         );
         Self {
@@ -200,17 +200,17 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     /// 
     #[instrument(skip_all)]
     pub fn build_pow2<const LOG: bool>(
-        instantiation: &Params,
-        P: &PlaintextRing<Params>,
-        C: &CiphertextRing<Params>, 
+        instantiation: &Inst,
+        P: &PlaintextRing<Inst>,
+        C: &CiphertextRing<Inst>, 
         v: usize,
         digit_extract_error_bound: Option<i64>,
         lin_transform_max_levels: usize,
         gk_digits: &RNSGadgetVectorDigitIndices, 
         cache_dir: Option<&str>
     ) -> Self
-        where Params::PlaintextRing: SerializableElementRing,
-            Params::CiphertextRing: Clone
+        where Inst::PlaintextRing: SerializableElementRing,
+            Inst::CiphertextRing: Clone
     {
         let log2_m = ZZi64.abs_log2_ceil(&(instantiation.number_ring().galois_group().m() as i64)).unwrap();
         assert_eq!(instantiation.number_ring().galois_group().m(), 1 << log2_m);
@@ -289,17 +289,17 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     /// 
     #[instrument(skip_all)]
     pub fn build_odd<const LOG: bool>(
-        instantiation: &Params,
-        P: &PlaintextRing<Params>,
-        C: &CiphertextRing<Params>, 
+        instantiation: &Inst,
+        P: &PlaintextRing<Inst>,
+        C: &CiphertextRing<Inst>, 
         v: usize,
         digit_extract_error_bound: Option<i64>,
         lin_transform_max_levels: usize,
         gk_digits: &RNSGadgetVectorDigitIndices, 
         cache_dir: Option<&str>
     ) -> Self
-        where Params::PlaintextRing: SerializableElementRing,
-            Params::CiphertextRing: Clone
+        where Inst::PlaintextRing: SerializableElementRing,
+            Inst::CiphertextRing: Clone
     {
         assert!(instantiation.number_ring().galois_group().m() % 2 != 0);
 
@@ -349,7 +349,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     ///
     /// Replaces the digit extraction object used by this bootstrapper.
     /// 
-    pub fn with_digit_extraction(self, new_digit_extraction: DigitExtract<Params::PlaintextRing>) -> Self {
+    pub fn with_digit_extraction(self, new_digit_extraction: DigitExtract<Inst::PlaintextRing>) -> Self {
         assert_el_eq!(ZZbig, self.digit_extract.p(), new_digit_extraction.p());
         assert_eq!(self.digit_extract.r(), new_digit_extraction.r());
         assert_eq!(self.digit_extract.e(), new_digit_extraction.e());
@@ -379,26 +379,54 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         ZZbig.clone_el(self.digit_extract.p())
     }
 
-    pub fn intermediate_plaintext_ring(&self) -> &PlaintextRing<Params> {
+    ///
+    /// The plaintext ring w.r.t. which the output of noisy expansion is defined.
+    /// This is also used for the coefficients-to-slots transform and at the beginning
+    /// of digit extraction.
+    /// 
+    pub fn intermediate_plaintext_ring(&self) -> &PlaintextRing<Inst> {
         self.intermediate_plaintext_ring.get_ring().plaintext_ring()
     }
 
-    pub fn base_plaintext_ring(&self) -> &PlaintextRing<Params> {
+    ///
+    /// The plaintext ring w.r.t. which the input ciphertext is defined.
+    /// 
+    pub fn base_plaintext_ring(&self) -> &PlaintextRing<Inst> {
         self.slots_to_coeffs_plaintext_ring.get_ring().plaintext_ring()
     }
 
-    pub fn slots_to_coeffs_ciphertext_ring(&self) -> &CiphertextRing<Params> {
+    ///
+    /// The ciphertext ring over which we perform the slots-to-coefficients
+    /// transform. This is usually much smaller than the original ciphertext ring,
+    /// since the slots-to-coefficients transform causes relatively low noise growth,
+    /// and thus choosing a smaller ciphertext modulus can save performance.
+    /// 
+    pub fn slots_to_coeffs_ciphertext_ring(&self) -> &CiphertextRing<Inst> {
         self.slots_to_coeffs_plaintext_ring.get_ring().ciphertext_ring()
     }
 
-    pub fn main_ciphertext_ring(&self) -> &CiphertextRing<Params> {
+    ///
+    /// The ciphertext ring over which the output of bootstrapping will be defined.
+    /// This is also the ciphertext ring used for the coefficients-to-slots transform
+    /// and for digit extraction.
+    /// 
+    pub fn main_ciphertext_ring(&self) -> &CiphertextRing<Inst> {
         self.intermediate_plaintext_ring.get_ring().ciphertext_ring()
     }
 
-    pub fn required_galois_keys(&self, P: &PlaintextRing<Params>) -> Vec<GaloisGroupEl> {
+    ///
+    /// Returns the sequence of plaintext rings `R/p^rR`, ..., `R/p^eR`, which are
+    /// all plaintext rings used at some point during bootstrapping.
+    /// 
+    pub fn complete_plaintext_ring_sequence<'a>(&'a self) -> Vec<&'a PlaintextRing<Inst>> {
+        [self.base_plaintext_ring()].into_iter().chain(self.plaintext_ring_hierarchy.iter()).chain([self.intermediate_plaintext_ring()]).collect::<Vec<_>>()
+    }
+
+    pub fn required_galois_keys(&self, P: &PlaintextRing<Inst>) -> Vec<GaloisGroupEl> {
         let mut result = Vec::new();
         result.extend(self.slots_to_coeffs_thin.required_galois_keys(&P.acting_galois_group()).into_iter());
         result.extend(self.coeffs_to_slots_thin.required_galois_keys(&P.acting_galois_group()).into_iter());
+        result.extend(self.digit_extract.required_galois_keys(&P.acting_galois_group()).into_iter());
         result.sort_by_key(|g| P.acting_galois_group().representative(g));
         result.dedup_by(|g, s| P.acting_galois_group().eq_el(g, s));
         return result;
@@ -429,15 +457,15 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     #[instrument(skip_all)]
     pub fn bootstrap_thin<const LOG: bool>(
         &self,
-        C: &CiphertextRing<Params>, 
-        C_mul: &CiphertextRing<Params>, 
-        P: &PlaintextRing<Params>,
-        ct: Ciphertext<Params>,
-        rk: &RelinKey<Params>,
-        gks: &[(GaloisGroupEl, KeySwitchKey<Params>)],
-        sk_encaps_data: Option<&SparseKeyEncapsulationKey<Params>>,
-        debug_sk: Option<&SecretKey<Params>>
-    ) -> Ciphertext<Params> {
+        C: &CiphertextRing<Inst>, 
+        C_mul: &CiphertextRing<Inst>, 
+        P: &PlaintextRing<Inst>,
+        ct: Ciphertext<Inst>,
+        rk: &RelinKey<Inst>,
+        gks: &[(GaloisGroupEl, KeySwitchKey<Inst>)],
+        sk_encaps_data: Option<&SparseKeyEncapsulationKey<Inst>>,
+        debug_sk: Option<&SecretKey<Inst>>
+    ) -> Ciphertext<Inst> {
         assert!(LOG || debug_sk.is_none());
         let ZZ = P.base_ring().integer_ring();
         assert_el_eq!(ZZbig, ZZbig.pow(self.p(), self.r()), int_cast(ZZ.clone_el(P.base_ring().modulus()), ZZbig, ZZ));
@@ -448,15 +476,15 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         log_time::<_, _, LOG, _>("Performing thin bootstrapping", |[]| {
 
             if let Some(sk) = debug_sk {
-                Params::dec_println_slots(P_base, C, &ct, sk, None);
+                Inst::dec_println_slots(P_base, C, &ct, sk, None);
             }
 
             let C_input = self.slots_to_coeffs_ciphertext_ring();
-            let ct_input = Params::mod_switch_ct(P_base, &C_input, C, ct);
+            let ct_input = Inst::mod_switch_ct(P_base, &C_input, C, ct);
             let C_to_C_input_drop_factors = RNSFactorIndexList::missing_from(C_input.base_ring(), C.base_ring());
             let sk_input = debug_sk.map(|sk| C_input.get_ring().drop_rns_factor_element(C.get_ring(), &C_to_C_input_drop_factors, &sk));
             if let Some(sk) = &sk_input {
-                Params::dec_println_slots(P_base, &C_input, &ct_input, sk, None);
+                Inst::dec_println_slots(P_base, &C_input, &ct_input, sk, None);
             }
 
             let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[]| {
@@ -471,7 +499,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
                         panic!("missing galois key for {}", galois_group.underlying_ring().format(galois_group.as_ring_el(g)))
                     }
                 }).collect::<Vec<_>>();
-                let result = self.slots_to_coeffs_thin.evaluate_bfv::<Params, _>(
+                let result = self.slots_to_coeffs_thin.evaluate_bfv::<Inst, _>(
                     &self.slots_to_coeffs_plaintext_ring, 
                     P_base, 
                     &C_input, 
@@ -485,7 +513,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
                 return result.into_iter().next().unwrap();
             });
             if let Some(sk) = &sk_input {
-                Params::dec_println(P_base, &C_input, &values_in_coefficients, sk);
+                Inst::dec_println(P_base, &C_input, &values_in_coefficients, sk);
             }
 
             let P_main = self.intermediate_plaintext_ring();
@@ -493,30 +521,30 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
 
             let noisy_decryption = if let Some(sk_encaps_data) = sk_encaps_data {
                 let ct_with_sparse_key = log_time::<_, _, LOG, _>("2.1. Switching to sparse key", |[]| {
-                    let ct_modswitched = Params::mod_switch_ct(&P_base, &sk_encaps_data.C_sparse_sk, &C_input, values_in_coefficients);
-                    Params::key_switch(&sk_encaps_data.C_sparse_sk, ct_modswitched, &sk_encaps_data.switch_to_sparse_key)
+                    let ct_modswitched = Inst::mod_switch_ct(&P_base, &sk_encaps_data.C_sparse_sk, &C_input, values_in_coefficients);
+                    Inst::key_switch(&sk_encaps_data.C_sparse_sk, ct_modswitched, &sk_encaps_data.switch_to_sparse_key)
                 });
                 if let Some(sk) = &debug_sk {
-                    Params::dec_println(P_base, &sk_encaps_data.C_sparse_sk, &ct_with_sparse_key, &Params::mod_switch_sk(P_base, &sk_encaps_data.C_sparse_sk, C, sk));
+                    Inst::dec_println(P_base, &sk_encaps_data.C_sparse_sk, &ct_with_sparse_key, &Inst::mod_switch_sk(P_base, &sk_encaps_data.C_sparse_sk, C, sk));
                 }
 
                 log_time::<_, _, LOG, _>("2.2. Computing noisy decryption c0 + c1 * s", |[]| {
-                    let (c0, c1) = Params::mod_switch_to_plaintext(P_main, &sk_encaps_data.C_sparse_sk, ct_with_sparse_key);
-                    return Params::hom_add_plain(P_main, C, &c0, Params::hom_mul_plain(P_main, C, &c1, Params::clone_ct(C, &sk_encaps_data.encapsulated_key)));
+                    let (c0, c1) = Inst::mod_switch_to_plaintext(P_main, &sk_encaps_data.C_sparse_sk, ct_with_sparse_key);
+                    return Inst::hom_add_plain(P_main, C, &c0, Inst::hom_mul_plain(P_main, C, &c1, Inst::clone_ct(C, &sk_encaps_data.encapsulated_key)));
                 })
             } else {
                 log_time::<_, _, LOG, _>("2. Computing noisy decryption c0 + c1 * s", |[]| {
-                    let (c0, c1) = Params::mod_switch_to_plaintext(P_main, &C_input, values_in_coefficients);
-                    let enc_sk = Params::enc_sk(P_main, C);
-                    return Params::hom_add_plain(P_main, C, &c0, Params::hom_mul_plain(P_main, C, &c1, enc_sk));
+                    let (c0, c1) = Inst::mod_switch_to_plaintext(P_main, &C_input, values_in_coefficients);
+                    let enc_sk = Inst::enc_sk(P_main, C);
+                    return Inst::hom_add_plain(P_main, C, &c0, Inst::hom_mul_plain(P_main, C, &c1, enc_sk));
                 })
             };
             if let Some(sk) = debug_sk {
-                Params::dec_println(P_main, C, &noisy_decryption, sk);
+                Inst::dec_println(P_main, C, &noisy_decryption, sk);
             }
 
             let noisy_decryption_in_slots = log_time::<_, _, LOG, _>("3. Computing Coeffs-to-Slots transform", |[]| {
-                let result = self.coeffs_to_slots_thin.evaluate_bfv::<Params, _>(
+                let result = self.coeffs_to_slots_thin.evaluate_bfv::<Inst, _>(
                     &self.intermediate_plaintext_ring, 
                     P_main, 
                     C,
@@ -530,12 +558,12 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
                 return result.into_iter().next().unwrap();
             });
             if let Some(sk) = debug_sk {
-                Params::dec_println_slots(P_main, C, &noisy_decryption_in_slots, sk, None);
+                Inst::dec_println_slots(P_main, C, &noisy_decryption_in_slots, sk, None);
             }
 
             let result = log_time::<_, _, LOG, _>("4. Performing digit extraction", |[]| {
-                let plaintext_rings = [P_base].into_iter().chain(self.plaintext_ring_hierarchy.iter()).chain([P_main]).collect::<Vec<_>>();
-                self.digit_extract.evaluate_bfv::<_, Params>(&plaintext_rings, &plaintext_rings, C, C_mul, noisy_decryption_in_slots, rk, debug_sk).0
+                let plaintext_rings = self.complete_plaintext_ring_sequence();
+                self.digit_extract.evaluate_bfv::<_, Inst>(&plaintext_rings, &plaintext_rings, C, C_mul, noisy_decryption_in_slots, rk, debug_sk).0
             });
             return result;
         })
@@ -550,12 +578,12 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
 /// which can offset the security loss due to key sparsity), and thus introduce much less
 /// noise that has to be homomorphically removed.
 /// 
-pub struct SparseKeyEncapsulationKey<Params: BFVInstantiation> {
+pub struct SparseKeyEncapsulationKey<Inst: BFVInstantiation> {
     ///
     /// Ciphertext ring with small modulus, over which encryptions with the
     /// sparse key remain secure.
     /// 
-    pub C_sparse_sk: CiphertextRing<Params>,
+    pub C_sparse_sk: CiphertextRing<Inst>,
     ///
     /// Key-switch key to switch a ciphertext encrypted by the standard key
     /// to a ciphertext encrypted by the sparse key.
@@ -564,12 +592,12 @@ pub struct SparseKeyEncapsulationKey<Params: BFVInstantiation> {
     /// a significantly smaller modulus than the standard ciphertext ring. This
     /// is necessary for security.
     /// 
-    pub switch_to_sparse_key: KeySwitchKey<Params>,
+    pub switch_to_sparse_key: KeySwitchKey<Inst>,
     ///
     /// An encryption of the sparse secret key (mapped into the plaintext ring
     /// by taking a shortest lift to `R`) w.r.t. the standard secret key.
     /// 
-    pub encapsulated_key: Ciphertext<Params>
+    pub encapsulated_key: Ciphertext<Inst>
 }
 
 impl<Params> SparseKeyEncapsulationKey<Params>
@@ -610,17 +638,17 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
     /// For details on how the digit extraction function looks like, see
     /// [`DigitExtract`] and [`DigitExtract::evaluate_generic()`].
     /// 
-    pub fn evaluate_bfv<S, Params>(&self, 
+    pub fn evaluate_bfv<S, Inst>(&self, 
         rings: &[S],
-        P: &[&PlaintextRing<Params>],
-        C: &CiphertextRing<Params>, 
-        C_mul: &CiphertextRing<Params>, 
-        input: Ciphertext<Params>, 
-        rk: &RelinKey<Params>,
-        debug_sk: Option<&SecretKey<Params>>
-    ) -> (Ciphertext<Params>, Ciphertext<Params>)
-        where Params: BFVInstantiation,
-            R: AsBFVPlaintext<Params>,
+        P: &[&PlaintextRing<Inst>],
+        C: &CiphertextRing<Inst>, 
+        C_mul: &CiphertextRing<Inst>, 
+        input: Ciphertext<Inst>, 
+        rk: &RelinKey<Inst>,
+        debug_sk: Option<&SecretKey<Inst>>
+    ) -> (Ciphertext<Inst>, Ciphertext<Inst>)
+        where Inst: BFVInstantiation,
+            R: AsBFVPlaintext<Inst>,
             S: RingStore<Type = R> + Copy
     {
         let ZZ = P[0].base_ring().integer_ring();
@@ -636,7 +664,7 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
         let result = self.evaluate_generic(
             input,
             |exp, params, circuit| {
-                circuit.evaluate_bfv::<Params, _>(
+                circuit.evaluate_bfv::<Inst, _>(
                     &rings[exp - self.r()],
                     P[exp - self.r()],
                     C,
@@ -649,7 +677,7 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
             },
             |exp_from, _, x| {
                 if let Some(sk) = debug_sk {
-                    Params::dec_println_slots(P[exp_from - self.r()], C, &x, sk, Some("."));
+                    Inst::dec_println_slots(P[exp_from - self.r()], C, &x, sk, Some("."));
                 }
                 return x;
             }

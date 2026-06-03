@@ -11,6 +11,7 @@ use feanor_math::algorithms::interpolate::interpolate;
 use feanor_math::algorithms::linsolve::LinSolveRingStore;
 use feanor_math::algorithms::multipointeval::multipointeval;
 use feanor_math::divisibility::{DivisibilityRing, DivisibilityRingStore};
+use feanor_math::group::AbelianGroupStore;
 use feanor_math::homomorphism::{CanHomFrom, Homomorphism};
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ordered::OrderedRingStore;
@@ -32,7 +33,7 @@ use tracing::instrument;
 
 use crate::cache::{SerializeDeserializeWith, SerializeSerializableWithData, StoreAs, create_cached};
 use crate::number_ring::{NumberRingQuotient, NumberRingQuotientStore};
-use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupOps};
+use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupOps, GaloisGroupEl};
 use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
 use crate::poly_eval::digit_extract::serialization::*;
 use crate::poly_eval::to_circuit::{poly_to_circuit, poly_to_circuit_with_galois};
@@ -76,6 +77,10 @@ struct HelperCircuits<R: ?Sized + RingBase = zn_big::ZnBase<BigIntRing>> {
 /// ```
 /// In this case, the results are only specified modulo `p^r` resp. `p^e`, i.e.
 /// may be perturbed by an arbitrary value `p^r a` resp. `p^e a'`.
+/// 
+/// [`DigitExtract`] is a dependent object, and does not keep track of the ring
+/// it is defined over. Therefore, functions like [`DigitExtract::evaluate_plain()`]
+/// require the sequence of rings `Z/p^rZ`, ..., `Z/p^eZ` as parameter.
 /// 
 pub struct DigitExtract<R: ?Sized + RingBase = zn_big::ZnBase<BigIntRing>> {
     extraction_circuits: Vec<DigitExtractionCircuit<R>>,
@@ -183,6 +188,16 @@ impl<R> DigitExtract<R>
         }];
         
         return Self::new_with_circuits(rings, digit_extraction_circuits);
+    }
+
+    pub fn required_galois_keys(&self, galois_group: &Subgroup<CyclotomicGaloisGroup>) -> Vec<GaloisGroupEl> {
+        let mut result = Vec::new();
+        for circuit in &self.extraction_circuits {
+            result.extend(circuit.circuit.required_galois_keys(galois_group))
+        }
+        result.sort_by_key(|g| galois_group.representative(g));
+        result.dedup_by(|g, s| galois_group.eq_el(g, s));
+        return result;
     }
 }
 
