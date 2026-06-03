@@ -1422,12 +1422,9 @@ fn test_evaluate() {
 fn generate_slots_to_coeffs() {
     feanor_tracing::DelayedLogger::init_test();
     use feanor_math::integer::int_cast;
+    
     use crate::ZZbig;
     use crate::filename_keys;
-
-    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer, tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
-    tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
     
     use std::cell::LazyCell;
     use std::fs::File;

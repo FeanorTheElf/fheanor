@@ -622,3 +622,37 @@ fn test_heuristic_functional_decomposition() {
         assert_el_eq!(Z81, FpX.evaluate(&f2, &x, Z81.identity()), &actual.evaluate_no_galois(&[x], Z81.identity())[1]);
     }
 }
+
+#[test]
+#[ignore]
+fn circuit_for_65537() {
+    use std::fs::File;
+    use std::io::BufWriter;
+    use std::io::Write;
+    use feanor_math::rings::zn::zn_64::Zn;
+    use crate::cache::*;
+    use crate::number_ring::galois::*;
+    use crate::poly_eval::digit_extract::centered_digit_extract_poly;
+    
+    let Zp2X = DensePolyRing::new(Zn::new(65537 * 65537), "X");
+    let Zp2 = Zp2X.base_ring();
+    let poly = create_cached(
+        &Zp2X,
+        || RingElSerializeDeserializeWithRing::from(centered_digit_extract_poly(&Zp2X, 2)), 
+        &filename_keys!(digit_retain_poly, p: 65537, e: 2), 
+        Some("."), 
+        cache::StoreAs::AlwaysJson
+    ).into();
+    let circuit: PlaintextCircuit<feanor_math::rings::zn::zn_64::ZnBase> = create_cached(
+        (Zp2X.base_ring(), &CyclotomicGaloisGroupBase::new(2).into().full_subgroup()),
+        || poly_to_circuit(&Zp2X, &[Zp2X.clone_el(&poly)]),
+        &filename_keys!(digit_extract, p: 65537, e: 2),
+        Some("."),
+        StoreAs::AlwaysJson
+    );
+    println!("p-s mults  {}", circuit.multiplication_gate_count());
+    write!(BufWriter::new(File::create("./digit_extract_p65537_e2.fheir").unwrap()), "{}", circuit.to_ir(Zp2, None)).unwrap();
+
+    let bsgs_circuit = heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| poly_to_circuit(&Zp2X, &polys), Zp2.identity());
+    println!("bsgs mults {}", bsgs_circuit.multiplication_gate_count());
+}

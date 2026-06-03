@@ -1331,8 +1331,6 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BGVInstantiation for Comp
 }
 
 #[cfg(test)]
-use tracing_subscriber::prelude::*;
-#[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
 use std::fmt::Debug;
@@ -1582,8 +1580,6 @@ fn test_mod_switch_repeated() {
 #[ignore]
 fn measure_time_pow2_bgv_basic_ops() {
     feanor_tracing::DelayedLogger::init_test();
-    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    tracing_subscriber::registry().with(chrome_layer).init();
 
     let mut rng = rand::rng();
     let params = Pow2BGV::new(1 << 16);
@@ -1637,8 +1633,6 @@ fn measure_time_pow2_bgv_basic_ops() {
 #[ignore]
 fn measure_time_double_rns_composite_bgv_basic_ops() {
     feanor_tracing::DelayedLogger::init_test();
-    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    tracing_subscriber::registry().with(chrome_layer).init();
 
     let mut rng = rand::rng();
     
@@ -1694,8 +1688,6 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
 #[ignore]
 fn measure_time_single_rns_composite_bgv_basic_ops() {
     feanor_tracing::DelayedLogger::init_test();
-    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    tracing_subscriber::registry().with(chrome_layer).init();
 
     let mut rng = rand::rng();
     

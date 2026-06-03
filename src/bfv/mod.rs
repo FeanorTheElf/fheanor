@@ -1338,8 +1338,6 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + BFVInstantiation>(
 }
 
 #[cfg(test)]
-use tracing_subscriber::prelude::*;
-#[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
 use std::fmt::Debug;
@@ -1446,8 +1444,6 @@ fn test_pow2_huge_t() {
 #[ignore]
 fn measure_time_pow2_bfv_basic_ops() {
     feanor_tracing::DelayedLogger::init_test();
-    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    tracing_subscriber::registry().with(chrome_layer).init();
 
     let mut rng = rand::rng();
     
@@ -1498,8 +1494,6 @@ fn measure_time_pow2_bfv_basic_ops() {
 #[ignore]
 fn measure_time_double_rns_composite_bfv_basic_ops() {
     feanor_tracing::DelayedLogger::init_test();
-    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    tracing_subscriber::registry().with(chrome_layer).init();
 
     let mut rng = rand::rng();
     
@@ -1551,8 +1545,6 @@ fn measure_time_double_rns_composite_bfv_basic_ops() {
 #[ignore]
 fn measure_time_single_rns_composite_bfv_basic_ops() {
     feanor_tracing::DelayedLogger::init_test();
-    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    tracing_subscriber::registry().with(chrome_layer).init();
 
     let mut rng = rand::rng();
     

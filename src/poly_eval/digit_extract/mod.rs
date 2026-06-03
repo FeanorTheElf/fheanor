@@ -113,9 +113,9 @@ impl<R> DigitExtract<R>
         for ring in rings {
             assert!(ring.number_ring() == ring.number_ring());
         }
-
+        let Gal = rings[0].acting_galois_group();
         create_cached(
-            (rings, hypercube_iso.galois_group()),
+            (rings, Gal),
             || {
                 if ZZbig.eq_el(&p, &int_cast(2, ZZbig, ZZi64)) && e <= 23 {
                     let zn_rings = (0..=v).map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(ZZbig.clone_el(&p), r + i))).collect::<Vec<_>>();
@@ -127,7 +127,7 @@ impl<R> DigitExtract<R>
                     Self::new_digit_retain_based_with_galois(rings, &hypercube_iso)
                 }
             },
-            &filename_keys![digit_extract, m: hypercube_iso.galois_group().m(), o: hypercube_iso.galois_group().group_order(), p: &p, e: e, r: r, B: B],
+            &filename_keys![digit_extract, m: Gal.m(), o: Gal.group_order(), p: &p, e: e, r: r, B: B],
             cache_dir,
             StoreAs::AlwaysJson
         )
