@@ -156,6 +156,7 @@ fn plan_paterson_stockmeyer_circuit(ds: &[usize]) -> PatersonStockmeyerPlan {
     /// In that case, the multiplicative depth increases at most by `log2(1 + 2 * DEPTH_RELAX)` on every
     /// recursion step, and also behaves very controllably in practice.
     const DEPTH_RELAX: f64 = 0.1;
+    const MONIC_AUGMENT_OPTIONS: usize = 10;
 
     let (power_costs, _) = addition_chain_lengths(max_d, &precomputed_powers);
     let mut min_costs: Vec<usize> = Vec::new();
@@ -177,7 +178,7 @@ fn plan_paterson_stockmeyer_circuit(ds: &[usize]) -> PatersonStockmeyerPlan {
         let (monic_augment_l, monic_augment_m, _) = {
             let min_m = d + 1;
             let next_pow2 = 1 << ZZi64.abs_log2_ceil(&(d as i64 + 1)).unwrap();
-            let max_m = next_pow2;
+            let max_m = min(min_m + MONIC_AUGMENT_OPTIONS, next_pow2);
             (min_m..=max_m).map(|m| {
                 let min_possible_l = min(m - next_pow2 / 2, (d as f64 * (0.5 - DEPTH_RELAX)).ceil() as usize);
                 let max_possible_l = max(next_pow2 / 2, (d as f64 * (0.5 + DEPTH_RELAX)).floor() as usize);
@@ -438,8 +439,6 @@ use feanor_math::homomorphism::Homomorphism;
 use feanor_math::assert_el_eq;
 #[cfg(test)]
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
-#[cfg(test)]
-use crate::poly_eval::to_circuit::*;
 #[cfg(test)]
 use feanor_math::rings::zn::zn_64::Zn;
 #[cfg(test)]

@@ -1,5 +1,7 @@
 use std::cmp::min;
 
+use tracing::instrument;
+
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::divisibility::*;
@@ -8,7 +10,6 @@ use feanor_math::ring::*;
 use feanor_math::rings::zn::ZnReductionMap;
 use feanor_math::seq::*;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
-use tracing::instrument;
 
 use crate::circuit::CircuitEvaluatorCosts;
 use crate::circuit::PlaintextCircuit;
@@ -210,6 +211,7 @@ pub fn heuristic_functional_decomposition<P, R, H, F>(poly_ring: P, to_evaluate:
 /// Computes the cost of the circuit [`low_depth_bsgs_circuit()`] would return, without
 /// actually building the circuit.
 /// 
+#[instrument(skip_all)]
 pub fn low_depth_bsgs_cost<V>(degrees: V, baby_steps: usize) -> (/* mul depths */ impl VectorFn<usize>, /* mul count */ usize)
     where V: VectorFn<usize>
 {
@@ -626,6 +628,8 @@ fn test_heuristic_functional_decomposition() {
 #[test]
 #[ignore]
 fn circuit_for_65537() {
+    feanor_tracing::DelayedLogger::init(7, 100000, tracing::Level::INFO..=tracing::Level::INFO);
+
     use std::fs::File;
     use std::io::BufWriter;
     use std::io::Write;
@@ -653,6 +657,6 @@ fn circuit_for_65537() {
     println!("p-s mults  {}", circuit.multiplication_gate_count());
     write!(BufWriter::new(File::create("./digit_extract_p65537_e2.fheir").unwrap()), "{}", circuit.to_ir(Zp2, None)).unwrap();
 
-    let bsgs_circuit = heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| poly_to_circuit(&Zp2X, &polys), Zp2.identity());
-    println!("bsgs mults {}", bsgs_circuit.multiplication_gate_count());
+    let circuit = heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| poly_to_circuit(&Zp2X, &polys), Zp2.identity());
+    println!("result mults {}", circuit.multiplication_gate_count());
 }

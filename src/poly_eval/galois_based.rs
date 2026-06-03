@@ -2,23 +2,24 @@ use feanor_math::algorithms::int_factor::{factor, is_prime_power};
 use feanor_math::algorithms::poly_factor::FactorPolyField;
 use feanor_math::divisibility::{DivisibilityRing, DivisibilityRingStore};
 use feanor_math::homomorphism::Homomorphism;
-use feanor_math::integer::{BigIntRing, IntegerRingStore, int_cast};
+use feanor_math::integer::*;
 use feanor_math::iters::multiset_combinations;
 use feanor_math::ring::*;
 use feanor_math::rings::extension::{FreeAlgebra, FreeAlgebraStore};
 use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
-use feanor_math::rings::field::AsField;
+use feanor_math::field::*;
 use feanor_math::rings::finite::{FiniteRing, FiniteRingStore};
 use feanor_math::rings::poly::{PolyRing, PolyRingStore, derive_poly};
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
-use feanor_math::rings::zn::{ZnReductionMap, ZnRing, ZnRingStore, zn_big};
+use feanor_math::rings::zn::{ZnReductionMap, ZnRing, ZnRingStore, zn_64};
 use feanor_math::seq::{VectorFn, VectorViewMut};
 use feanor_math::seq::sparse::SparseMapVector;
+use feanor_math::homomorphism::SelfIso;
 use tracing::instrument;
 
 use crate::number_ring::*;
 use crate::poly_eval::to_circuit::compute_powers_circuit;
-use crate::{NiceZn, ZZbig, ZZi64};
+use crate::{NiceZn, ZZi64};
 use crate::circuit::{Coefficient, PlaintextCircuit};
 use crate::lin_transform::trace::norm_circuit;
 use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupBase, CyclotomicGaloisGroupOps, GaloisGroupEl};
@@ -43,8 +44,8 @@ fn divisors(n: i64) -> Vec<i64> {
 /// The resulting circuit has the final evaluation as last output. Earlier outputs are `1, x, x^2, x^4, x^8, ...`.
 /// 
 #[instrument(skip_all)]
-fn compute_circuit_from_irreducible_poly<P, R>(
-    FpX: &DensePolyRing<AsField<zn_big::Zn<BigIntRing>>>, 
+fn compute_circuit_from_irreducible_poly<P, R, F>(
+    FpX: &DensePolyRing<F>, 
     ZpeX: P, 
     monic_poly: &El<P>, 
     delta: &El<P>, 
@@ -57,6 +58,8 @@ fn compute_circuit_from_irreducible_poly<P, R>(
         BaseRing<P>: ZnRing + DivisibilityRing,
         R: RingStore,
         R::Type: FreeAlgebra + FiniteRing + DivisibilityRing,
+        F: RingStore,
+        F::Type: Field + ZnRing + SelfIso,
         BaseRing<R>: ZnRing
 {
     let d = ZpeX.degree(monic_poly).unwrap();
@@ -74,7 +77,7 @@ fn compute_circuit_from_irreducible_poly<P, R>(
             *modulus.at_mut(i) = Fp.negate(Fp.clone_el(c));
         }
     }
-    let Fq = FreeAlgebraImpl::new(Fp, S.rank(), modulus).as_field().unwrap();
+    let Fq = FreeAlgebraImpl::new(Fp, S.rank(), modulus).as_field().ok().unwrap();
     let FqX = DensePolyRing::new(&Fq, "X");
     let (roots, _) = <_ as FactorPolyField>::factor_poly(&FqX, &FqX.lifted_hom(&ZpeX, Fq.inclusion().compose(&Zpe_to_Fp)).map_ref(&irred_poly));
     assert_eq!(1, FqX.degree(&roots[0].0).unwrap());
@@ -141,7 +144,7 @@ fn find_irreducible_modification<P, R>(
     let Zpe = ZpeX.base_ring();
     assert!(Zpe.is_one(ZpeX.lc(monic_poly).unwrap()));
     let (p, _) = is_prime_power(Zpe.integer_ring(), Zpe.modulus()).unwrap();
-    let FpX = DensePolyRing::new(zn_big::Zn::new(ZZbig, int_cast(p, ZZbig, Zpe.integer_ring())).as_field().unwrap(), "X");
+    let FpX = DensePolyRing::new(zn_64::Zn::new(int_cast(p, ZZi64, Zpe.integer_ring()) as u64).as_field().unwrap(), "X");
     let Fp = FpX.base_ring();
     let Sbase_to_Fp = ZnReductionMap::new(S.base_ring(), Fp).unwrap();
     let Zpe_to_Sbase = ZnReductionMap::new(Zpe, S.base_ring()).unwrap();
@@ -224,6 +227,8 @@ use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 #[cfg(test)]
 use crate::number_ring::quotient_by_int::*;
+#[cfg(test)]
+use crate::ZZbig;
 
 #[test]
 fn test_poly_circuit_via_norm_pow2() {
