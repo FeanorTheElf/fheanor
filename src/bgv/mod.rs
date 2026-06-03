@@ -361,7 +361,7 @@ pub trait BGVInstantiation {
         } else {
             HypercubeStructure::halevi_shoup_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ))
         };
-        let H = HypercubeIsomorphism::new::<true>(&P, &hypercube, cache_dir);
+        let H = HypercubeIsomorphism::new(&P, &hypercube, cache_dir);
         let m = Self::dec(P, C, Self::clone_ct(P, C, ct), sk);
         println!("ciphertext (noise budget: {} / {}):", Self::noise_budget(P, C, ct, sk), ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap());
         for a in H.get_slot_values(&m) {
@@ -1337,12 +1337,13 @@ use feanor_math::assert_el_eq;
 #[cfg(test)]
 use std::fmt::Debug;
 #[cfg(test)]
-use crate::log_time;
-#[cfg(test)]
 use rand::rngs::StdRng;
+#[cfg(test)]
+use crate::log_time;
 
 #[test]
 fn test_pow2_bgv_enc_dec() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
     
     let params = Pow2BGV::new(1 << 8);
@@ -1358,6 +1359,7 @@ fn test_pow2_bgv_enc_dec() {
 
 #[test]
 fn test_pow2_bgv_gen_sk() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = StdRng::from_seed([0; 32]);
         
     let params = Pow2BGV::new(1 << 8);
@@ -1376,6 +1378,7 @@ fn test_pow2_bgv_gen_sk() {
 
 #[test]
 fn test_pow2_bgv_mul() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
     
     let params = Pow2BGV::new(1 << 8);
@@ -1393,6 +1396,7 @@ fn test_pow2_bgv_mul() {
 
 #[test]
 fn test_pow2_bgv_hybrid_key_switch() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
     
     let params = Pow2BGV::new(1 << 8);
@@ -1442,6 +1446,7 @@ fn test_pow2_bgv_hybrid_key_switch() {
 
 #[test]
 fn test_pow2_bgv_modulus_switch() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
     
     let params = Pow2BGV::new(1 << 8);
@@ -1469,6 +1474,7 @@ fn test_pow2_bgv_modulus_switch() {
 
 #[test]
 fn test_pow2_change_plaintext_modulus() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
     
     let params = Pow2BGV::new(1 << 8);
@@ -1487,6 +1493,7 @@ fn test_pow2_change_plaintext_modulus() {
 
 #[test]
 fn test_pow2_modulus_switch_hom_add() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
     
     let params = Pow2BGV::new(1 << 8);
@@ -1515,6 +1522,7 @@ fn test_pow2_modulus_switch_hom_add() {
 
 #[test]
 fn test_pow2_bgv_modulus_switch_rk() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
     
     let params = Pow2BGV::new(1 << 8);
@@ -1549,6 +1557,7 @@ fn test_pow2_bgv_modulus_switch_rk() {
 
 #[test]
 fn test_mod_switch_repeated() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = StdRng::from_seed([0; 32]);
     
     let params = Pow2BGV::new(1 << 8);
@@ -1572,44 +1581,45 @@ fn test_mod_switch_repeated() {
 #[test]
 #[ignore]
 fn measure_time_pow2_bgv_basic_ops() {
+    feanor_tracing::DelayedLogger::init_test();
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
     let mut rng = rand::rng();
     let params = Pow2BGV::new(1 << 16);
     
-    let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
+    let P = log_time("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64))
     );
 
-    let C = log_time::<_, _, true, _>("CreateCtxtRing", |[]|
+    let C = log_time("CreateCtxtRing", |[]|
         params.create_ciphertext_ring(790..800)
     );
 
-    let sk = log_time::<_, _, true, _>("GenSK", |[]| 
+    let sk = log_time("GenSK", |[]| 
         Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
 
     let m = P.int_hom().map(2);
-    let ct = log_time::<_, _, true, _>("EncSym", |[]|
+    let ct = log_time("EncSym", |[]|
         Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
     );
 
-    let res = log_time::<_, _, true, _>("HomAddPlain", |[]| 
+    let res = log_time("HomAddPlain", |[]| 
         Pow2BGV::hom_add_plain(&P, &C, &m, Pow2BGV::clone_ct(&P, &C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, res, &sk));
 
-    let res = log_time::<_, _, true, _>("HomMulPlain", |[]| 
+    let res = log_time("HomMulPlain", |[]| 
         Pow2BGV::hom_mul_plain(&P, &C, &m, Pow2BGV::clone_ct(&P, &C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, res, &sk));
 
-    let rk = log_time::<_, _, true, _>("GenRK", |[]| 
+    let rk = log_time("GenRK", |[]| 
         Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2)
     );
     let ct2 = Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
-    let res = log_time::<_, _, true, _>("HomMul", |[]| 
+    let res = log_time("HomMul", |[]| 
         Pow2BGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &res), &sk));
@@ -1617,7 +1627,7 @@ fn measure_time_pow2_bgv_basic_ops() {
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
     let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
     let sk_new = Pow2BGV::mod_switch_sk(&C_new, &C, &sk);
-    let res_new = log_time::<_, _, true, _>("ModSwitch", |[]| 
+    let res_new = log_time("ModSwitch", |[]| 
         Pow2BGV::mod_switch_ct(&P, &C_new, &C, res)
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C_new, res_new, &sk_new));
@@ -1626,6 +1636,7 @@ fn measure_time_pow2_bgv_basic_ops() {
 #[test]
 #[ignore]
 fn measure_time_double_rns_composite_bgv_basic_ops() {
+    feanor_tracing::DelayedLogger::init_test();
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1633,39 +1644,39 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
     
     let params = CompositeBGV::new(127, 337);
     
-    let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
+    let P = log_time("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))
     );
 
-    let C = log_time::<_, _, true, _>("CreateCtxtRing", |[]|
+    let C = log_time("CreateCtxtRing", |[]|
         params.create_ciphertext_ring(1090..1100)
     );
 
-    let sk = log_time::<_, _, true, _>("GenSK", |[]| 
+    let sk = log_time("GenSK", |[]| 
         CompositeBGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
     
     let m = P.int_hom().map(3);
-    let ct = log_time::<_, _, true, _>("EncSym", |[]|
+    let ct = log_time("EncSym", |[]|
         CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
     );
     assert_el_eq!(&P, &P.int_hom().map(3), &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &ct), &sk));
 
-    let res = log_time::<_, _, true, _>("HomAddPlain", |[]| 
+    let res = log_time("HomAddPlain", |[]| 
         CompositeBGV::hom_add_plain(&P, &C, &m, CompositeBGV::clone_ct(&P, &C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(2), &CompositeBGV::dec(&P, &C, res, &sk));
 
-    let res = log_time::<_, _, true, _>("HomMulPlain", |[]| 
+    let res = log_time("HomMulPlain", |[]| 
         CompositeBGV::hom_mul_plain(&P, &C, &m, CompositeBGV::clone_ct(&P, &C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C, res, &sk));
 
-    let rk = log_time::<_, _, true, _>("GenRK", |[]| 
+    let rk = log_time("GenRK", |[]| 
         CompositeBGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2)
     );
     let ct2 = CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
-    let res = log_time::<_, _, true, _>("HomMul", |[]|
+    let res = log_time("HomMul", |[]|
         CompositeBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &res), &sk));
@@ -1673,7 +1684,7 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
     let C_new = CompositeBGV::mod_switch_down_C(&C, &to_drop);
     let sk_new = CompositeBGV::mod_switch_sk(&C_new, &C, &sk);
-    let res_new = log_time::<_, _, true, _>("ModSwitch", |[]| 
+    let res_new = log_time("ModSwitch", |[]| 
         CompositeBGV::mod_switch_ct(&P, &C_new, &C, res)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C_new, res_new, &sk_new));
@@ -1682,6 +1693,7 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
 #[test]
 #[ignore]
 fn measure_time_single_rns_composite_bgv_basic_ops() {
+    feanor_tracing::DelayedLogger::init_test();
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1689,39 +1701,39 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
     
     let params = CompositeSingleRNSBGV::new(127, 337);
     
-    let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
+    let P = log_time("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))
     );
 
-    let C = log_time::<_, _, true, _>("CreateCtxtRing", |[]|
+    let C = log_time("CreateCtxtRing", |[]|
         params.create_ciphertext_ring(1090..1100)
     );
 
-    let sk = log_time::<_, _, true, _>("GenSK", |[]| 
+    let sk = log_time("GenSK", |[]| 
         CompositeSingleRNSBGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
     
     let m = P.int_hom().map(3);
-    let ct = log_time::<_, _, true, _>("EncSym", |[]|
+    let ct = log_time("EncSym", |[]|
         CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
     );
     assert_el_eq!(&P, &P.int_hom().map(3), &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct), &sk));
 
-    let res = log_time::<_, _, true, _>("HomAddPlain", |[]| 
+    let res = log_time("HomAddPlain", |[]| 
         CompositeSingleRNSBGV::hom_add_plain(&P, &C, &m, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(2), &CompositeSingleRNSBGV::dec(&P, &C, res, &sk));
 
-    let res = log_time::<_, _, true, _>("HomMulPlain", |[]| 
+    let res = log_time("HomMulPlain", |[]| 
         CompositeSingleRNSBGV::hom_mul_plain(&P, &C, &m, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C, res, &sk));
 
-    let rk = log_time::<_, _, true, _>("GenRK", |[]| 
+    let rk = log_time("GenRK", |[]| 
         CompositeSingleRNSBGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2)
     );
     let ct2 = CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
-    let res = log_time::<_, _, true, _>("HomMul", |[]| 
+    let res = log_time("HomMul", |[]| 
         CompositeSingleRNSBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &res), &sk));
@@ -1729,7 +1741,7 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
     let C_new = CompositeSingleRNSBGV::mod_switch_down_C(&C, &to_drop);
     let sk_new = CompositeSingleRNSBGV::mod_switch_sk(&C_new, &C, &sk);
-    let res_new = log_time::<_, _, true, _>("ModSwitch", |[]| 
+    let res_new = log_time("ModSwitch", |[]| 
         CompositeSingleRNSBGV::mod_switch_ct(&P, &C_new, &C, res)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C_new, res_new, &sk_new));

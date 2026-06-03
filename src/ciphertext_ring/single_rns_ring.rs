@@ -1113,6 +1113,7 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
 
 #[test]
 fn test_multiple_representations() {
+    feanor_tracing::DelayedLogger::init_test();
     let rns_base = zn_rns::Zn::new(vec![Zn::new(2113), Zn::new(2689)], BigIntRing::RING);
     let ring: SingleRNSRing<_> = SingleRNSRingBase::new(OddSquarefreeCyclotomicNumberRing::new(3), rns_base.clone());
 
@@ -1163,6 +1164,7 @@ fn test_multiple_representations() {
 
 #[test]
 fn test_two_by_two_convolution() {
+    feanor_tracing::DelayedLogger::init_test();
     let rns_base = zn_rns::Zn::new(vec![Zn::new(65537), Zn::new(2689)], BigIntRing::RING);
     let ring: SingleRNSRing<_> = SingleRNSRingBase::new(OddSquarefreeCyclotomicNumberRing::new(3), rns_base.clone());
 
@@ -1187,6 +1189,7 @@ fn test_two_by_two_convolution() {
 
 #[test]
 fn test_galois_automorphisms() {
+    feanor_tracing::DelayedLogger::init_test();
     let rns_base = zn_rns::Zn::new(vec![Zn::new(65537), Zn::new(4481)], BigIntRing::RING);
     let ring: SingleRNSRing<_> = SingleRNSRingBase::new(TensorProductNumberRing::new(5, 7), rns_base.clone());
     let poly_ring = DensePolyRing::new(ring.base_ring(), "X");

@@ -1555,6 +1555,7 @@ use crate::poly_eval::to_circuit::poly_to_circuit;
 
 #[test]
 fn test_modswitch_strategy_inner_prod() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
 
     let params = Pow2BGV::new(1 << 8);
@@ -1609,6 +1610,7 @@ fn test_modswitch_strategy_inner_prod() {
 
 #[test]
 fn test_modswitch_strategy_mul() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
 
     let params = Pow2BGV::new(1 << 8);
@@ -1650,6 +1652,7 @@ fn test_modswitch_strategy_mul() {
 
 #[test]
 fn test_never_modswitch_strategy_mul() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
 
     let params = Pow2BGV::new(1 << 8);
@@ -1723,6 +1726,7 @@ fn test_never_modswitch_strategy_mul() {
 
 #[test]
 fn test_modswitch_strategy_evaluate_circuit() {
+    feanor_tracing::DelayedLogger::init_test();
     let mut rng = rand::rng();
 
     let params = Pow2BGV::new(1 << 8);
@@ -1763,6 +1767,7 @@ fn test_modswitch_strategy_evaluate_circuit() {
 
 #[test]
 fn test_level_digits() {
+    feanor_tracing::DelayedLogger::init_test();
     let a = [2, 2, 6, 6];
     let b = [2, 2, 3, 3];
     let k = 2;

@@ -36,7 +36,7 @@ fn main() {
 
     let galois_group = params.number_ring().galois_group();
     let acting_galois_group = galois_group.get_group().clone().subgroup([galois_group.from_representative(513)]);
-    let P = params.create_plaintext_ring::<true>(ZZX, t, p, acting_galois_group);
+    let P = params.create_plaintext_ring(ZZX, t, p, acting_galois_group);
 
     let FpX = DensePolyRing::new(P.base_ring(), "X");
     println!("G(X)     = {}", FpX.format(&P.generating_poly(&FpX, FpX.base_ring().identity())));

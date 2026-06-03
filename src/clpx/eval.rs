@@ -235,6 +235,7 @@ use crate::poly_eval::to_circuit::poly_to_circuit;
 
 #[test]
 fn test_hom_evaluate_circuit() {
+    feanor_tracing::DelayedLogger::init_test();
     let (P, C, C_mul, sk, rk, m, ct) = test_setup_clpx(Pow2CLPX::new(1 << 8));
     let FpX = DensePolyRing::new(P.base_ring(), "X");
     let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(7) - 3 * X.pow_ref(3) + 2 * X + 10]);

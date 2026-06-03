@@ -164,6 +164,7 @@ use std::alloc::Global;
 
 #[test]
 fn test_extract_coefficient_map() {
+    feanor_tracing::DelayedLogger::init_test();
     let convolution = DynConvolutionAlgorithmConvolution::<ZnBase, Arc<dyn DynConvolutionAlgorithm<ZnBase>>>::new(Arc::new(STANDARD_CONVOLUTION));
     let base_ring = Zn::new(17 * 17);
     let modulus = (0..4).map(|_| base_ring.neg_one()).collect::<Vec<_>>();
@@ -186,6 +187,7 @@ fn test_extract_coefficient_map() {
 
 #[test]
 fn test_trace_circuit() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(3));
     let full_galois_group = ring.number_ring().galois_group();
     let relative_galois_group = full_galois_group.get_group().clone().subgroup([full_galois_group.from_representative(3)]);

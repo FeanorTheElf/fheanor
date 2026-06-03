@@ -407,6 +407,7 @@ use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 
 #[test]
 fn test_odd_cyclotomic_double_rns_ring() {
+    feanor_tracing::DelayedLogger::init_test();
     double_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 5));
     double_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 7));
     double_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
@@ -414,6 +415,7 @@ fn test_odd_cyclotomic_double_rns_ring() {
 
 #[test]
 fn test_odd_cyclotomic_single_rns_ring() {
+    feanor_tracing::DelayedLogger::init_test();
     single_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 5));
     single_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 7));
     single_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
@@ -421,6 +423,7 @@ fn test_odd_cyclotomic_single_rns_ring() {
 
 #[test]
 fn test_odd_cyclotomic_decomposition_ring() {
+    feanor_tracing::DelayedLogger::init_test();
     quotient_by_int::test_with_number_ring(TensorProductNumberRing::new(3, 5));
     quotient_by_int::test_with_number_ring(TensorProductNumberRing::new(3, 7));
     quotient_by_int::test_with_number_ring(TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
@@ -428,6 +431,7 @@ fn test_odd_cyclotomic_decomposition_ring() {
 
 #[test]
 fn test_small_coeff_basis_conversion() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = zn_64::Zn::new(241);
     let number_ring = TensorProductNumberRing::new(3, 5);
     let decomposition = number_ring.bases_mod_p(ring);
@@ -494,6 +498,7 @@ fn test_small_coeff_basis_conversion() {
 
 #[test]
 fn test_permute_galois_automorphism() {
+    feanor_tracing::DelayedLogger::init_test();
     let Fp = zn_64::Zn::new(257);
     let R = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 3), Fp);
     let gal_el = |x: i64| R.number_ring().galois_group().from_representative(x);

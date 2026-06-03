@@ -555,14 +555,14 @@ fn circuit_for_65537() {
 
     let Zp2X = DensePolyRing::new(Zn::new(65537 * 65537), "X");
     let Zp2 = Zp2X.base_ring();
-    let poly = create_cached::<_, _, _, true>(
+    let poly = create_cached(
         &Zp2X,
         || RingElSerializeDeserializeWithRing::from(centered_digit_extract_poly(&Zp2X, 2)), 
         &filename_keys!(digit_retain_poly, p: 65537, e: 2), 
         Some("."), 
         cache::StoreAs::AlwaysJson
     ).into();
-    let circuit: PlaintextCircuit<feanor_math::rings::zn::zn_64::ZnBase> = create_cached::<_, _, _, true>(
+    let circuit: PlaintextCircuit<feanor_math::rings::zn::zn_64::ZnBase> = create_cached(
         (Zp2X.base_ring(), &CyclotomicGaloisGroupBase::new(2).into().full_subgroup()),
         || heuristic_functional_decomposition(&Zp2X, vec![Zp2X.clone_el(&poly)], &mut |Zp2X, polys, _| paterson_stockmeyer_circuit(&Zp2X, &polys), Zp2.identity()),
         &filename_keys!(digit_extract, p: 65537, e: 2),

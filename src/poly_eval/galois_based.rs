@@ -228,7 +228,7 @@ use crate::number_ring::quotient_by_int::*;
 #[test]
 fn test_poly_circuit_via_norm_pow2() {
     let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(16), Zn::new(3));
-    let hypercube = HypercubeIsomorphism::new::<false>(&ring, &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)), None);
+    let hypercube = HypercubeIsomorphism::new(&ring, &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)), None);
     assert_eq!(4, hypercube.slot_ring().rank());
     assert_eq!(2, hypercube.slot_count());
     let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
@@ -254,7 +254,7 @@ fn test_poly_circuit_via_norm_pow2() {
     }
 
     let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(16), Zn::new(27));
-    let hypercube = HypercubeIsomorphism::new::<false>(&ring, &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)), None);
+    let hypercube = HypercubeIsomorphism::new(&ring, &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)), None);
     assert_eq!(4, hypercube.slot_ring().rank());
     assert_eq!(2, hypercube.slot_count());
     let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
@@ -280,7 +280,7 @@ fn test_poly_circuit_via_norm_pow2() {
     }
 
     let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(27));
-    let hypercube = HypercubeIsomorphism::new::<false>(&ring, &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)), None);
+    let hypercube = HypercubeIsomorphism::new(&ring, &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)), None);
     assert_eq!(16, hypercube.slot_ring().rank());
     assert_eq!(2, hypercube.slot_count());
     let poly_ring = DensePolyRing::new(ring.base_ring(), "X");

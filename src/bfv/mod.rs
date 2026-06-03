@@ -297,7 +297,7 @@ pub trait BFVInstantiation {
         } else {
             HypercubeStructure::halevi_shoup_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ))
         };
-        let H = HypercubeIsomorphism::new::<false>(&P, &hypercube, dir);
+        let H = HypercubeIsomorphism::new(&P, &hypercube, dir);
         let m = Self::dec(P, C, Self::clone_ct(C, ct), sk);
         println!("ciphertext (noise budget: {}):", Self::noise_budget(P, C, ct, sk));
         for a in H.get_slot_values(&m) {
@@ -1361,12 +1361,14 @@ pub fn test_setup_bfv<Inst: BFVInstantiation>(params: Inst) -> (PlaintextRing<In
 
 #[test]
 fn test_pow2_enc_dec() {
+    feanor_tracing::DelayedLogger::init_test();
     let (P, C, _C_mul, sk, _rk, m, ct) = test_setup_bfv(Pow2BFV::new(1 << 8));
     assert_el_eq!(&P, m, Pow2BFV::dec(&P, &C, ct, &sk));
 }
 
 #[test]
 fn test_pow2_hom_galois() {
+    feanor_tracing::DelayedLogger::init_test();
     let (P, C, _C_mul, sk, rk, _, _) = test_setup_bfv(Pow2BFV::new(1 << 8));
     let gk = Pow2BFV::gen_gk(&C, rand::rng(), &sk, &P.acting_galois_group().from_representative(3), rk.0.gadget_vector_digits(), 3.2);
 
@@ -1378,6 +1380,7 @@ fn test_pow2_hom_galois() {
 
 #[test]
 fn test_composite_hom_galois() {
+    feanor_tracing::DelayedLogger::init_test();
     let (P, C, _C_mul, sk, rk, _, _) = test_setup_bfv(CompositeSingleRNSBFV::new(17, 31));
     let gk = CompositeSingleRNSBFV::gen_gk(&C, rand::rng(), &sk, &P.acting_galois_group().from_representative(3), rk.0.gadget_vector_digits(), 3.2);
 
@@ -1389,6 +1392,7 @@ fn test_composite_hom_galois() {
 
 #[test]
 fn test_pow2_mul() {
+    feanor_tracing::DelayedLogger::init_test();
     let (P, C, C_mul, sk, rk, _, ct) = test_setup_bfv(Pow2BFV::new(1 << 8));
     let res = Pow2BFV::hom_mul(&P, &C, &C_mul, Pow2BFV::clone_ct(&C, &ct), ct, &rk);
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BFV::dec(&P, &C, res, &sk));
@@ -1396,6 +1400,7 @@ fn test_pow2_mul() {
 
 #[test]
 fn test_composite_mul() {
+    feanor_tracing::DelayedLogger::init_test();
     let (P, C, C_mul, sk, rk, _, ct) = test_setup_bfv(CompositeBFV::new(17, 31));
     let res = CompositeBFV::hom_mul(&P, &C, &C_mul, CompositeBFV::clone_ct(&C, &ct), ct, &rk);
     assert_el_eq!(&P, &P.int_hom().map(4), &CompositeBFV::dec(&P, &C, res, &sk));
@@ -1406,7 +1411,8 @@ fn test_composite_mul() {
 }
 
 #[test]
-fn test_pow2_large_t() {    
+fn test_pow2_large_t() {  
+    feanor_tracing::DelayedLogger::init_test();  
     let instantiation = Pow2BFV::new(1 << 11);
     let P = instantiation.create_plaintext_ring(ZZbig.power_of_two(50));
     let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
@@ -1422,6 +1428,7 @@ fn test_pow2_large_t() {
 
 #[test]
 fn test_pow2_huge_t() {    
+    feanor_tracing::DelayedLogger::init_test();
     let instantiation = Pow2HighPrecBFV::new(1 << 11);
     let P = instantiation.create_plaintext_ring(ZZbig.power_of_two(70));
     let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
@@ -1438,6 +1445,7 @@ fn test_pow2_huge_t() {
 #[test]
 #[ignore]
 fn measure_time_pow2_bfv_basic_ops() {
+    feanor_tracing::DelayedLogger::init_test();
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1445,42 +1453,42 @@ fn measure_time_pow2_bfv_basic_ops() {
     
     let params = Pow2BFV::new(1 << 16);
     
-    let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
+    let P = log_time("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64))
     );
-    let (C, C_mul) = log_time::<_, _, true, _>("CreateCtxtRing", |[]|
+    let (C, C_mul) = log_time("CreateCtxtRing", |[]|
         params.create_ciphertext_rings(790..800)
     );
 
-    let sk = log_time::<_, _, true, _>("GenSK", |[]| 
+    let sk = log_time("GenSK", |[]| 
         Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
 
     let m = P.int_hom().map(2);
-    let ct = log_time::<_, _, true, _>("EncSym", |[]|
+    let ct = log_time("EncSym", |[]|
         Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
     );
 
-    let res = log_time::<_, _, true, _>("HomAddPlain", |[]| 
+    let res = log_time("HomAddPlain", |[]| 
         Pow2BFV::hom_add_plain(&P, &C, &m, Pow2BFV::clone_ct(&C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BFV::dec(&P, &C, res, &sk));
 
-    let res = log_time::<_, _, true, _>("HomAdd", |[]| 
+    let res = log_time("HomAdd", |[]| 
         Pow2BFV::hom_add(&C, Pow2BFV::clone_ct(&C, &ct), &ct)
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BFV::dec(&P, &C, res, &sk));
 
-    let res = log_time::<_, _, true, _>("HomMulPlain", |[]| 
+    let res = log_time("HomMulPlain", |[]| 
         Pow2BFV::hom_mul_plain(&P, &C, &m, Pow2BFV::clone_ct(&C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BFV::dec(&P, &C, res, &sk));
 
-    let rk = log_time::<_, _, true, _>("GenRK", |[]| 
+    let rk = log_time("GenRK", |[]| 
         Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2)
     );
     let ct2 = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
-    let res = log_time::<_, _, true, _>("HomMul", |[]| 
+    let res = log_time("HomMul", |[]| 
         Pow2BFV::hom_mul(&P, &C, &C_mul, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BFV::dec(&P, &C, res, &sk));
@@ -1489,6 +1497,7 @@ fn measure_time_pow2_bfv_basic_ops() {
 #[test]
 #[ignore]
 fn measure_time_double_rns_composite_bfv_basic_ops() {
+    feanor_tracing::DelayedLogger::init_test();
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1496,43 +1505,43 @@ fn measure_time_double_rns_composite_bfv_basic_ops() {
     
     let params = CompositeBFV::new(127, 337);
     
-    let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
+    let P = log_time("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))
     );
-    let (C, C_mul) = log_time::<_, _, true, _>("CreateCtxtRing", |[]|
+    let (C, C_mul) = log_time("CreateCtxtRing", |[]|
         params.create_ciphertext_rings(1090..1100)
     );
 
-    let sk = log_time::<_, _, true, _>("GenSK", |[]| 
+    let sk = log_time("GenSK", |[]| 
         CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
     
     let m = P.int_hom().map(3);
-    let ct = log_time::<_, _, true, _>("EncSym", |[]|
+    let ct = log_time("EncSym", |[]|
         CompositeBFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
     );
     assert_el_eq!(&P, &P.int_hom().map(3), &CompositeBFV::dec(&P, &C, CompositeBFV::clone_ct(&C, &ct), &sk));
 
-    let res = log_time::<_, _, true, _>("HomAdd", |[]| 
+    let res = log_time("HomAdd", |[]| 
         CompositeBFV::hom_add(&C, CompositeBFV::clone_ct(&C, &ct), &ct)
     );
     assert_el_eq!(&P, &P.int_hom().map(2), &CompositeBFV::dec(&P, &C, res, &sk));
 
-    let res = log_time::<_, _, true, _>("HomAddPlain", |[]| 
+    let res = log_time("HomAddPlain", |[]| 
         CompositeBFV::hom_add_plain(&P, &C, &m, CompositeBFV::clone_ct(&C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(2), &CompositeBFV::dec(&P, &C, res, &sk));
 
-    let res = log_time::<_, _, true, _>("HomMulPlain", |[]| 
+    let res = log_time("HomMulPlain", |[]| 
         CompositeBFV::hom_mul_plain(&P, &C, &m, CompositeBFV::clone_ct(&C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBFV::dec(&P, &C, res, &sk));
 
-    let rk = log_time::<_, _, true, _>("GenRK", |[]| 
+    let rk = log_time("GenRK", |[]| 
         CompositeBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2)
     );
     let ct2 = CompositeBFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
-    let res = log_time::<_, _, true, _>("HomMul", |[]| 
+    let res = log_time("HomMul", |[]| 
         CompositeBFV::hom_mul(&P, &C, &C_mul, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBFV::dec(&P, &C, res, &sk));
@@ -1541,6 +1550,7 @@ fn measure_time_double_rns_composite_bfv_basic_ops() {
 #[test]
 #[ignore]
 fn measure_time_single_rns_composite_bfv_basic_ops() {
+    feanor_tracing::DelayedLogger::init_test();
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
@@ -1548,42 +1558,42 @@ fn measure_time_single_rns_composite_bfv_basic_ops() {
     
     let params = CompositeSingleRNSBFV::new(127, 337);
 
-    let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
+    let P = log_time("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))
     );
-    let (C, C_mul) = log_time::<_, _, true, _>("CreateCtxtRing", |[]|
+    let (C, C_mul) = log_time("CreateCtxtRing", |[]|
         params.create_ciphertext_rings(1090..1100)
     );
 
-    let sk = log_time::<_, _, true, _>("GenSK", |[]| 
+    let sk = log_time("GenSK", |[]| 
         CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
 
     let m = P.int_hom().map(3);
-    let ct = log_time::<_, _, true, _>("EncSym", |[]|
+    let ct = log_time("EncSym", |[]|
         CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
     );
 
-    let res = log_time::<_, _, true, _>("HomAddPlain", |[]| 
+    let res = log_time("HomAddPlain", |[]| 
         CompositeSingleRNSBFV::hom_add_plain(&P, &C, &m, CompositeSingleRNSBFV::clone_ct(&C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(2), &CompositeSingleRNSBFV::dec(&P, &C, res, &sk));
 
-    let res = log_time::<_, _, true, _>("HomAdd", |[]| 
+    let res = log_time("HomAdd", |[]| 
         CompositeSingleRNSBFV::hom_add(&C, CompositeSingleRNSBFV::clone_ct(&C, &ct), &ct)
     );
     assert_el_eq!(&P, &P.int_hom().map(2), &CompositeSingleRNSBFV::dec(&P, &C, res, &sk));
 
-    let res = log_time::<_, _, true, _>("HomMulPlain", |[]| 
+    let res = log_time("HomMulPlain", |[]| 
         CompositeSingleRNSBFV::hom_mul_plain(&P, &C, &m, CompositeSingleRNSBFV::clone_ct(&C, &ct))
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBFV::dec(&P, &C, res, &sk));
 
-    let rk = log_time::<_, _, true, _>("GenRK", |[]| 
+    let rk = log_time("GenRK", |[]| 
         CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2)
     );
     let ct2 = CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
-    let res = log_time::<_, _, true, _>("HomMul", |[]| 
+    let res = log_time("HomMul", |[]| 
         CompositeSingleRNSBFV::hom_mul(&P, &C, &C_mul, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBFV::dec(&P, &C, res, &sk));

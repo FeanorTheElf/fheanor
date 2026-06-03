@@ -601,6 +601,7 @@ pub fn unit_group_dlog(ring: &Zn, base: ZnEl, value: ZnEl) -> Option<i64> {
 
 #[test]
 fn test_halevi_shoup_hypercube() {
+    feanor_tracing::DelayedLogger::init_test();
     let galois_group = CyclotomicGaloisGroupBase::new(11 * 31).into().full_subgroup();
     let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(&galois_group, int_cast(2, ZZbig, ZZi64));
     assert_eq!(10, hypercube_structure.d());
@@ -612,6 +613,7 @@ fn test_halevi_shoup_hypercube() {
 
 #[test]
 fn test_pow2_hypercube() {
+    feanor_tracing::DelayedLogger::init_test();
     let galois_group = CyclotomicGaloisGroupBase::new(32).into().full_subgroup();
     let hypercube_structure = HypercubeStructure::default_pow2_hypercube(&galois_group, int_cast(7, ZZbig, ZZi64));
     assert_eq!(4, hypercube_structure.d());
@@ -630,6 +632,7 @@ fn test_pow2_hypercube() {
 
 #[test]
 fn test_serialization() {
+    feanor_tracing::DelayedLogger::init_test();
     for hypercube in [
         HypercubeStructure::halevi_shoup_hypercube(&CyclotomicGaloisGroupBase::new(11 * 31).into().full_subgroup(), int_cast(2, ZZbig, ZZi64)),
         HypercubeStructure::default_pow2_hypercube(&CyclotomicGaloisGroupBase::new(32).into().full_subgroup(), int_cast(7, ZZbig, ZZi64)),

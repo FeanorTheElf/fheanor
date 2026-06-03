@@ -115,12 +115,14 @@ use feanor_math::assert_el_eq;
 
 #[test]
 fn test_dyn_convolution_is_dyn_compatible() {
+    feanor_tracing::DelayedLogger::init_test();
     #[allow(unused)]
     fn test(_: &dyn DynConvolutionAlgorithm<StaticRing<i64>>) {}
 }
 
 #[test]
 fn test_dyn_convolution_convolution_use_build_ring() {
+    feanor_tracing::DelayedLogger::init_test();
     fn do_test(conv: Box<dyn DynConvolutionAlgorithm<ZnBase>>) {
         let base_ring = Zn::new(2);
         let ring = FreeAlgebraImpl::new_with_convolution(base_ring, 3, [base_ring.one(), base_ring.one()], "a", Global, DynConvolutionAlgorithmConvolution::<ZnBase>::new(conv));

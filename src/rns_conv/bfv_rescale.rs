@@ -334,6 +334,7 @@ impl<A> RNSOperation for RNSRescaling<A>
 
 #[test]
 fn test_rescale_partial() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(257), Zn::new(113)];
     let q = 17 * 97 * 113;
@@ -364,6 +365,7 @@ fn test_rescale_partial() {
 
 #[test]
 fn test_rescale_larger_unordered() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17),  Zn::new(23), Zn::new(29), Zn::new(31), Zn::new(19)];
     let to = vec![Zn::new(19), Zn::new(17), Zn::new(5), Zn::new(23)];
     let q = 17 * 31 * 23 * 29 * 19;
@@ -394,6 +396,7 @@ fn test_rescale_larger_unordered() {
 
 #[test]
 fn test_rescale_larger() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(31), Zn::new(23), Zn::new(29), Zn::new(19)];
     let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
     let q = 17 * 31 * 23 * 29 * 19;
@@ -424,6 +427,7 @@ fn test_rescale_larger() {
 
 #[test]
 fn test_rescale_convert() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(31), Zn::new(23), Zn::new(29), Zn::new(19)];
     let to = vec![Zn::new(31), Zn::new(29)];
     let q = 17 * 31 * 23 * 29 * 19;
@@ -459,6 +463,7 @@ fn test_rescale_convert() {
 
 #[test]
 fn test_rescale_small_num() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(19), Zn::new(23), Zn::new(113)];
     let q = 17 * 97 * 113;
@@ -489,6 +494,7 @@ fn test_rescale_small_num() {
 
 #[test]
 fn test_rescale_small() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
     let to = vec![Zn::new(29)];
     let q = 17 * 19 * 23;

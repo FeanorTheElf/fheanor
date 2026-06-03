@@ -982,13 +982,14 @@ use crate::circuit::evaluator::CircuitEvaluator;
 
 #[test]
 fn test_to_circuit_single() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
-    let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
+    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
 
     let transform = MatmulTransform::identity(&ring, H.hypercube());
     let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
@@ -1028,7 +1029,7 @@ fn test_to_circuit_single() {
     assert_eq!(2, hypercube.dim_count());
     assert_eq!(1, hypercube.d());
     assert_eq!(16, hypercube.dim_length(0));
-    let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
+    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
 
     let transform = MatmulTransform::linear_combine_shifts(&H, [
         ([0, 0], ring.int_hom().map(0)),
@@ -1055,6 +1056,8 @@ fn test_to_circuit_single() {
 
 #[test]
 fn test_to_circuit_many() {
+    feanor_tracing::DelayedLogger::init_test();
+
     struct MulDepthEvaluator;
 
     impl<'a, R: ?Sized + RingBase> CircuitEvaluator<'a, usize, R> for MulDepthEvaluator {
@@ -1085,7 +1088,7 @@ fn test_to_circuit_many() {
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
-    let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
+    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
     let perm = [0, 2, 1, 3];
     let permutation = MatmulTransform::matmul1d(&H, 0, |i, j, _| if i == perm[j] {
         H.slot_ring().one()
@@ -1119,7 +1122,7 @@ fn test_to_circuit_many() {
     assert_eq!(2, hypercube.dim_count());
     assert_eq!(1, hypercube.d());
     assert_eq!(16, hypercube.dim_length(0));
-    let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
+    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
 
     let transform = MatmulTransform::to_circuit_many(&ring, H.hypercube(), vec![
         MatmulTransform::linear_combine_shifts(&H, [
@@ -1148,9 +1151,10 @@ fn test_to_circuit_many() {
 
 #[test]
 fn test_compute_automorphisms_per_dimension() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(3, 19), Zn::new(7));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(7, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
+    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
     assert_eq!(2, H.hypercube().dim_count());
     assert_eq!(3, H.slot_ring().rank());
     assert_eq!(6, H.hypercube().dim_length(0));
@@ -1166,13 +1170,14 @@ fn test_compute_automorphisms_per_dimension() {
 
 #[test]
 fn test_compose() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
-    let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
+    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
 
     let transform1 = MatmulTransform::matmul1d(&H, 0, |i, j, _| if i == j + 1 {
         H.slot_ring().one()
@@ -1197,7 +1202,7 @@ fn test_compose() {
     assert_eq!(2, hypercube.dim_count());
     assert_eq!(1, hypercube.d());
     assert_eq!(16, hypercube.dim_length(0));
-    let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
+    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
 
     let transform = MatmulTransform::linear_combine_shifts(&H, [
         ([-1, 0], ring.one()),
@@ -1220,13 +1225,14 @@ fn test_compose() {
 
 #[test]
 fn test_invert() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
-    let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
+    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
 
     // Vandermonde matrix w.r.t. [1, 2, 3, 4]
     let transform = MatmulTransform::matmul1d(&H, 0, |i, j, _| H.slot_ring().int_hom().map(StaticRing::<i32>::RING.pow(i as i32 + 1, j)));
@@ -1241,10 +1247,11 @@ fn test_invert() {
 
 #[test]
 fn test_blockmatmul1d() {
+    feanor_tracing::DelayedLogger::init_test();
     // F23[X]/(Phi_5) ~ F_(23^4)
     let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(5), Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
+    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
     let matrix = [
         [1, 0, 1, 0],
         [0, 0, 0, 2],
@@ -1268,7 +1275,7 @@ fn test_blockmatmul1d() {
     // F23[X]/(Phi_7) ~ F_(23^3)^2
     let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, &hypercube, None);
+    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
     let matrix = [
         [1, 0, 0],
         [2, 0, 0],

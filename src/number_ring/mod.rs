@@ -318,6 +318,7 @@ use feanor_math::pid::EuclideanRingStore;
 
 #[test]
 fn test_sample_primes() {
+    feanor_tracing::DelayedLogger::init_test();
     let ZZi64 = StaticRing::<i64>::RING;
     let ZZbig = BigIntRing::RING;
     let result = sample_primes(60, 62, 58, |b| largest_prime_leq_congruent_to_one(int_cast(b, ZZi64, ZZbig), 422144).map(|x| int_cast(x, ZZbig, ZZi64))).unwrap();

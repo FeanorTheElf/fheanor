@@ -479,6 +479,7 @@ use crate::number_ring::NumberRingQuotientStore;
 
 #[test]
 fn test_circuit_to_ir() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = StaticRing::<i64>::RING;
     let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
     let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
@@ -503,6 +504,7 @@ fn test_circuit_to_ir() {
 
 #[test]
 fn test_ir_to_circuit() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = StaticRing::<i64>::RING;
     let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
     let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
@@ -527,13 +529,14 @@ fn test_ir_to_circuit() {
 
 #[test]
 fn test_from_to_ir() {
+    feanor_tracing::DelayedLogger::init_test();
     let m = 1 << 8;
     let e = 1;
 
     let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)));
     let H = {
         let hypercube = HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
-        HypercubeIsomorphism::new::<true>(&P, &hypercube, Some("."))
+        HypercubeIsomorphism::new(&P, &hypercube, Some("."))
     };
     let coeffs_to_slots = pow2::coeffs_to_slots_thin(&H, 4);
     let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));

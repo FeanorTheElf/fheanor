@@ -396,6 +396,7 @@ use crate::feanor_math::seq::VectorView;
 
 #[test]
 fn test_compute_powers_circuit() {
+    feanor_tracing::DelayedLogger::init_test();
     let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[1]);
     assert!(circuit.eq(&PlaintextCircuit::select(3, &[1], ZZi64), ZZi64, None));
 
@@ -423,6 +424,7 @@ fn test_compute_powers_circuit() {
 
 #[test]
 fn test_bsgs() {
+    feanor_tracing::DelayedLogger::init_test();
     let Zn = Zn::new(17);
     let P = DensePolyRing::new(Zn, "X");
     // 1 + 2 X^3 + 3 X^4 + 4 X^5 + 8 X^7
@@ -438,6 +440,7 @@ fn test_bsgs() {
 
 #[test]
 fn test_bsgs_multiple_polys() {
+    feanor_tracing::DelayedLogger::init_test();
     let Zn = Zn::new(17);
     let P = DensePolyRing::new(Zn, "X");
     // 1 + 2 X^3 + 3 X^4 + 4 X^5 + 8 X^7
@@ -493,6 +496,7 @@ fn test_bsgs_multiple_polys() {
 
 #[test]
 fn test_best_circuit_multiple_polys() {
+    feanor_tracing::DelayedLogger::init_test();
     let Zn = Zn::new(17);
     let P = DensePolyRing::new(Zn, "X");
     let f = P.from_terms([(1, 0), (2, 3), (3, 4), (4, 5), (8, 7)].into_iter().map(|(c, d)| (Zn.int_hom().map(c), d)));
@@ -532,6 +536,7 @@ fn test_best_circuit_multiple_polys() {
 
 #[test]
 fn test_heuristic_functional_decomposition() {
+    feanor_tracing::DelayedLogger::init_test();
     let FpX = DensePolyRing::new(Zn::new(65537), "X");
     let Fp = FpX.base_ring();
 

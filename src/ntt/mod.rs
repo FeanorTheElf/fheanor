@@ -281,6 +281,7 @@ use feanor_math::assert_el_eq;
 
 #[test]
 fn test_negacyclic_ntt() {
+    feanor_tracing::DelayedLogger::init_test();
     let Fp = Zn::new(17).as_field().ok().unwrap();
     let zeta = Fp.int_hom().map(3);
     let ntt = RustNegacyclicNTT::new_with_root_of_unity(Fp, zeta, 3);

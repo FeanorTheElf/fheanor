@@ -1403,6 +1403,7 @@ fn ring_and_elements() -> (ManagedDoubleRNSRing<Pow2CyclotomicNumberRing>, Vec<E
 
 #[test]
 fn test_ring_axioms() {
+    feanor_tracing::DelayedLogger::init_test();
     let (ring, elements) = ring_and_elements();
     feanor_math::ring::generic_tests::test_ring_axioms(&ring, elements.iter().map(|x| ring.clone_el(x)));
     feanor_math::ring::generic_tests::test_self_iso(&ring, elements.iter().map(|x| ring.clone_el(x)));
@@ -1410,6 +1411,7 @@ fn test_ring_axioms() {
 
 #[test]
 fn test_inner_product() {
+    feanor_tracing::DelayedLogger::init_test();
     let (ring, elements) = ring_and_elements();
     assert_el_eq!(
         &ring,
@@ -1420,6 +1422,7 @@ fn test_inner_product() {
 
 #[test]
 fn test_thread_safe() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
     let ring = Arc::new(ManagedDoubleRNSRingBase::new(number_ring, rns_base));
@@ -1447,6 +1450,7 @@ fn test_thread_safe() {
 
 #[test]
 fn test_canonical_hom_from_doublerns() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
     let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
@@ -1470,6 +1474,7 @@ fn test_canonical_hom_from_doublerns() {
 
 #[test]
 fn test_canonical_hom_from_singlerns() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(97), zn_64::Zn::new(193)], BigIntRing::RING);
     let ring = ManagedDoubleRNSRingBase::new(number_ring.clone(), rns_base.clone());
@@ -1492,6 +1497,7 @@ fn test_canonical_hom_from_singlerns() {
 
 #[test]
 fn test_add_result_independent_of_repr() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
     let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
     let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
@@ -1545,6 +1551,7 @@ fn test_add_result_independent_of_repr() {
 
 #[test]
 fn test_serialization() {
+    feanor_tracing::DelayedLogger::init_test();
     let (ring, elements) = ring_and_elements();
     feanor_math::serialization::generic_tests::test_serialization(&ring, elements.iter().map(|x| ring.clone_el(x)));
 
@@ -1600,6 +1607,7 @@ fn test_serialization() {
 
 #[test]
 fn test_deadlock() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
     let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
     let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);

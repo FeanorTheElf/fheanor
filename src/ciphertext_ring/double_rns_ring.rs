@@ -1460,6 +1460,7 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
 
 #[test]
 fn test_nonprime_rns_factors() {
+    feanor_tracing::DelayedLogger::init_test();
     let R: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(32);
     let Zq = zn_rns::Zn::new(vec![Zn::new(257 * 257), Zn::new(65537)], ZZbig);
     let Rq = DoubleRNSRingBase::new(R, Zq);

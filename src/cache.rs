@@ -1,4 +1,6 @@
 
+use tracing::{Level, span, instrument};
+
 use std::fmt::Display;
 use std::fs::File;
 use std::io::BufReader;
@@ -16,7 +18,7 @@ use serde::de::DeserializeSeed;
 use serde::{Deserialize, Serialize};
 use feanor_serde::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};
 
-use crate::{log_time, ZZbig, ZZi64};
+use crate::{ZZbig, ZZi64};
 
 pub enum CachedDataKey {
     Integer(String, El<BigIntRing>),
@@ -275,7 +277,8 @@ pub enum StoreAs {
     AlwaysBoth
 }
 
-pub fn create_cached<T, D, F, const LOG: bool>(data: D, create_fn: F, keys: &[CachedDataKey], dir: Option<&str>, store_format: StoreAs) -> T
+#[instrument(skip_all)]
+pub fn create_cached<T, D, F>(data: D, create_fn: F, keys: &[CachedDataKey], dir: Option<&str>, store_format: StoreAs) -> T
     where T: SerializeDeserializeWith<D>,
         F: FnOnce() -> T,
         D: Clone
@@ -316,7 +319,7 @@ pub fn create_cached<T, D, F, const LOG: bool>(data: D, create_fn: F, keys: &[Ca
             return x.data;
         };
         let (result, store_json, store_postcard) = if let Ok(mut file) = File::open(filename_postcard.as_str()) {
-            log_time::<_, _, LOG, _>(&format!("Reading {} from {}", identifier_string, filename_postcard), |[]| {
+            span!(Level::INFO, "read", name = identifier_string).in_scope(|| {
                 let mut content = Vec::new();
                 file.read_to_end(&mut content).unwrap();
                 drop(file);
@@ -326,19 +329,21 @@ pub fn create_cached<T, D, F, const LOG: bool>(data: D, create_fn: F, keys: &[Ca
                 (check_result(result), store_format == StoreAs::AlwaysJson || store_format == StoreAs::AlwaysBoth, false)
             })
         } else if let Ok(file) = File::open(filename_json.as_str()) {
-            log_time::<_, _, LOG, _>(&format!("Reading {} from {}", identifier_string, filename_json), |[]| {
+            span!(Level::INFO, "read", name = identifier_string).in_scope(|| {
                 let reader = serde_json::de::IoRead::new(BufReader::new(file));
                 let mut deserializer = serde_json::Deserializer::new(reader);
                 let result = DeserializeSeedKeyedData { data: data.clone(), element: PhantomData }.deserialize(&mut deserializer).map_err(|e| e.to_string()).unwrap();
                 (check_result(result), false, store_format == StoreAs::AlwaysPostcard || store_format == StoreAs::AlwaysBoth)
             })
         } else {
-            let result = log_time::<_, _, LOG, _>(&format!("Creating {}", identifier_string), |[]| create_fn());
-            (
-                result, 
-                store_format == StoreAs::AlwaysJson || store_format == StoreAs::JsonIfNotPostcard || store_format == StoreAs::AlwaysBoth, 
-                store_format == StoreAs::AlwaysPostcard || store_format == StoreAs::PostcardIfNotJson || store_format == StoreAs::AlwaysBoth
-            )
+            span!(Level::INFO, "create", name = identifier_string).in_scope(|| {
+                let result = create_fn();
+                (
+                    result, 
+                    store_format == StoreAs::AlwaysJson || store_format == StoreAs::JsonIfNotPostcard || store_format == StoreAs::AlwaysBoth, 
+                    store_format == StoreAs::AlwaysPostcard || store_format == StoreAs::PostcardIfNotJson || store_format == StoreAs::AlwaysBoth
+                )
+            })
         };
         if store_json {
             let file = File::create(filename_json).unwrap();
@@ -359,6 +364,6 @@ pub fn create_cached<T, D, F, const LOG: bool>(data: D, create_fn: F, keys: &[Ca
         }
         return result;
     } else {
-        return log_time::<_, _, LOG, _>(&format!("Creating {}", identifier_string), |[]| create_fn());
+        span!(Level::INFO, "create", name = identifier_string).in_scope(|| create_fn())
     }
 }

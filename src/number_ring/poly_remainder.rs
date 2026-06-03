@@ -308,6 +308,7 @@ use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 
 #[test]
 fn test_sparse_poly_remainder() {
+    feanor_tracing::DelayedLogger::init_test();
     let poly_ring = DensePolyRing::new(StaticRing::<i64>::RING, "X");
     let poly = cyclotomic_polynomial(&poly_ring, 5);
     let reducer = SparsePolyReducer::new(&poly_ring, &poly, StaticRing::<i64>::RING, 3);
@@ -331,6 +332,7 @@ fn test_sparse_poly_remainder() {
 
 #[test]
 fn test_barett_poly_remainder() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = Zn::new(65537).as_field().ok().unwrap();
     let convolution = NTTConvolution::new(ring.clone());
     let poly_ring = DensePolyRing::new(ring.clone(), "X");
@@ -360,6 +362,7 @@ fn test_barett_poly_remainder() {
 
 #[test]
 fn test_cyclotomic_poly_remainder() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = Zn::new(65537).as_field().ok().unwrap();
     let convolution = NTTConvolution::new(ring.clone());
     let poly_ring = DensePolyRing::new(ring.clone(), "X");

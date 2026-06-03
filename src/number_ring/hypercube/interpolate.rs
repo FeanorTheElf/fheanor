@@ -179,6 +179,7 @@ use crate::NiceZn;
 
 #[test]
 fn test_interpolate() {
+    feanor_tracing::DelayedLogger::init_test();
     let base_ring = AsLocalPIR::from_zn(Zn::new(257)).unwrap();
     let poly_ring = DensePolyRing::new(base_ring, "X");
 

@@ -20,7 +20,6 @@
 #![doc = include_str!("../Readme.md")]
 
 use std::alloc::Global;
-use std::time::Instant;
 
 use feanor_math::integer::*;
 use feanor_math::primitive_int::*;
@@ -131,19 +130,17 @@ fn euler_phi_squarefree(factorization: &[i64]) -> i64 {
 ///
 /// Runs the given function. If `LOG` is true, its running time is printed to stdout.
 /// 
-pub fn log_time<F, T, const LOG: bool, const COUNTER_VAR_COUNT: usize>(description: &str, step_fn: F) -> T
+#[cfg(test)]
+pub fn log_time<F, T, const COUNTER_VAR_COUNT: usize>(description: &str, step_fn: F) -> T
     where F: FnOnce(&mut [usize; COUNTER_VAR_COUNT]) -> T
 {
-    if LOG {
-        println!("{}", description);
-    }
+    use std::time::Instant;
+    println!("{}", description);
     let mut counters = [0; COUNTER_VAR_COUNT];
     let start = Instant::now();
     let result = step_fn(&mut counters);
     let end = Instant::now();
-    if LOG {
-        println!("done in {} ms, {:?}", (end - start).as_millis(), counters);
-    }
+    println!("done in {} ms, {:?}", (end - start).as_millis(), counters);
     return result;
 }
 

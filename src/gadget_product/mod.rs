@@ -520,6 +520,7 @@ use crate::DefaultConvolution;
 
 #[test]
 fn test_gadget_decomposition() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
     let ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(number_ring, zn_rns::Zn::create_from_primes(vec![17, 97, 113], BigIntRing::RING));
     let rns_base = ring.base_ring();
@@ -537,6 +538,7 @@ fn test_gadget_decomposition() {
 
 #[test]
 fn test_modulus_switch() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
     let ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(number_ring.clone(), zn_rns::Zn::create_from_primes(vec![17, 97, 113], BigIntRing::RING));
     let rns_base = ring.base_ring();

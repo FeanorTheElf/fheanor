@@ -227,24 +227,28 @@ use feanor_math::homomorphism::*;
 
 #[test]
 fn test_pow2_cyclotomic_double_rns_ring() {
+    feanor_tracing::DelayedLogger::init_test();
     double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
     double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
 }
 
 #[test]
 fn test_pow2_cyclotomic_single_rns_ring() {
+    feanor_tracing::DelayedLogger::init_test();
     single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
     single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
 }
 
 #[test]
 fn test_pow2_cyclotomic_number_ring_quotient() {
+    feanor_tracing::DelayedLogger::init_test();
     quotient_by_int::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
     quotient_by_int::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
 }
 
 #[test]
 fn test_permute_galois_automorphism() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
     let R = double_rns_ring::DoubleRNSRingBase::new_with_alloc(number_ring, rns_base, Global);
@@ -254,6 +258,7 @@ fn test_permute_galois_automorphism() {
 
 #[bench]
 fn bench_permute_galois_action(bencher: &mut test::Bencher) {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(1 << 15);
     let Fp = zn_64::Zn::new(65537);
     let number_ring_mod_p = number_ring.bases_mod_p(Fp);

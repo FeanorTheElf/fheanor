@@ -300,6 +300,7 @@ fn check_almost_exact_result(to: &[Zn], k: i32, q: i32, actual: &[ZnEl], expecte
 
 #[test]
 fn test_matmul() {
+    feanor_tracing::DelayedLogger::init_test();
     let mat_data = (0..(BLOCK_SIZE * BLOCK_SIZE)).map(|x| x as i64).collect::<Vec<_>>();
     let mat = mat_data.as_chunks::<BLOCK_SIZE>().0.iter().array_chunks::<BLOCK_SIZE>().next().unwrap();
 
@@ -319,6 +320,7 @@ fn test_matmul() {
 
 #[test]
 fn test_empty_rns_base_conversion() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![];
     let to = vec![Zn::new(17), Zn::new(257)];
 
@@ -341,6 +343,7 @@ fn test_empty_rns_base_conversion() {
 
 #[test]
 fn test_rns_base_conversion() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
     let q = 17 * 97;
@@ -372,6 +375,7 @@ fn test_rns_base_conversion() {
 
 #[test]
 fn test_rns_base_conversion_both_unordered() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(31), Zn::new(29)];
     let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
     let q = 31 * 29;
@@ -390,6 +394,7 @@ fn test_rns_base_conversion_both_unordered() {
 
 #[test]
 fn test_rns_base_conversion_small() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(3), Zn::new(97)];
     let to = vec![Zn::new(17)];
     let q = 3 * 97;
@@ -409,6 +414,7 @@ fn test_rns_base_conversion_small() {
 
 #[test]
 fn test_rns_base_conversion_not_coprime() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
     let q = 17 * 97 * 113;
@@ -430,6 +436,7 @@ fn test_rns_base_conversion_not_coprime() {
 
 #[test]
 fn test_rns_base_conversion_not_coprime_from_unordered() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(113), Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
     let q = 113 * 17 * 97;
@@ -451,6 +458,7 @@ fn test_rns_base_conversion_not_coprime_from_unordered() {
 
 #[test]
 fn test_rns_base_conversion_coprime() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(19), Zn::new(23), Zn::new(257)];
     let q = 113 * 17 * 97;
@@ -472,6 +480,7 @@ fn test_rns_base_conversion_coprime() {
 
 #[bench]
 fn bench_rns_base_conversion(bencher: &mut Bencher) {
+    feanor_tracing::DelayedLogger::init_test();
     let in_moduli_count = 20;
     let out_moduli_count = 40;
     let cols = 1000;
@@ -503,6 +512,7 @@ fn bench_rns_base_conversion(bencher: &mut Bencher) {
 
 #[test]
 fn test_base_conversion_large() {
+    feanor_tracing::DelayedLogger::init_test();
     let primes: [i64; 34] = [
         72057594040066049,
         288230376150870017,

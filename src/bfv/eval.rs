@@ -407,6 +407,7 @@ use feanor_math::rings::finite::FiniteRingStore;
 
 #[test]
 fn test_hom_evaluate_circuit() {
+    feanor_tracing::DelayedLogger::init_test();
     let (P, C, C_mul, sk, rk, _, ct) = test_setup_bfv(Pow2BFV::new(1 << 8));
     let FpX = DensePolyRing::new(Zn::new(17), "X");
     let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(7) - 3 * X.pow_ref(3) + 2 * X + 10]);

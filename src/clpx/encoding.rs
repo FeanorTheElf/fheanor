@@ -1,6 +1,8 @@
 use std::alloc::Allocator;
 use std::alloc::Global;
 
+use tracing::{Level, span};
+
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::algorithms::convolution::KaratsubaAlgorithm;
 use feanor_math::algorithms::discrete_log::Subgroup;
@@ -29,7 +31,7 @@ use crate::number_ring::galois::*;
 use crate::number_ring::quotient_by_ideal::*;
 use crate::number_ring::*;
 use crate::NiceZn;
-use crate::{log_time, ZZbig, ZZi64};
+use crate::{ZZbig, ZZi64};
 
 pub struct CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
     where NumberRing: NumberRingDescriptor,
@@ -58,7 +60,7 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     #[instrument(skip_all)]
-    pub fn create<const LOG: bool>(
+    pub fn create(
         number_ring: NumberRing, 
         base_ring: ZnTy, 
         poly_ring: DensePolyRing<BigIntRing>, 
@@ -77,9 +79,9 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
         let gen_poly = number_ring.generating_poly(&poly_ring);
 
         // we compute `N(t) = Res(t(X), Phi_m(X))`; this is large, so use big integers
-        let norm = log_time::<_, _, LOG, _>("Compute Resultant", |[]| 
+        let norm = span!(Level::INFO, "resultant").in_scope(|| { 
             ZZbig.abs(<_ as ComputeResultantRing>::resultant(&poly_ring, poly_ring.clone_el(&gen_poly), poly_ring.clone_el(&t)))
-        );
+        });
         let rest = if let Some(rest) = ZZbig.checked_div(&norm, &ZZbig.pow(base_ring.characteristic(ZZbig).unwrap(), int_cast(acting_galois_group.subgroup_order(), ZZi64, ZZbig) as usize)) {
             rest
         } else {
@@ -95,7 +97,7 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
 
         // compute the inverse of `t(X)` modulo `Phi_m(X)`, which is required for encoding
         let ZZX_to_QQX = QQX.lifted_hom(&poly_ring, QQ.inclusion());
-        let (mut s, _, d) = log_time::<_, _, LOG, _>("Compute Inverse", |[]| 
+        let (mut s, _, d) = span!(Level::INFO, "compute_t_inv").in_scope(|| 
             QQX.extended_ideal_gen(&ZZX_to_QQX.map_ref(&t), &ZZX_to_QQX.map_ref(&gen_poly))
         );
         assert_eq!(0, QQX.degree(&d).unwrap());
@@ -108,7 +110,7 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
         let base_ringX = DensePolyRing::new(base_ring, "X");
         let hom = base_ringX.base_ring().can_hom(&ZZbig).unwrap();
         let ideal_generator = base_ringX.lifted_hom(&poly_ring, &hom).map_ref(&t);
-        let base = NumberRingQuotientByIdealBase::create::<LOG>(number_ring, base_ringX, ideal_generator, acting_galois_group, allocator, convolution);
+        let base = NumberRingQuotientByIdealBase::create(number_ring, base_ringX, ideal_generator, acting_galois_group, allocator, convolution);
         return RingValue::from(Self {
             base: base,
             normt: norm,
@@ -417,7 +419,7 @@ fn test_ring1() -> (CLPXPlaintextRing<Pow2CyclotomicNumberRing, zn_64::Zn>, Vec<
     let [t] = ZZX.with_wrapped_indeterminate(|X| [X - 2]);
     let number_ring = Pow2CyclotomicNumberRing::new(32);
     let acting_galois_group = number_ring.galois_group().get_group().clone().subgroup([]);
-    let result = CLPXPlaintextRingBase::create::<true>(number_ring, zn_64::Zn::new(65537), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
+    let result = CLPXPlaintextRingBase::create(number_ring, zn_64::Zn::new(65537), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
     let elements = (0..31).map(|i| result.int_hom().map(1 << i)).collect();
     return (result, elements);
 }
@@ -428,7 +430,7 @@ fn test_ring2() -> (CLPXPlaintextRing<Pow2CyclotomicNumberRing, zn_64::Zn>, Vec<
     let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
     let number_ring = Pow2CyclotomicNumberRing::new(64);
     let acting_galois_group = number_ring.galois_group().get_group().clone().subgroup([]);
-    let result = CLPXPlaintextRingBase::create::<true>(number_ring, zn_64::Zn::new(6700417), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
+    let result = CLPXPlaintextRingBase::create(number_ring, zn_64::Zn::new(6700417), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
     let elements = (0..31).map(|i| result.int_hom().map(1 << i)).collect();
     return (result, elements);
 }
@@ -439,7 +441,7 @@ fn test_ring3() -> (CLPXPlaintextRing<Pow2CyclotomicNumberRing, zn_64::Zn>, Vec<
     let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(4) - 2]);
     let number_ring = Pow2CyclotomicNumberRing::new(64);
     let acting_galois_group = number_ring.galois_group().get_group().clone().subgroup([number_ring.galois_group().from_representative(17)]);
-    let result = CLPXPlaintextRingBase::create::<true>(number_ring, zn_64::Zn::new(257), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
+    let result = CLPXPlaintextRingBase::create(number_ring, zn_64::Zn::new(257), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
     let elements = (0..31).map(|i| result.int_hom().map(1 << i))
         .chain((0..31).map(|i| result.mul(result.canonical_gen(), result.int_hom().map(1 << i)))).collect();
     return (result, elements);
@@ -451,13 +453,14 @@ fn test_ring4() -> (CLPXPlaintextRing<OddSquarefreeCyclotomicNumberRing, zn_64::
     let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(5) - 2]);
     let number_ring = OddSquarefreeCyclotomicNumberRing::new(85);
     let acting_galois_group = number_ring.galois_group().get_group().clone().subgroup([number_ring.galois_group().from_representative(18)]);
-    let result = CLPXPlaintextRingBase::create::<true>(number_ring, zn_64::Zn::new(131071), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
+    let result = CLPXPlaintextRingBase::create(number_ring, zn_64::Zn::new(131071), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
     let elements = (0..15).flat_map(|i| from_fn::<_, 4, _>(|j| result.mul(result.pow(result.canonical_gen(), j), result.int_hom().map(1 << i))).into_iter()).collect();
     return (result, elements);
 }
 
 #[test]
 fn test_clpx_plaintext_ring_create() {
+    feanor_tracing::DelayedLogger::init_test();
     let ZZX = DensePolyRing::new(ZZbig, "X");
     let (ring, _) = test_ring1();
     assert_eq!(1, ring.rank());
@@ -481,6 +484,7 @@ fn test_clpx_plaintext_ring_create() {
 
 #[test]
 fn test_clpx_plaintext_ring_small_lift() {
+    feanor_tracing::DelayedLogger::init_test();
     let ZZX = DensePolyRing::new(ZZbig, "X");
 
     let (ring, elements) = test_ring1();
@@ -518,6 +522,7 @@ fn test_clpx_plaintext_ring_small_lift() {
 
 #[test]
 fn test_clpx_plaintext_ring_encode_decode() {
+    feanor_tracing::DelayedLogger::init_test();
     let ZQ = test_rns_base();
 
     let (ring, elements) = test_ring1();

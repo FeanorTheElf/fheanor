@@ -104,7 +104,7 @@ impl<R> DigitExtract<R>
     /// Uses internal heuristics to determine which polynomials and circuits to use.
     /// 
     #[instrument(skip_all)]
-    pub fn new_default<C, S, const LOG: bool>(rings: &[S], hypercube_iso: &C, B: Option<i64>, cache_dir: Option<&str>) -> Self
+    pub fn new_default<C, S>(rings: &[S], hypercube_iso: &C, B: Option<i64>, cache_dir: Option<&str>) -> Self
         where C: Deref<Target = HypercubeIsomorphism<S>>,
             S: RingStore<Type = R>,
             R: SerializableElementRing
@@ -114,7 +114,7 @@ impl<R> DigitExtract<R>
             assert!(ring.number_ring() == ring.number_ring());
         }
 
-        create_cached::<_, _, _, LOG>(
+        create_cached(
             (rings, hypercube_iso.galois_group()),
             || {
                 if ZZbig.eq_el(&p, &int_cast(2, ZZbig, ZZi64)) && e <= 23 {
@@ -888,6 +888,7 @@ pub fn high_part_mod(x: i64, y: i64, z: i64) -> i64 {
 #[test]
 #[ignore]
 fn test_digit_extraction_p_2_complete() {
+    feanor_tracing::DelayedLogger::init_test();
     let circuit = precomputed_p_2(23);
     let ring = Zn::new(1 << 23);
     let hom = ring.can_hom(&ZZi64).unwrap();
@@ -900,6 +901,7 @@ fn test_digit_extraction_p_2_complete() {
 
 #[test]
 fn test_digit_extraction_p_2() {
+    feanor_tracing::DelayedLogger::init_test();
     let circuit = precomputed_p_2(17);
     let ring = Zn::new(1 << 17);
     let hom = ring.can_hom(&ZZi64).unwrap();
@@ -912,6 +914,7 @@ fn test_digit_extraction_p_2() {
 
 #[test]
 fn test_centered_digit_retain_poly() {
+    feanor_tracing::DelayedLogger::init_test();
     let Zn = Zn::new(17 * 17 * 17);
     let P = DensePolyRing::new(Zn, "X");
     let digit_retain = centered_digit_retain_poly(&P, 3);
@@ -957,6 +960,7 @@ fn test_centered_digit_retain_poly() {
 
 #[test]
 fn test_centered_digit_extract_poly() {
+    feanor_tracing::DelayedLogger::init_test();
     let cmod = |x, y| x - ZZi64.rounded_div(x, &y) * y;
 
     let Zn = Zn::new(17 * 17 * 17);
@@ -993,6 +997,7 @@ fn test_centered_digit_extract_poly() {
 
 #[test]
 fn test_digit_retain_poly_small() {
+    feanor_tracing::DelayedLogger::init_test();
     let Zn = Zn::new(17 * 17 * 17);
     let P = DensePolyRing::new(Zn, "X");
     let digit_retain = digit_retain_poly(&P, 3);
@@ -1030,6 +1035,7 @@ fn test_digit_retain_poly_small() {
 
 #[test]
 fn test_bounded_digit_retain_poly() {
+    feanor_tracing::DelayedLogger::init_test();
     let Zn = Zn::new(17 * 17 * 17);
     let P = DensePolyRing::new(Zn, "X");
     let digit_retain = bounded_digit_retain_poly(&P, 3);
@@ -1058,6 +1064,7 @@ fn test_bounded_digit_retain_poly() {
 
 #[test]
 fn test_digit_retain_poly_large() {
+    feanor_tracing::DelayedLogger::init_test();
     let Zn = Zn::new(257 * 257 * 257);
     let P = DensePolyRing::new(Zn, "X");
     let digit_retain = digit_retain_poly(&P, 3);
@@ -1069,6 +1076,7 @@ fn test_digit_retain_poly_large() {
 
 #[test]
 fn test_digit_extract_precomputed_p_2() {
+    feanor_tracing::DelayedLogger::init_test();
     for (r, v) in [(5, 7), (3, 2)] {
         let p = 2;
         let e = r + v;
@@ -1084,6 +1092,7 @@ fn test_digit_extract_precomputed_p_2() {
 
 #[test]
 fn test_digit_retain_based() {
+    feanor_tracing::DelayedLogger::init_test();
     for (p, r, v) in [(2, 5, 7), (3, 2, 1), (3, 1, 2), (5, 2, 1), (5, 1, 2), (7, 1, 1)] {
         let e = r + v;
         let rings = (0..=v).map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r + 1))).collect::<Vec<_>>();
@@ -1098,6 +1107,7 @@ fn test_digit_retain_based() {
 
 #[test]
 fn test_bounded_error() {
+    feanor_tracing::DelayedLogger::init_test();
     let B = 4;
     for (p, r, v) in [(11, 2, 1), (17, 1, 1), (19, 1, 1)] {
         let rings = (0..=v).map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r + 1))).collect::<Vec<_>>();

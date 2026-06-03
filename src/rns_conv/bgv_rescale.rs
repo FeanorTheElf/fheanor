@@ -354,6 +354,7 @@ use feanor_math::assert_el_eq;
 
 #[test]
 fn test_rescale_complete() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(23), Zn::new(29)];
     let to = vec![Zn::new(19), Zn::new(31), Zn::new(37), Zn::new(39)];
     let Zt = Zn::new(5);
@@ -404,6 +405,7 @@ fn test_rescale_complete() {
 
 #[test]
 fn test_rescale_partial() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(23), Zn::new(29)];
     let to = vec![Zn::new(17), Zn::new(29), Zn::new(13)];
     let Zt = Zn::new(7);
@@ -454,6 +456,7 @@ fn test_rescale_partial() {
 
 #[test]
 fn test_rescale_down() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(23), Zn::new(29)];
     let to = vec![Zn::new(23), Zn::new(29)];
     let Zt = Zn::new(5);
@@ -494,6 +497,7 @@ fn test_rescale_down() {
 
 #[test]
 fn test_congruence_preserving_baseconv_small() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(23)];
     let to = vec![Zn::new(17), Zn::new(29)];
     let Zt = Zn::new(5);
@@ -534,6 +538,7 @@ fn test_congruence_preserving_baseconv_small() {
 
 #[test]
 fn test_congruence_preserving_baseconv_two_denominators() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(23), Zn::new(7)];
     let to = vec![Zn::new(17), Zn::new(5), Zn::new(11)];
     let Zt = Zn::new(3);
@@ -574,6 +579,7 @@ fn test_congruence_preserving_baseconv_two_denominators() {
 
 #[test]
 fn test_congruence_preserving_baseconv_unordered() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(19), Zn::new(7), Zn::new(13)];
     let to = vec![Zn::new(17), Zn::new(5), Zn::new(3)];
     let Zt = Zn::new(11);

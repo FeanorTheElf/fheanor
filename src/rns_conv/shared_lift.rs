@@ -116,6 +116,7 @@ use feanor_math::seq::*;
 
 #[test]
 fn test_rns_shared_base_conversion() {
+    feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
     let table = RNSSharedBaseConversion::new_with_alloc(from.clone(), Vec::new(), vec![to[3]], Global);

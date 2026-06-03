@@ -1237,13 +1237,13 @@ impl<R> SerializeDeserializeWith<(R, )> for PlaintextCircuit<R::Type>
     }
 }
 
-pub fn create_circuit_cached<R, F, const LOG: bool>(ring: R, keys: &[CachedDataKey], cache_dir: Option<&str>, create: F) -> PlaintextCircuit<R::Type>
+pub fn create_circuit_cached<R, F>(ring: R, keys: &[CachedDataKey], cache_dir: Option<&str>, create: F) -> PlaintextCircuit<R::Type>
     where R: RingStore + Copy,
         R::Type: NumberRingQuotient + SerializableElementRing,
         BaseRing<R>: ZnRing,
         F: FnOnce() -> PlaintextCircuit<R::Type>
 {
-    create_cached::<_, _, _, LOG>((ring, ring.acting_galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysJson })
+    create_cached((ring, ring.acting_galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysJson })
 }
 
 #[cfg(test)]
@@ -1263,6 +1263,7 @@ use crate::ZZi64;
 
 #[test]
 fn test_circuit_tensor_compose() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = StaticRing::<i64>::RING;
     let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
     let x_sqr = PlaintextCircuit::mul(ring).compose(x.output_twice(ring), ring);
@@ -1308,6 +1309,7 @@ fn test_circuit_tensor_compose() {
 
 #[test]
 fn test_circuit_tensor_compose_with_galois() {
+    feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(17));
 
@@ -1334,6 +1336,7 @@ fn test_circuit_tensor_compose_with_galois() {
 
 #[test]
 fn test_giant_step_circuit() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = StaticRing::<i64>::RING;
     let powers = PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::mul(ring), ring).tensor(PlaintextCircuit::mul(ring), ring).compose(
         PlaintextCircuit::mul(ring).output_times(4, ring).tensor(PlaintextCircuit::identity(1, ring), ring),
@@ -1365,6 +1368,7 @@ fn test_giant_step_circuit() {
 
 #[test]
 fn test_serialization() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = StaticRing::<i64>::RING;
     let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
     let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
@@ -1391,6 +1395,7 @@ fn test_serialization() {
 
 #[test]
 fn test_identity_galois() {
+    feanor_tracing::DelayedLogger::init_test();
     let Gal = CyclotomicGaloisGroupBase::new(5).into().full_subgroup();
     let ring = StaticRing::<i64>::RING;
     let circuit = PlaintextCircuit::gal(Gal.identity(), &Gal, ring);
@@ -1399,6 +1404,7 @@ fn test_identity_galois() {
 
 #[test]
 fn test_evaluate() {
+    feanor_tracing::DelayedLogger::init_test();
     let ring = StaticRing::<i64>::RING;
     let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
     let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
@@ -1414,6 +1420,7 @@ fn test_evaluate() {
 #[test]
 #[ignore]
 fn generate_slots_to_coeffs() {
+    feanor_tracing::DelayedLogger::init_test();
     use feanor_math::integer::int_cast;
     use crate::ZZbig;
     use crate::filename_keys;
@@ -1438,9 +1445,9 @@ fn generate_slots_to_coeffs() {
     let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)));
     let H = LazyCell::new(|| {
         let hypercube = HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
-        HypercubeIsomorphism::new::<true>(&P, &hypercube, Some("."))
+        HypercubeIsomorphism::new(&P, &hypercube, Some("."))
     });
-    let coeffs_to_slots = create_circuit_cached::<_, _, true>(
+    let coeffs_to_slots = create_circuit_cached(
         &P, 
         &filename_keys![coeffs2slots, m: m, p: 65537, e: e + 1, levels: 4], 
         Some("."), 
@@ -1452,7 +1459,7 @@ fn generate_slots_to_coeffs() {
 
     let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e)));
     let H = LazyCell::new(|| H.change_modulus(&P));
-    let slots_to_coeffs = create_circuit_cached::<_, _, true>(
+    let slots_to_coeffs = create_circuit_cached(
         &P, 
         &filename_keys![slots2coeffs, m: m, p: 65537, e: e, levels: 4], 
         Some("."), 

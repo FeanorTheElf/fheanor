@@ -494,24 +494,28 @@ use crate::ring_literal;
 
 #[test]
 fn test_odd_cyclotomic_double_rns_ring() {
+    feanor_tracing::DelayedLogger::init_test();
     double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
     double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
 }
 
 #[test]
 fn test_odd_cyclotomic_single_rns_ring() {
+    feanor_tracing::DelayedLogger::init_test();
     single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
     single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
 }
 
 #[test]
 fn test_odd_cyclotomic_decomposition_ring() {
+    feanor_tracing::DelayedLogger::init_test();
     quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
     quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
 }
 
 #[test]
 fn test_permute_galois_automorphism() {
+    feanor_tracing::DelayedLogger::init_test();
     let Fp = zn_64::Zn::new(257);
     let R = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Fp);
     let gal_el = |x: i64| R.acting_galois_group().from_representative(x);
@@ -524,6 +528,7 @@ fn test_permute_galois_automorphism() {
 
 #[test]
 fn test_compute_powinf_to_coeffinf_expansion() {
+    feanor_tracing::DelayedLogger::init_test();
     assert_eq!(1., compute_powinf_to_coeffinf_expansion(17));
     assert_eq!(8., compute_powinf_to_coeffinf_expansion(17 * 5));
     assert_eq!(52., compute_powinf_to_coeffinf_expansion(13 * 3 * 7));
@@ -531,6 +536,7 @@ fn test_compute_powinf_to_coeffinf_expansion() {
 
 #[test]
 fn test_compute_coeffinf_to_powinf_expansion() {
+    feanor_tracing::DelayedLogger::init_test();
     assert_eq!(1., compute_coeffinf_to_powinf_expansion(17));
     assert_eq!(4., compute_coeffinf_to_powinf_expansion(17 * 5));
     assert_eq!(7., compute_coeffinf_to_powinf_expansion(13 * 3 * 7));
