@@ -1,6 +1,6 @@
 [package]
 name = "fheanor"
-version = "0.11.3"
+version = "0.11.4"
 edition = "2024"
 
 repository = "https://github.com/FeanorTheElf/fheanor"
@@ -38,7 +38,7 @@ serde_assert = "0.8.0"
 tracing-subscriber = "0.3.20"
 tracing-chrome = "0.7.2"
 serde_path_to_error = "0.1.17"
-feanor-tracing = "1.0.1"
+feanor-tracing = "1.0.3"
 
 [features]
 use_hexl = ["dep:feanor-math-hexl"]

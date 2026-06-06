@@ -22,6 +22,7 @@ use feanor_serde::newtype_struct::{DeserializeSeedNewtypeStruct, SerializableNew
 use feanor_serde::seq::{DeserializeSeedSeq, SerializableSeq};
 use serde::de::DeserializeSeed;
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::{euler_phi, ZZbig, ZZi64};
 use crate::number_ring::galois::*;
@@ -149,6 +150,7 @@ impl HypercubeStructure {
     /// 
     /// for `l = 2^e / ord(p)`.
     /// 
+    #[instrument(skip_all)]
     pub fn default_pow2_hypercube(galois_group: &Subgroup<CyclotomicGaloisGroup>, p: El<BigIntRing>) -> Self {
 
         let m = galois_group.m() as i64;
@@ -217,6 +219,7 @@ impl HypercubeStructure {
     /// Note that the Halevi-Shoup hypercube is unique except for the ordering of prime
     /// factors of `m`. This function uses a deterministic but unspecified ordering.
     /// 
+    #[instrument(skip_all)]
     pub fn halevi_shoup_hypercube(galois_group: &Subgroup<CyclotomicGaloisGroup>, p: El<BigIntRing>) -> Self {
 
         assert!(galois_group.is_full_cyclotomic_galois_group());

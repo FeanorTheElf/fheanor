@@ -277,7 +277,7 @@ pub enum StoreAs {
     AlwaysBoth
 }
 
-#[instrument(skip_all)]
+// no instrumentation here, since we already create a span inside the function, and don't want to increase the span-tree depth even more
 pub fn create_cached<T, D, F>(data: D, create_fn: F, keys: &[CachedDataKey], dir: Option<&str>, store_format: StoreAs) -> T
     where T: SerializeDeserializeWith<D>,
         F: FnOnce() -> T,

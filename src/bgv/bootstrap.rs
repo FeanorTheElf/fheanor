@@ -148,6 +148,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
     ///  - `cache_dir` specifies a directory to load and store precomputed data. If it is `None`,
     ///    no data will be read or written, but always computed from scratch.
     /// 
+    #[instrument(skip_all)]
     pub fn build_pow2(
         instantiation: &Inst,
         P: &PlaintextRing<Inst>,
@@ -221,6 +222,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
     ///  - `cache_dir` specifies a directory to load and store precomputed data. If it is `None`,
     ///    no data will be read or written, but always computed from scratch.
     /// 
+    #[instrument(skip_all)]
     pub fn build_odd(
         instantiation: &Inst,
         P: &PlaintextRing<Inst>,
@@ -412,6 +414,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         return result.data;
     }
 
+    #[instrument(skip_all)]
     fn perform_noisy_expansion(
         &self,
         C_input: &CiphertextRing<Inst>,
@@ -463,6 +466,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         return result;
     }
 
+    #[instrument(skip_all)]
     fn perform_coefficients_to_slots(
         &self,
         ct: ModulusAwareCiphertext<Inst, Strategy>,
@@ -490,6 +494,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         return result;
     }
 
+    #[instrument(skip_all)]
     fn perform_digit_extraction(
         &self,
         ct: ModulusAwareCiphertext<Inst, Strategy>,

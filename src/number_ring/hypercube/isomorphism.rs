@@ -1,3 +1,5 @@
+use std::thread::sleep;
+use std::time::Duration;
 use std::alloc::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -222,6 +224,7 @@ impl<R> HypercubeIsomorphism<R>
         };
     }
 
+    #[instrument(skip_all)]
     pub fn change_modulus<RNew>(&self, new_ring: RNew) -> HypercubeIsomorphism<RNew>
         where RNew: RingStore,
             RNew::Type: NumberRingQuotient,
@@ -556,7 +559,6 @@ impl<R> HypercubeIsomorphism<R>
     /// 
     #[instrument(skip_all)]
     fn compute_tmp_slot_ring_and_root<'a>(ring: &'a R, hypercube_structure: &HypercubeStructure) -> (TmpSlotRingOf<'a, R>, El<TmpSlotRingOf<'a, R>>) {
-        
         let m = ring.acting_galois_group().m() as usize;
         assert!(ring.is_one(&ring.pow(ring.canonical_gen(), m)), "HypercubeIsomorphism currently assumes that the generator of the ring is an m-th root of unity");
 

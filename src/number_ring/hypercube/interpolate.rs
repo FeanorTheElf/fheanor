@@ -32,6 +32,7 @@ pub struct FastPolyInterpolation<P>
 ///
 /// Computes a polynomial `h` of degree `< deg(fg)` such that `h = 1 mod f` and `h = 0 mod g`.
 /// 
+#[instrument(skip_all)]
 fn crt_unit_vectors<P>(poly_ring: P, f: &El<P>, g: &El<P>) -> El<P>
     where P: RingStore,
         P::Type: PolyRing,
