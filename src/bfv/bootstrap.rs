@@ -67,7 +67,6 @@ use super::*;
 /// let res_ct = bootstrapper.bootstrap_thin(
 ///     &C, 
 ///     &C_mul, 
-///     &P, 
 ///     ct, 
 ///     &rk, 
 ///     &gk,

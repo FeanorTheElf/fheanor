@@ -25,7 +25,7 @@ Next, we create the plaintext ring.
 # let log2_N = 12;
 # let params = Pow2CLPX::new(2 << log2_N);
 # let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, 10);
-let P = params.create_plaintext_ring::<true>(todo!(), todo!(), todo!(), todo!());
+let P = params.create_plaintext_ring(todo!(), todo!(), todo!(), todo!());
 ```
 This is actually more involved than in the BFV setting, as you can see by the four parameters.
 The reason is that the plaintext ring of CLPX is `Z[X]/(Phi_m(X), t(X), p^e)` for a polynomial `t(X)` and a prime `p`, which should be isomorphic to `(Z/p^eZ)[X]/(f(X))` for some polynomial `f(X)`.
@@ -73,8 +73,7 @@ let p = BigIntRing::RING.get_ring().parse("9346163971535797776916355819960689658
 let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(16) + 2]);
 let full_galois_group = params.number_ring().galois_group();
 let acting_galois_group = full_galois_group.get_group().clone().subgroup([full_galois_group.from_representative(513)]);
-// the computation is slightly expensive, thus you can pass true as generic argument to log progress to stdout
-let P = params.create_plaintext_ring::</* LOG = */ true>(ZZX, t, p, acting_galois_group);
+let P = params.create_plaintext_ring(ZZX, t, p, acting_galois_group);
 
 let mut rng = rand::rng();
 let sk = Pow2CLPX::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
@@ -111,7 +110,7 @@ Applying homomorphic operations is just as easy as for BFV as well.
 # let full_galois_group = params.number_ring().galois_group();
 # let acting_galois_group = full_galois_group.get_group().clone().subgroup([full_galois_group.from_representative(513)]);
 # // the computation is slightly expensive, thus you can pass true as generic argument to log progress to stdout
-# let P = params.create_plaintext_ring::<true>(ZZX, t, p, acting_galois_group);
+# let P = params.create_plaintext_ring(ZZX, t, p, acting_galois_group);
 let mut rng = rand::rng();
 let sk = Pow2CLPX::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 let rk = Pow2CLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()), 3.2);

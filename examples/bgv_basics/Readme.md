@@ -244,7 +244,7 @@ Alternatively, these can also determined manually: [`BGVInstantiation::mod_switc
 ```rust
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::ciphertext_ring::NumberRingRNSQuotient;
 # use fheanor::gadget_product::digits::*;
 # use fheanor::bgv::modswitch::drop_rns_factors_balanced;
 # use rand::{SeedableRng, rngs::StdRng};
@@ -292,7 +292,7 @@ We can even reduce the noise growth slightly more by using hybrid key switching 
 ```rust
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::ciphertext_ring::NumberRingRNSQuotient;
 # use fheanor::gadget_product::digits::*;
 # use fheanor::bgv::modswitch::drop_rns_factors_balanced;
 # use rand::{SeedableRng, rngs::StdRng};
@@ -351,7 +351,7 @@ For example, we could implement the above evaluation instead as follows:
 # use fheanor::bgv::noise_estimator::NaiveBGVNoiseEstimator;
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::circuit::*;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::ciphertext_ring::NumberRingRNSQuotient;
 # use fheanor::ciphertext_ring::indices::RNSFactorIndexList;
 # use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};

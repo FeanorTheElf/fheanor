@@ -295,7 +295,7 @@ Since creating a double-RNS ring is somewhat expensive, we do this once and reus
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::number_ring::pow2_cyclotomic::*;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::ciphertext_ring::NumberRingRNSQuotient;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
@@ -363,7 +363,7 @@ This leaves us to implement BFV multiplication as follows.
 # use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
 # use fheanor::rns_conv::RNSOperation;
 # use fheanor::number_ring::pow2_cyclotomic::*;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::ciphertext_ring::NumberRingRNSQuotient;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;
 # use fheanor::rns_conv::matrix_lift::RNSMatrixBaseConversion;
@@ -536,7 +536,7 @@ Finally, let's test this implementation again!
 # use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
 # use fheanor::gadget_product::*;
 # use fheanor::rns_conv::RNSOperation;
-# use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::ciphertext_ring::NumberRingRNSQuotient;
 # use fheanor::number_ring::pow2_cyclotomic::*;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;

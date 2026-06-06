@@ -241,7 +241,7 @@ impl<R: ?Sized + NiceZn> DigitExtract<R> {
         let (_p, r, v, _e) = Self::get_p_r_v_e(rings);
         
         let digit_extraction_circuits = (1..=v).map(|i| {
-            let required_digits = (2..=(v - i)).chain([r + i].into_iter()).collect::<Vec<_>>();
+            let required_digits = (2..=usize::min(v - i, r + i - 1)).chain([r + i].into_iter()).collect::<Vec<_>>();
             let poly_ring = DensePolyRing::new(&rings[i], "X");
             let circuit = poly_to_circuit(&poly_ring, &required_digits.iter().map(|j| centered_digit_retain_poly(&poly_ring, *j)).collect::<Vec<_>>());
             return DigitExtractionCircuit {
@@ -1098,7 +1098,7 @@ fn test_digit_extract_precomputed_p_2() {
 #[test]
 fn test_digit_retain_based() {
     feanor_tracing::DelayedLogger::init_test();
-    for (p, r, v) in [(2, 5, 7), (3, 2, 1), (3, 1, 2), (5, 2, 1), (5, 1, 2), (7, 1, 1)] {
+    for (p, r, v) in [(2, 3, 7), (2, 7, 4), (3, 2, 1), (3, 1, 2), (5, 2, 1), (5, 1, 2), (7, 1, 1)] {
         let e = r + v;
         let rings = (0..=v).map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r + 1))).collect::<Vec<_>>();
         let digit_extract = DigitExtract::new_digit_retain_based(&rings);

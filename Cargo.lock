@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "fheanor"
-version = "0.11.2"
+version = "0.11.3"
 dependencies = [
  "append-only-vec",
  "backtrace",
