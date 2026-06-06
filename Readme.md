@@ -28,6 +28,13 @@ The following features are available partially, and/or WIP:
 
 In addition to the API documentation, detailed guides and examples to some parts of Fheanor can be found in [`crate::examples`].
 
+## Logging
+
+Some computationally expensive functions in previous versions of Fheanor accepted a const-generic parameter `LOG`, which enabled logging.
+This has now been replaced completely by instrumentation of Fheanor with [`tracing`](https://crates.io/crates/tracing).
+Thus, to get a concise overview of what computations Fheanor is currently doing, register you favourite tracing subscriber.
+For my personal use, I have written [`feanor-tracing`](https://crates.io/crates/feanor-tracing), which can be set up simply by calling `DelayedLogger::init_test()` (or `DelayedLogger::init(...)` with custom configuration), and will then print a brief and human-readable summary of ongoing computations to stdout.
+
 ## Notation (comparison with HElib)
 
 We sometimes use notation differently from the way it is used in HElib, and follow instead most modern HE literature.
