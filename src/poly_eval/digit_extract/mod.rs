@@ -104,7 +104,7 @@ impl<R> DigitExtract<R>
     /// Uses internal heuristics to determine which polynomials and circuits to use.
     /// 
     #[instrument(skip_all)]
-    pub fn new_default<C, S>(rings: &[S], hypercube_iso: &C, B: Option<i64>, cache_dir: Option<&str>) -> Self
+    pub fn new_default<C, S>(rings: &[S], _hypercube_iso: &C, B: Option<i64>, cache_dir: Option<&str>) -> Self
         where C: Deref<Target = HypercubeIsomorphism<S>>,
             S: RingStore<Type = R>,
             R: SerializableElementRing
@@ -117,14 +117,15 @@ impl<R> DigitExtract<R>
         create_cached(
             (rings, Gal),
             || {
+                let zn_rings = (0..=v).map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(ZZbig.clone_el(&p), r + i))).collect::<Vec<_>>();
+                let homs = rings.iter().zip(zn_rings.iter()).map(|(R, Zpk)| R.inclusion().compose(ZnReductionMap::new(Zpk, R.base_ring()).unwrap())).collect::<Vec<_>>();
+                let embed = |k: usize, x: Coefficient<zn_big::ZnBase<_>>| x.change_ring(|x| homs[k - r].map(x));
                 if ZZbig.eq_el(&p, &int_cast(2, ZZbig, ZZi64)) && e <= 23 {
-                    let zn_rings = (0..=v).map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(ZZbig.clone_el(&p), r + i))).collect::<Vec<_>>();
-                    DigitExtract::new_precomputed_p_is_2(&zn_rings)
-                        .change_ring_uniform(|k, x| x.change_ring(|x| rings[k - r].inclusion().map(rings[k - r].base_ring().coerce(&ZZbig, zn_rings[k - r].smallest_lift(x)))))
+                    DigitExtract::new_precomputed_p_is_2(&zn_rings).change_ring_uniform(embed)
                 } else if v == 1 && B.is_some() && ZZbig.is_lt(&int_cast(B.unwrap() * 2, ZZbig, ZZi64), &p) {
-                    Self::new_bounded_error_with_galois(rings, &hypercube_iso, B.unwrap())
+                    DigitExtract::new_bounded_error(&zn_rings, B.unwrap()).change_ring_uniform(embed)
                 } else {
-                    Self::new_digit_retain_based_with_galois(rings, &hypercube_iso)
+                    DigitExtract::new_digit_retain_based(&zn_rings).change_ring_uniform(embed)
                 }
             },
             &filename_keys![digit_extract, m: Gal.m(), o: Gal.group_order(), p: &p, e: e, r: r, B: B],
@@ -139,6 +140,8 @@ impl<R> DigitExtract<R>
     /// Uses the Chen-Han digit retain polynomials <https://ia.cr/2018/067> together with
     /// a heuristic method to compile them into an arithmetic circuit, which considers
     /// Paterson-Stockmeyer-like methods as well as Galois-automorphism-based methods.
+    /// 
+    /// **Warning**: Currently the Galois-based arithmetization is very slow. Improvements are planned.
     /// 
     #[instrument(skip_all)]
     pub fn new_digit_retain_based_with_galois<S: RingStore<Type = R>>(rings: &[S], H: &HypercubeIsomorphism<S>) -> Self {
@@ -169,6 +172,8 @@ impl<R> DigitExtract<R>
     /// Uses the Ma, Huang, Wang and Want digit extraction polynomials <https://ia.cr/2024/115> 
     /// for errors bounded by `B` and large `p`, together with a heuristic method to compile them
     /// into an algebraic circuit, based on the Paterson-Stockmeyer method.
+    /// 
+    /// **Warning**: Currently the Galois-based arithmetization is very slow. Improvements are planned.
     /// 
     #[instrument(skip_all)]
     pub fn new_bounded_error_with_galois<S: RingStore<Type = R>>(rings: &[S], hypercube_iso: &HypercubeIsomorphism<S>, B: i64) -> Self {
