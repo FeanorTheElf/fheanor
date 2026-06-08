@@ -32,6 +32,9 @@ use serde::de::DeserializeSeed;
 use tracing::instrument;
 
 use crate::cache::{SerializeDeserializeWith, SerializeSerializableWithData, StoreAs, create_cached};
+use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
+use crate::number_ring::hypercube::structure::HypercubeStructure;
+use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use crate::number_ring::{NumberRingQuotient, NumberRingQuotientStore};
 use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupOps, GaloisGroupEl};
 use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
@@ -152,7 +155,7 @@ impl<R> DigitExtract<R>
         }
         
         let digit_extraction_circuits = (1..=v).map(|i| {
-            let required_digits = (2..=(v - i)).chain([r + i].into_iter()).collect::<Vec<_>>();
+            let required_digits = (2..=i).chain([r + i].into_iter()).collect::<Vec<_>>();
             let poly_ring = DensePolyRing::new(zn_big::Zn::new(ZZbig, ZZbig.pow(ZZbig.clone_el(&p), r + i)), "X");
             let current_H = H.change_modulus(&rings[i]);
             let circuit = poly_to_circuit_with_galois(&current_H, &poly_ring, &required_digits.iter().map(|j| centered_digit_retain_poly(&poly_ring, *j)).collect::<Vec<_>>());
@@ -319,13 +322,14 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
     /// 
     /// If you want to use the default choice of circuits, consider using [`DigitExtract::new_default()`].
     /// 
-    /// This function takes `v` rings, which should have characteristic `p^(r + i + 1)` for
-    /// `1 <= i <= v`. For each ring, there should be one digit extraction circuit, which
-    /// at the very least can extract the last digit modulo `p^(r + i + 1)`.
+    /// This function takes `v + 1` rings, which should have characteristic `p^(r + i)` for
+    /// `0 <= i <= v`. For the rings `p^(r + i)` with `1 <= i <= v`, the function additionally
+    /// takes an "extraction circuit", which is able to extract `p`-ary digits modulo `p^(r + i)`.
+    /// At the very least, it must be able to extract the last digit modulo `p^(r + i)`.
     /// More concretely, the `j`-th output of the circuit should be congruent to
-    /// `lift(input cmod p)` modulo `p^extracted_digit_mod_exp[j]`, where `cmod` is the "centered modulo", i.e. should output an element
-    /// in `{ - (p - 1)/2, ..., (p - 1)/2 }` that is congruent to the input (or `{0, 1}` if
-    /// `p = 2`).
+    /// `lift(input cmod p)` modulo `p^extracted_digit_mod_exp[j]`, where `cmod` is the "centered modulo",
+    /// i.e. should output an element in `{ - (p - 1)/2, ..., (p - 1)/2 }` that is congruent to the input
+    /// (or `{0, 1}` if `p = 2`).
     /// 
     /// Note that this function cannot check that the rings are compatible with each other and the given circuits,
     /// this has to be ensured by the caller.
@@ -1093,6 +1097,48 @@ fn test_digit_extract_precomputed_p_2() {
             assert_el_eq!(&rings[0], rings[0].coerce(&ZZi64, (x - cmod(x, ZZi64.pow(p, v))) / ZZi64.pow(p, v)), actual_high);
         }
     }
+}
+
+#[test]
+fn test_digit_retain_based_right_digits() {
+    feanor_tracing::DelayedLogger::init_test();
+    let v = 5;
+    let r = 3;
+    let p = 2;
+    let rings = (0..=v).map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r))).collect::<Vec<_>>();
+    let extraction = DigitExtract::new_digit_retain_based(&rings);
+    let mut circuits = extraction.extraction_circuits;
+    circuits.sort_unstable_by_key(|circuit| circuit.global_mod_exp);
+    assert_eq!(5, circuits.len());
+    assert_eq!(4, circuits[0].global_mod_exp);
+    assert_eq!(5, circuits[1].global_mod_exp);
+    assert_eq!(6, circuits[2].global_mod_exp);
+    assert_eq!(7, circuits[3].global_mod_exp);
+    assert_eq!(8, circuits[4].global_mod_exp);
+    assert_eq!(vec![4], circuits[0].extracted_digit_mod_exp);
+    assert_eq!(vec![2, 5], circuits[1].extracted_digit_mod_exp);
+    assert_eq!(vec![2, 3, 6], circuits[2].extracted_digit_mod_exp);
+    assert_eq!(vec![2, 3, 4, 7], circuits[3].extracted_digit_mod_exp);
+    assert_eq!(vec![2, 3, 4, 5, 8], circuits[4].extracted_digit_mod_exp);
+
+    let plaintext_rings = rings.iter().map(|ring| NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(3), ring)).collect::<Vec<_>>();
+    let h = HypercubeStructure::halevi_shoup_hypercube(plaintext_rings.last().unwrap().acting_galois_group(), int_cast(p, ZZbig, ZZi64));
+    let H = HypercubeIsomorphism::new(plaintext_rings.last().unwrap(), &h, None);
+    let plaintext_rings = plaintext_rings.iter().collect::<Vec<_>>();
+    let extraction = DigitExtract::new_digit_retain_based_with_galois(&plaintext_rings, &H);
+    let mut circuits = extraction.extraction_circuits;
+    circuits.sort_unstable_by_key(|circuit| circuit.global_mod_exp);
+    assert_eq!(5, circuits.len());
+    assert_eq!(4, circuits[0].global_mod_exp);
+    assert_eq!(5, circuits[1].global_mod_exp);
+    assert_eq!(6, circuits[2].global_mod_exp);
+    assert_eq!(7, circuits[3].global_mod_exp);
+    assert_eq!(8, circuits[4].global_mod_exp);
+    assert_eq!(vec![4], circuits[0].extracted_digit_mod_exp);
+    assert_eq!(vec![2, 5], circuits[1].extracted_digit_mod_exp);
+    assert_eq!(vec![2, 3, 6], circuits[2].extracted_digit_mod_exp);
+    assert_eq!(vec![2, 3, 4, 7], circuits[3].extracted_digit_mod_exp);
+    assert_eq!(vec![2, 3, 4, 5, 8], circuits[4].extracted_digit_mod_exp);
 }
 
 #[test]
