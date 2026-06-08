@@ -32,9 +32,6 @@ use serde::de::DeserializeSeed;
 use tracing::instrument;
 
 use crate::cache::{SerializeDeserializeWith, SerializeSerializableWithData, StoreAs, create_cached};
-use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
-use crate::number_ring::hypercube::structure::HypercubeStructure;
-use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use crate::number_ring::{NumberRingQuotient, NumberRingQuotientStore};
 use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupOps, GaloisGroupEl};
 use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
@@ -883,6 +880,12 @@ pub fn digit_retain_poly<P>(poly_ring: P, e: usize) -> El<P>
 
 #[cfg(test)]
 use feanor_math::rings::zn::zn_64::*;
+#[cfg(test)]
+use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
+#[cfg(test)]
+use crate::number_ring::hypercube::structure::HypercubeStructure;
+#[cfg(test)]
+use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 
 #[cfg(test)]
 pub fn cmod(x: i64, y: i64) -> i64 {

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use feanor_math::algorithms::convolution::*;
 use feanor_math::algorithms::discrete_log::Subgroup;
+use feanor_math::algorithms::matmul::ComputeInnerProduct;
 use feanor_math::group::AbelianGroupStore;
 use feanor_math::iters::{multi_cartesian_product, MultiProduct};
 use feanor_math::primitive_int::*;
@@ -659,6 +660,63 @@ impl<NumberRing, A, C> RingBase for SingleRNSRingBase<NumberRing, A, C>
     }
 }
 
+impl<NumberRing, A, C> ComputeInnerProduct for SingleRNSRingBase<NumberRing, A, C> 
+    where NumberRing: NumberRingDescriptor,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnBase>
+{
+    fn inner_product<I: Iterator<Item = (Self::Element, Self::Element)>>(&self, els: I) -> Self::Element {
+        let mut result = self.zero();
+        let mut unreduced_result = Vec::with_capacity_in(2 * self.m(), self.allocator());
+        let parts = els.into_iter().collect::<Vec<_>>();
+        for k in 0..self.base_ring().len() {
+            let Zp = self.base_ring().at(k);
+            unreduced_result.clear();
+            unreduced_result.resize_with(self.m() * 2, || Zp.zero());
+            self.convolutions[k].compute_convolution_sum(
+                parts.iter().map(|(lhs, rhs)| 
+                    (
+                        self.coefficients_as_matrix(lhs).into_row_at(k),
+                        None,
+                        self.coefficients_as_matrix(rhs).into_row_at(k),
+                        None,
+                    )), 
+                &mut unreduced_result, 
+                Zp
+            );
+            self.reduce_modulus_partly(k, &mut unreduced_result, self.coefficients_as_matrix_mut(&mut result).row_mut_at(k));
+        }
+        return result;
+    }
+
+    fn inner_product_ref<'a, I: Iterator<Item = (&'a Self::Element, &'a Self::Element)>>(&self, els: I) -> Self::Element
+        where Self::Element: 'a,
+            Self: 'a
+    {
+        let mut result = self.zero();
+        let mut unreduced_result = Vec::with_capacity_in(2 * self.m(), self.allocator());
+        let parts = els.into_iter().collect::<Vec<_>>();
+        for k in 0..self.base_ring().len() {
+            let Zp = self.base_ring().at(k);
+            unreduced_result.clear();
+            unreduced_result.resize_with(self.m() * 2, || Zp.zero());
+            self.convolutions[k].compute_convolution_sum(
+                parts.iter().map(|(lhs, rhs)| 
+                    (
+                        self.coefficients_as_matrix(lhs).into_row_at(k),
+                        None,
+                        self.coefficients_as_matrix(rhs).into_row_at(k),
+                        None,
+                    )), 
+                &mut unreduced_result, 
+                Zp
+            );
+            self.reduce_modulus_partly(k, &mut unreduced_result, self.coefficients_as_matrix_mut(&mut result).row_mut_at(k));
+        }
+        return result;
+    }
+}
+
 impl<NumberRing, A, C> RingExtension for SingleRNSRingBase<NumberRing, A, C> 
     where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone,
@@ -910,6 +968,31 @@ impl<NumberRing, A, C> FiniteRing for SingleRNSRingBase<NumberRing, A, C>
             for i in 0..self.base_ring().len() {
                 *result_matrix.at_mut(i, j) = self.base_ring().at(i).random_element(&mut rng);
             }
+        }
+        return result;
+    }
+}
+
+impl<NumberRing, A1, C1> CanHomFrom<BigIntRingBase> for SingleRNSRingBase<NumberRing, A1, C1>
+    where NumberRing: NumberRingDescriptor,
+        A1: Allocator + Clone,
+        C1: ConvolutionAlgorithm<ZnBase>
+{
+    type Homomorphism = Vec<<ZnBase as CanHomFrom<BigIntRingBase>>::Homomorphism>;
+
+    fn has_canonical_hom(&self, from: &BigIntRingBase) -> Option<Self::Homomorphism> {
+        (0..self.base_ring().len()).map(|i| self.base_ring().at(i).get_ring().has_canonical_hom(from).ok_or(())).collect::<Result<Vec<_>, ()>>().ok()
+    }
+
+    fn map_in(&self, from: &BigIntRingBase, el: El<BigIntRing>, hom: &Self::Homomorphism) -> Self::Element {
+        self.map_in_ref(from, &el, hom)
+    }
+
+    fn map_in_ref(&self, from: &BigIntRingBase, el: &El<BigIntRing>, hom: &Self::Homomorphism) -> Self::Element {
+        let mut result = self.zero();
+        let mut result_matrix = self.coefficients_as_matrix_mut(&mut result);
+        for (i, Zp) in self.base_ring().as_iter().enumerate() {
+            *result_matrix.at_mut(i, 0) = Zp.get_ring().map_in_ref(from, el, &hom[i]);
         }
         return result;
     }

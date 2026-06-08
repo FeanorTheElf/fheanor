@@ -790,6 +790,45 @@ fn test_composite_bgv_thin_bootstrapping_2_sparse_key_encapsulation() {
 
 #[ignore]
 #[test]
+fn measure_time_single_rns_composite_bgv_thin_bootstrapping() {
+    feanor_tracing::DelayedLogger::init_test();
+
+    let mut rng = StdRng::from_seed([0; 32]);
+
+    let t = int_cast(4, ZZbig, ZZi64);
+    let sk_distr = SecretKeyDistribution::SparseWithHwt(256);
+    let params = CompositeSingleRNSBGV::new(37, 949);
+    let P = params.create_plaintext_ring(t);
+    let C_master = params.create_ciphertext_ring(805..820);
+    assert_eq!(15, C_master.base_ring().len());
+    let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
+    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C_master, 7, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
+    
+    let sk = CompositeSingleRNSBGV::gen_sk(&C_master, &mut rng, sk_distr);
+    let gk = CompositeSingleRNSBGV::gen_gks(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
+    let rk = CompositeSingleRNSBGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params, 3.2);
+    
+    let m = P.int_hom().map(2);
+    let ct = CompositeSingleRNSBGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
+    let ct_result = bootstrapper.bootstrap_thin(
+        &RNSFactorIndexList::empty(),
+        ct, 
+        &rk, 
+        &gk,
+        sk_distr,
+        None,
+        None
+    );
+    let C_result = CompositeSingleRNSBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
+    let sk_result = CompositeSingleRNSBGV::mod_switch_sk(&C_result, &C_master, &sk);
+    println!("final noise budget: {}", CompositeSingleRNSBGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result));
+    let result = CompositeSingleRNSBGV::dec(&P, &C_result, ct_result.data, &sk_result);
+    assert_el_eq!(P, P.int_hom().map(2), result);
+}
+
+
+#[ignore]
+#[test]
 fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     feanor_tracing::DelayedLogger::init_test();
 

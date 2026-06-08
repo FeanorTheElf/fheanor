@@ -1317,7 +1317,7 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BGVInstantiation for Comp
     #[instrument(skip_all)]
     fn create_rns_base(&self, log2_q: Range<usize>) -> zn_rns::Zn<Zn, BigIntRing> {
         let number_ring = self.number_ring();
-        let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
+        let required_root_of_unity = 1 << ZZi64.abs_log2_ceil(&(number_ring.m() as i64 * 2)).unwrap();
         let mut rns_base = sample_primes(
             log2_q.start, 
             log2_q.end, 
@@ -1565,7 +1565,7 @@ fn test_pow2_bgv_modulus_switch_rk() {
 }
 
 #[test]
-fn test_mod_switch_repeated() {
+fn test_pow2_mod_switch_repeated() {
     feanor_tracing::DelayedLogger::init_test();
     let mut rng = StdRng::from_seed([0; 32]);
     

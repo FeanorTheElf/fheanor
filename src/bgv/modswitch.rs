@@ -2,6 +2,7 @@ use core::f64;
 use std::cmp::min;
 use std::ops::Range;
 
+use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::homomorphism::CanHomFrom;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::BigIntRingBase;
@@ -780,6 +781,116 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
 
 impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for DoubleRNSRingBase<NumberRing<Params>, A>
     where CiphertextRing<Params>: RingStore<Type = DoubleRNSRingBase<NumberRing<Params>, A>>
+{
+    fn hom_add_to(
+        &self, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        dropped_factors: &RNSFactorIndexList, 
+        m: &Self::Element, 
+        ct: Ciphertext<Params>
+    ) -> Ciphertext<Params> {
+        Params::hom_add_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, m), ct)
+    }
+
+    fn hom_add_to_noise<N: BGVNoiseEstimator<Params>>(
+        &self, 
+        estimator: &N, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        dropped_factors: &RNSFactorIndexList, 
+        m: &Self::Element, 
+        ct_info: &N::CiphertextDescriptor, 
+        implicit_scale: &El<PlaintextZnRing<Params>>
+    ) -> N::CiphertextDescriptor {
+        estimator.hom_add_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, m), ct_info, implicit_scale)
+    }
+
+    fn hom_mul_to(
+        &self, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        dropped_factors: &RNSFactorIndexList, 
+        m: &Self::Element, 
+        ct: Ciphertext<Params>
+    ) -> Ciphertext<Params> {
+        Params::hom_mul_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, m), ct)
+    }
+
+    fn hom_mul_to_noise<N: BGVNoiseEstimator<Params>>(
+        &self, 
+        estimator: &N, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        dropped_factors: &RNSFactorIndexList, 
+        m: &Self::Element, 
+        ct_info: &N::CiphertextDescriptor, 
+        implicit_scale: &El<PlaintextZnRing<Params>>
+    ) -> N::CiphertextDescriptor {
+        estimator.hom_mul_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, m), ct_info, implicit_scale)
+    }
+
+    #[instrument(skip_all)]
+    fn hom_inner_product<I>(
+        &self, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        dropped_factors: &RNSFactorIndexList, 
+        data: I
+    ) -> Ciphertext<Params>
+        where I: Iterator<Item = (Self::Element, Ciphertext<Params>)>
+    {
+        let mut lhs = Vec::new();
+        let mut rhs_c0 = Vec::new();
+        let mut rhs_c1 = Vec::new();
+        let mut first_implicit_scale = None;
+        for (l, r) in data {
+            if first_implicit_scale.is_none() {
+                first_implicit_scale = Some(P.base_ring().clone_el(&r.implicit_scale));
+            } else {
+                assert!(P.base_ring().eq_el(first_implicit_scale.as_ref().unwrap(), &r.implicit_scale));
+            }
+            lhs.push(C.get_ring().drop_rns_factor_element(self, dropped_factors, &l));
+            rhs_c0.push(r.c0);
+            rhs_c1.push(r.c1);
+        }
+        return Ciphertext {
+            implicit_scale: first_implicit_scale.unwrap_or(P.base_ring().one()),
+            c0: <_ as ComputeInnerProduct>::inner_product_ref_fst(C.get_ring(), lhs.iter().zip(rhs_c0.into_iter())),
+            c1: <_ as ComputeInnerProduct>::inner_product(C.get_ring(), lhs.into_iter().zip(rhs_c1.into_iter())),
+        };
+    }
+
+    #[instrument(skip_all)]
+    fn hom_inner_product_ref<'a, I>(
+        &self, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        dropped_factors: &RNSFactorIndexList, 
+        data: I
+    ) -> Ciphertext<Params>
+        where I: Iterator<Item = (&'a Self::Element, &'a Ciphertext<Params>)>,
+            Params: 'a,
+            Self: 'a
+    {
+        let mut lhs = Vec::new();
+        let mut rhs_c0 = Vec::new();
+        let mut rhs_c1 = Vec::new();
+        for (l, r) in data {
+            lhs.push(C.get_ring().drop_rns_factor_element(self, dropped_factors, l));
+            rhs_c0.push(&r.c0);
+            rhs_c1.push(&r.c1);
+        }
+        return Ciphertext {
+            implicit_scale: P.base_ring().one(),
+            c0: <_ as ComputeInnerProduct>::inner_product_ref(C.get_ring(), rhs_c0.into_iter().zip(lhs.iter())),
+            c1: <_ as ComputeInnerProduct>::inner_product_ref_fst(C.get_ring(), rhs_c1.into_iter().zip(lhs.into_iter())),
+        };
+    }
+}
+
+impl<Params: BGVInstantiation, A: Allocator + Clone, C: ConvolutionAlgorithm<ZnBase>> AsBGVPlaintext<Params> for SingleRNSRingBase<NumberRing<Params>, A, C>
+    where CiphertextRing<Params>: RingStore<Type = SingleRNSRingBase<NumberRing<Params>, A, C>>
 {
     fn hom_add_to(
         &self, 
