@@ -241,7 +241,7 @@ impl<R: ?Sized + NiceZn> DigitExtract<R> {
         let (_p, r, v, _e) = Self::get_p_r_v_e(rings);
         
         let digit_extraction_circuits = (1..=v).map(|i| {
-            let required_digits = (2..=usize::min(v - i, r + i - 1)).chain([r + i].into_iter()).collect::<Vec<_>>();
+            let required_digits = (2..=i).chain([r + i].into_iter()).collect::<Vec<_>>();
             let poly_ring = DensePolyRing::new(&rings[i], "X");
             let circuit = poly_to_circuit(&poly_ring, &required_digits.iter().map(|j| centered_digit_retain_poly(&poly_ring, *j)).collect::<Vec<_>>());
             return DigitExtractionCircuit {

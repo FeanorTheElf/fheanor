@@ -681,6 +681,17 @@ pub trait BFVInstantiation {
     }
     
     ///
+    /// Convenience wrapper to wrap many calls of [`BFVInstantiation::gen_gk`].
+    /// 
+    #[instrument(skip_all)]
+    fn gen_gks<R: Rng + CryptoRng, I: IntoIterator<Item = GaloisGroupEl>>(C: &CiphertextRing<Self>, mut rng: R, sk: &SecretKey<Self>, gs: I, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> Vec<(GaloisGroupEl, KeySwitchKey<Self>)> {
+        gs.into_iter().map(|g| {
+            let gk = Self::gen_gk(C, &mut rng, sk, &g, digits, noise_sigma);
+            (g, gk)
+        }).collect()
+    }
+
+    ///
     /// Computes an encryption of `sigma(x)`, where `x` is the message encrypted by the given ciphertext
     /// and `sigma` is the given Galois automorphism.
     /// 

@@ -980,6 +980,17 @@ pub trait BGVInstantiation {
     }
 
     ///
+    /// Convenience wrapper to wrap many calls of [`BGVInstantiation::gen_gk`].
+    /// 
+    #[instrument(skip_all)]
+    fn gen_gks<R: Rng + CryptoRng, I: IntoIterator<Item = GaloisGroupEl>>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, mut rng: R, sk: &SecretKey<Self>, gs: I, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> Vec<(GaloisGroupEl, KeySwitchKey<Self>)> {
+        gs.into_iter().map(|g| {
+            let gk = Self::gen_gk(P, C, &mut rng, sk, &g, digits, noise_sigma);
+            (g, gk)
+        }).collect()
+    }
+
+    ///
     /// Converts an encrypted value `m` w.r.t. a plaintext modulus `t` to an encryption of `t' m / t` w.r.t.
     /// a plaintext modulus `t'`. This requires that `t' m / t` is an integral ring element (i.e. `t` divides
     /// `t' m`), otherwise this function will cause immediate noise overflow.

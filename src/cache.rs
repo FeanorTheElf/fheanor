@@ -1,5 +1,5 @@
 
-use tracing::{Level, span, instrument};
+use tracing::{Level, span};
 
 use std::fmt::Display;
 use std::fs::File;

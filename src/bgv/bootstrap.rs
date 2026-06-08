@@ -499,6 +499,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         &self,
         ct: ModulusAwareCiphertext<Inst, Strategy>,
         rk: &RelinKey<Inst>,
+        gks: &[(GaloisGroupEl, KeySwitchKey<Inst>)],
         debug_sk: Option<&SecretKey<Inst>>
     ) -> ModulusAwareCiphertext<Inst, Strategy>
         where Inst::PlaintextRing: AsBGVPlaintext<Inst>
@@ -512,6 +513,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
             C_master,
             ct,
             rk,
+            gks,
             debug_sk
         ).0;
         return result;
@@ -555,7 +557,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
 
         let noisy_decryption_in_slots = self.perform_coefficients_to_slots(noisy_decryption, gks, debug_sk);
         
-        return self.perform_digit_extraction(noisy_decryption_in_slots, rk, debug_sk);
+        return self.perform_digit_extraction(noisy_decryption_in_slots, rk, gks, debug_sk);
     }
 }
 
@@ -630,6 +632,7 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
         C_master: &CiphertextRing<Inst>, 
         input: ModulusAwareCiphertext<Inst, Strategy>, 
         rk: &RelinKey<Inst>,
+        gks: &[(GaloisGroupEl, KeySwitchKey<Inst>)],
         debug_sk: Option<&SecretKey<Inst>>
     ) -> (ModulusAwareCiphertext<Inst, Strategy>, ModulusAwareCiphertext<Inst, Strategy>)
         where S: RingStore<Type = R>,
@@ -650,7 +653,7 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
         return self.evaluate_generic(
             input,
             |exp, inputs, circuit| {
-                let digit_extracted = modswitch_strategy.evaluate_circuit(circuit, &rings[exp - self.r()], P[exp - self.r()], C_master, inputs, Some(rk), &[], debug_sk);
+                let digit_extracted = modswitch_strategy.evaluate_circuit(circuit, &rings[exp - self.r()], P[exp - self.r()], C_master, inputs, Some(rk), gks, debug_sk);
                 if let Some(sk) = debug_sk {
                     println!("Digit extraction modulo p^{} done", exp);
                     for ct in &digit_extracted {
@@ -702,7 +705,7 @@ fn test_digit_extract_homomorphic() {
         dropped_rns_factor_indices: RNSFactorIndexList::empty(),
         info: strategy.info_for_fresh_encryption(&P2, &C_master, SecretKeyDistribution::UniformTernary),
         sk: SecretKeyDistribution::UniformTernary
-    }, &rk, Some(&sk));
+    }, &rk, &[], Some(&sk));
     let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_high.dropped_rns_factor_indices);
     let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
     let m_high = Pow2BGV::dec(&P1, &C_result, Pow2BGV::clone_ct(&P1, &C_result, &ct_high.data), &sk_result);
@@ -730,10 +733,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C_master, 2, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &g, &key_switch_params, 3.2);
-        return (g, gk);
-    }).collect::<Vec<_>>();
+    let gk = Pow2BGV::gen_gks(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
     let rk = Pow2BGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params, 3.2);
     
     let m = P.int_hom().map(2);
@@ -767,10 +767,7 @@ fn test_composite_bgv_thin_bootstrapping_2_sparse_key_encapsulation() {
     let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C_master, 4, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = CompositeBGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &g, &key_switch_params, 3.2);
-        return (g, gk);
-    }).collect::<Vec<_>>();
+    let gk = CompositeBGV::gen_gks(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
     let rk = CompositeBGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params, 3.2);
     let encaps = SparseKeyEncapsulationKey::new(bootstrapper.intermediate_plaintext_ring(), &C_master, &sk, 2, 16, &mut rng, 3.2);
 
@@ -808,10 +805,7 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C_master, 7, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, sk_distr);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = CompositeBGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &g, &key_switch_params, 3.2);
-        return (g, gk);
-    }).collect::<Vec<_>>();
+    let gk = CompositeBGV::gen_gks(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
     let rk = CompositeBGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params, 3.2);
     
     let m = P.int_hom().map(2);
@@ -850,10 +844,7 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
     let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C_master, 2, None, 4, &gk_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, sk_distr);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
-        let gk = Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &g, &gk_params, 3.2);
-        return (g, gk);
-    }).collect::<Vec<_>>();
+    let gk = Pow2BGV::gen_gks(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &gk_params, 3.2);
     let rk = Pow2BGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &rk_params, 3.2);
     
     let m = P.int_hom().map(2);
@@ -865,7 +856,7 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
         &gk,
         sk_distr,
         None,
-        Some(&sk)
+        None
     );
     let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);

@@ -1,5 +1,3 @@
-use std::thread::sleep;
-use std::time::Duration;
 use std::alloc::*;
 use std::marker::PhantomData;
 use std::sync::Arc;

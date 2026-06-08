@@ -78,11 +78,24 @@ fn compute_circuit_from_irreducible_poly<P, R, F>(
         }
     }
     let Fq = FreeAlgebraImpl::new(Fp, S.rank(), modulus).as_field().ok().unwrap();
+    // println!();
+    // println!("factoring poly");
+    // FpX.println(&FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&irred_poly));
+    // println!("over");
+    // FpX.println(&Fq.generating_poly(&FpX, Fp.identity()));
+    // println!();
     let FqX = DensePolyRing::new(&Fq, "X");
     let (roots, _) = <_ as FactorPolyField>::factor_poly(&FqX, &FqX.lifted_hom(&ZpeX, Fq.inclusion().compose(&Zpe_to_Fp)).map_ref(&irred_poly));
     assert_eq!(1, FqX.degree(&roots[0].0).unwrap());
     assert!(Fq.is_one(FqX.lc(&roots[0].0).unwrap()));
     let root = Fq.negate(Fq.clone_el(FqX.coefficient_at(&roots[0].0, 0)));
+    // let mut root_repr = (0..256).map(|_| Fq.base_ring().zero()).collect::<Vec<_>>();
+    // for (c, i) in [(1, 166)] {
+    //     root_repr[i] = Fq.base_ring().int_hom().map(c);
+    // }
+    // let root = Fq.from_canonical_basis(root_repr);
+    // assert!(Fq.is_zero(&FpX.evaluate(&FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&irred_poly), &root, Fq.inclusion())));
+
     let mut root_in_S = S.from_canonical_basis(Fq.wrt_canonical_basis(&root).iter().map(|x| Sbase_to_Fp.smallest_lift(x)));
     let irred_poly_derivate = derive_poly(&ZpeX, &irred_poly);
     for _ in 0..ZZi64.abs_log2_ceil(&e.try_into().unwrap()).unwrap() {
@@ -151,8 +164,15 @@ fn find_irreducible_modification<P, R>(
     let Zpe_to_Fp = (&Sbase_to_Fp).compose(&Zpe_to_Sbase);
     let monic_poly_mod_p = FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(monic_poly);
     let mut rng = oorandom::Rand64::new(0);
+    for _ in 0..(2 * d) {
+        let delta = ZpeX.from_terms([(Zpe.random_element(|| rng.rand_u64()), 0), (Zpe.random_element(|| rng.rand_u64()), 1)]);
+        let delta_mod_p = FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&delta);
+        if <_ as FactorPolyField>::is_irred(&FpX, &FpX.add_ref_fst(&monic_poly_mod_p, delta_mod_p)) {
+            return Ok(compute_circuit_from_irreducible_poly(&FpX, ZpeX, monic_poly, &delta, S, parent_galois_group, frobenius));
+        }
+    }
     for k in 0..ZZi64.abs_log2_ceil(&d.try_into().unwrap()).unwrap() {
-        for _ in 0..10 {
+        for _ in 0..d {
             let delta_constant = Zpe.random_element(|| rng.rand_u64());
             let delta = ZpeX.from_terms((0..=k).map(|i| (Zpe.random_element(|| rng.rand_u64()), 1 << i)).chain([(delta_constant, 0)]));
             let delta_mod_p = FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&delta);

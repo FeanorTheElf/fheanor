@@ -484,6 +484,9 @@ pub trait CLPXInstantiation {
     /// defined by the given element of the Galois group.
     /// 
     /// The Galois automorphism must be part of the subgroup acting on the plaintext ring.
+    /// The modulus of the plaintext ring is ignored, i.e. the same Galois key can be used
+    /// with ciphertexts that encrypt plaintexts w.r.t. any power of the same prime as plaintext
+    /// modulus.
     /// 
     /// The parameter `digits` defined the RNS-based gadget vector to use for the gadget product
     /// during key-switching. More concretely, when performing key-switching, the ciphertext
@@ -499,6 +502,17 @@ pub trait CLPXInstantiation {
         Self::gen_switch_key(C, rng, &C.get_ring().apply_galois_action(sk, g), sk, digits, noise_sigma)
     }
     
+    ///
+    /// Convenience wrapper to wrap many calls of [`CLPXInstantiation::gen_gk`].
+    /// 
+    #[instrument(skip_all)]
+    fn gen_gks<R: Rng + CryptoRng, I: IntoIterator<Item = GaloisGroupEl>>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, mut rng: R, sk: &SecretKey<Self>, gs: I, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> Vec<(GaloisGroupEl, KeySwitchKey<Self>)> {
+        gs.into_iter().map(|g| {
+            let gk = Self::gen_gk(P, C, &mut rng, sk, &g, digits, noise_sigma);
+            (g, gk)
+        }).collect()
+    }
+
     ///
     /// Computes an encryption of `sigma(x)`, where `x` is the message encrypted by the given ciphertext
     /// and `sigma` is the given Galois automorphism.
