@@ -166,3 +166,10 @@ Exactly the three required impls exist:
   fast path; decryptions are checked against expected values.
 - `test_as_bgv_plaintext_noise`: checks that plaintext-ciphertext multiplication increases the
   estimated noise while addition does not, and that the inner-product noise estimate is finite.
+
+# Review
+
+Please fix the following points:
+ - I'm surprised that `impl<Params> AsBGVPlaintext<Params> for Params::PlaintextRing`; After all, `EncodedBGVPlaintextRingBase` is not `NumberRingQuotient`, which is necessary to be any `Param::PlaintextRing`. But ok, if it doesn't work, try first `impl<Params, R> AsBGVPlaintext<Params> for R where Params: BGVInstantiation<PlaintextRing = R>, R: NumberRingQuotient`; if that also doesn't work, do what is done in `src/bfv/eval.rs`, i.e. `impl<Params, R> AsBGVPlaintext<Params> for R where Params::PlaintextRing: CanHomFrom<R>, R: NumberRingQuotient`. I don't want to have a separate implementation for every ring that is used as plaintext ring by some `BGVInstantiation`.
+ - It's a bit annoying that `EncodedBGVPlaintextRing::hom_inner_product` cannot currently use the prepared operand. However, fixing that for now would go beyond the scope of this refactor, so just add a note there explaining why this is difficult and that this choice was made, potentially to be fixed in the future.
+ - Let's leave the ownership question on the `inner_product` functions as-is for now. While `Borrow` pattern might be an improvement, I just realized that here and for `BGVInstantiation`, the even better choice would actually be to use `src/boo.rs`. But let's leave it for now, to be fixed later.
