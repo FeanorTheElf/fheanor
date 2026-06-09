@@ -193,3 +193,5 @@ Please fix the following points:
   is a deliberate scope choice to potentially revisit later.
 - **Ownership of the `inner_product` operands.** Left as-is, per your note (to be revisited later,
   possibly using `src/boo.rs`).
+
+# Human approved
