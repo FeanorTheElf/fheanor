@@ -64,16 +64,21 @@ pub type RelinKey<Params: BGVInstantiation> = KeySwitchKey<Params>;
 /// Currently, the only provided implementation is the somewhat imprecise and not rigorously
 /// justified [`noise_estimator::NaiveBGVNoiseEstimator`], which is based on simple asymptotic
 /// formulas.
-/// 
-// pub mod noise_estimator;
+///
+pub mod noise_estimator;
+///
+/// Contains the trait [`eval::AsBGVPlaintext`] for rings whose elements can be used as
+/// plaintexts in plaintext-ciphertext operations, plus the ring [`eval::EncodedBGVPlaintextRing`].
+///
+pub mod eval;
 ///
 /// Contains the trait [`modswitch::BGVModswitchStrategy`] and the implementation
 /// [`modswitch::DefaultModswitchStrategy`] for automatic modulus management in BGV.
-/// 
+///
 // pub mod modswitch;
 ///
 /// Contains the implementation of BGV thin bootstrapping.
-/// 
+///
 // pub mod bootstrap;
 
 ///
