@@ -146,3 +146,23 @@ variants, both `AssertEqual` and `Merge` policies, and the `_norelin` path.
 Actually it doesn't make sense to distinguish `ImplicitScalePolicy` in the `inner_product_plain` and `inner_product_plain_scalar` functions - merging the implicit scale into plaintexts is (essentially) free. Change the code to always merge implicit scale into plaintext here (and remove the policy parameter). Keep the current logic for `inner_product_plain_encoded` and `hom_add` and `hom_add_norelin`, where merging implicit scale actually increases noise.
 
 Related: rename `inner_product_encoded` to `inner_product_plain_encoded` and similarly for `*_norelin`.
+# Review response 2
+
+Done:
+
+- **`hom_inner_product_plain_scalar`** and **`hom_inner_product_plain`** no longer take an
+  `ImplicitScalePolicy`. They always merge the implicit scale into the (plaintext)
+  multiplicand, which is free and does not increase noise:
+  - `hom_inner_product_plain_scalar` multiplies each scalar by the inverse implicit scale
+    (`m_i * s_i^-1`) before accumulating with `fma_map`; the result has implicit scale `1`.
+  - `hom_inner_product_plain` folds `s_i^-1` into each plaintext (a free ring scaling),
+    resets the corresponding ciphertext's implicit scale to `1` (no change to `c0/c1`), then
+    encodes and delegates to `hom_inner_product_plain_encoded` with `AssertEqual` (all scales
+    are now `1`, so the summands are added directly with no extra noise).
+- **`hom_inner_product_plain_encoded`**, **`hom_add`** and **`hom_add_norelin`** keep the
+  `ImplicitScalePolicy` parameter (here merging genuinely costs noise).
+- Renamed `hom_inner_product_encoded` → `hom_inner_product_plain_encoded`, and
+  `hom_inner_product_encoded_norelin` → `hom_inner_product_plain_encoded_norelin`. The same
+  policy-removal/merge changes were applied to the `_norelin` plain/scalar variants.
+- Updated `test_pow2_bgv_hom_inner_product` accordingly (the differing-scale case now just
+  relies on the automatic merge in `hom_inner_product_plain_scalar`).
