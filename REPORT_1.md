@@ -166,3 +166,5 @@ Done:
   policy-removal/merge changes were applied to the `_norelin` plain/scalar variants.
 - Updated `test_pow2_bgv_hom_inner_product` accordingly (the differing-scale case now just
   relies on the automatic merge in `hom_inner_product_plain_scalar`).
+
+# Human approved
