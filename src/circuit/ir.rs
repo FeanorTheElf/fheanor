@@ -331,14 +331,14 @@ impl<'idents, 'constants, 'values, R: ?Sized + RingBase> CircuitEvaluator<'const
         return outputs;
     }
 
-    fn mul(&mut self, lhs: usize, rhs: usize) -> usize {
+    fn mul(&mut self, lhs: usize, rhs: usize, _: usize) -> usize {
         let (id, name) = self.new_ident();
         self.instructions.push(Instruction::MulCtxCtx { out: name, lhs: self.identifiers[lhs].as_str(), rhs: self.identifiers[rhs].as_str() });
         return id;
     }
 
-    fn square(&mut self, val: usize) -> usize {
-        self.mul(val, val)
+    fn square(&mut self, val: usize, fan_out: usize) -> usize {
+        self.mul(val, val, fan_out)
     }
 }
 
