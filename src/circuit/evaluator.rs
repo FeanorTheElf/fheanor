@@ -29,8 +29,24 @@ pub trait CircuitEvaluator<'a, T, R: ?Sized + RingBase> {
 
     fn supports_gal(&self) -> bool;
     fn supports_mul(&self) -> bool;
-    fn mul(&mut self, lhs: T, rhs: T) -> T;
-    fn square(&mut self, val: T) -> T;
+    ///
+    /// Multiplies the two given values.
+    ///
+    /// `fan_out` is the number of later gates or outputs that use the result of
+    /// this gate (i.e. whose linear combinations have a non-zero coefficient for
+    /// this gate's output). Evaluators that don't care about fan-out can ignore
+    /// this parameter.
+    ///
+    fn mul(&mut self, lhs: T, rhs: T, fan_out: usize) -> T;
+    ///
+    /// Squares the given value.
+    ///
+    /// `fan_out` is the number of later gates or outputs that use the result of
+    /// this gate (i.e. whose linear combinations have a non-zero coefficient for
+    /// this gate's output). Evaluators that don't care about fan-out can ignore
+    /// this parameter.
+    ///
+    fn square(&mut self, val: T, fan_out: usize) -> T;
     fn gal(&mut self, val: T, gs: &'a [GaloisGroupEl]) -> Vec<T>;
     fn add_constant(&mut self, val: T, constant: &'a Coefficient<R>) -> T;
     fn inner_prod<'b, I>(&mut self, data: I) -> T
@@ -95,12 +111,12 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluator<R, S, H>
         panic!()
     }
 
-    fn mul(&mut self, lhs: S::Element, rhs: S::Element) -> S::Element {
+    fn mul(&mut self, lhs: S::Element, rhs: S::Element, _: usize) -> S::Element {
         let result = self.hom.codomain().mul(lhs, rhs);
         return result;
     }
 
-    fn square(&mut self, val: S::Element) -> S::Element {
+    fn square(&mut self, val: S::Element, _: usize) -> S::Element {
         let result = self.hom.codomain().pow(val, 2);
         return result;
     }
@@ -150,11 +166,11 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluatorGal<R, S, 
         self.base.hom.codomain().apply_galois_action_many(&val, gs)
     }
 
-    fn mul(&mut self, lhs: S::Element, rhs: S::Element) -> S::Element {
-        self.base.mul(lhs, rhs)
+    fn mul(&mut self, lhs: S::Element, rhs: S::Element, fan_out: usize) -> S::Element {
+        self.base.mul(lhs, rhs, fan_out)
     }
 
-    fn square(&mut self, val: S::Element) -> S::Element {
-        self.base.square(val)
+    fn square(&mut self, val: S::Element, fan_out: usize) -> S::Element {
+        self.base.square(val, fan_out)
     }
 }

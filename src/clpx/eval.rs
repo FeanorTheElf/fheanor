@@ -182,11 +182,11 @@ impl<'a, 'b, R: ?Sized + AsCLPXPlaintext<Inst> , Inst: CLPXInstantiation> Circui
         }
     }
 
-    fn mul(&mut self, lhs: Ciphertext<Inst>, rhs: Ciphertext<Inst>) -> Ciphertext<Inst> {
+    fn mul(&mut self, lhs: Ciphertext<Inst>, rhs: Ciphertext<Inst>, _: usize) -> Ciphertext<Inst> {
         Inst::hom_mul(self.P, self.C, self.C_mul.unwrap(), lhs, rhs, self.rk.unwrap())
     }
 
-    fn square(&mut self, val: Ciphertext<Inst>) -> Ciphertext<Inst> {
+    fn square(&mut self, val: Ciphertext<Inst>, _: usize) -> Ciphertext<Inst> {
         Inst::hom_square(self.P, self.C, self.C_mul.unwrap(), val, self.rk.unwrap())
     }
 }

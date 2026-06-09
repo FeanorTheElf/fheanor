@@ -1064,8 +1064,8 @@ fn test_to_circuit_many() {
 
         fn gal(&mut self, val: usize, gs: &'a [GaloisGroupEl]) -> Vec<usize> { gs.iter().map(|_| val).collect() }
         fn add_constant(&mut self, val: usize, _: &'a Coefficient<R>) -> usize { val }
-        fn mul(&mut self, _: usize, _: usize) -> usize { unreachable!() }
-        fn square(&mut self, _: usize) -> usize { unreachable!() }
+        fn mul(&mut self, _: usize, _: usize, _: usize) -> usize { unreachable!() }
+        fn square(&mut self, _: usize, _: usize) -> usize { unreachable!() }
         fn supports_gal(&self) -> bool { true }
         fn supports_mul(&self) -> bool { false }
 

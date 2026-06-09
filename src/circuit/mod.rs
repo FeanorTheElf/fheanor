@@ -1033,9 +1033,59 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     }
     
     ///
+    /// Computes, for every value produced by a gate, the number of later gates or
+    /// outputs that use it (i.e. whose linear combination has a non-zero coefficient
+    /// for that value). The returned vector is indexed by the position of the value
+    /// in the sequence of gate outputs (the same indexing used internally by
+    /// [`PlaintextCircuit::evaluate_generic()`]).
+    ///
+    /// This is computed by a single linear-time forward sweep over the gates and
+    /// output transforms.
+    ///
+    fn compute_gate_output_fan_out(&self) -> Vec<usize> {
+        fn mark<R: ?Sized + RingBase>(lc: &LinearCombination<R>, consumer: usize, input_count: usize, fan_out: &mut [usize], last_consumer: &mut [usize]) {
+            for (pos, c) in lc.factors.iter().enumerate() {
+                if pos >= input_count && !c.is_zero() {
+                    let value_index = pos - input_count;
+                    // count each consumer at most once, even if it references the value
+                    // in several of its linear combinations (or multiple times in one)
+                    if last_consumer[value_index] != consumer {
+                        last_consumer[value_index] = consumer;
+                        fan_out[value_index] += 1;
+                    }
+                }
+            }
+        }
+        let total_values = self.gates.iter().map(|gate| match gate {
+            PlaintextCircuitGate::Mul(_, _) => 1,
+            PlaintextCircuitGate::Square(_) => 1,
+            PlaintextCircuitGate::Gal(gs, _) => gs.len()
+        }).sum();
+        let mut fan_out = vec![0; total_values];
+        let mut last_consumer = vec![usize::MAX; total_values];
+        let mut consumer = 0;
+        for gate in &self.gates {
+            match gate {
+                PlaintextCircuitGate::Mul(lhs, rhs) => {
+                    mark(lhs, consumer, self.input_count, &mut fan_out, &mut last_consumer);
+                    mark(rhs, consumer, self.input_count, &mut fan_out, &mut last_consumer);
+                },
+                PlaintextCircuitGate::Square(t) => mark(t, consumer, self.input_count, &mut fan_out, &mut last_consumer),
+                PlaintextCircuitGate::Gal(_, t) => mark(t, consumer, self.input_count, &mut fan_out, &mut last_consumer)
+            }
+            consumer += 1;
+        }
+        for t in &self.output_transforms {
+            mark(t, consumer, self.input_count, &mut fan_out, &mut last_consumer);
+            consumer += 1;
+        }
+        return fan_out;
+    }
+
+    ///
     /// Evaluates the circuit on inputs of type `T`, which in some sense encrypt/encode/represent
     /// elements of a ring, into which we can also embed the circuit constants.
-    /// 
+    ///
     /// More concretely, the ring whose elements are represented by `T` should support
     /// the following operations:
     ///  - `constant(c)` should return a `T` representing the ring element `c`
@@ -1060,21 +1110,24 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
         assert_eq!(self.input_count, inputs.len());
         assert!(evaluator.supports_gal() || !self.has_galois_gates());
         assert!(evaluator.supports_mul() || !self.has_multiplication_gates());
+        let fan_out = self.compute_gate_output_fan_out();
         let mut current = Vec::new();
         for gate in &self.gates {
             match gate {
                 PlaintextCircuitGate::Mul(lhs, rhs) => {
+                    let result_index = current.len();
                     let lhs = lhs.evaluate_generic(inputs, &current, &mut evaluator);
                     let rhs = rhs.evaluate_generic(inputs, &current, &mut evaluator);
-                    current.push(evaluator.mul(lhs, rhs));
+                    current.push(evaluator.mul(lhs, rhs, fan_out[result_index]));
                 },
                 PlaintextCircuitGate::Gal(gs, t) => {
                     let val = t.evaluate_generic(inputs, &current, &mut evaluator);
                     current.extend(evaluator.gal(val, gs));
                 },
                 PlaintextCircuitGate::Square(t) => {
+                    let result_index = current.len();
                     let val = t.evaluate_generic(inputs, &current, &mut evaluator);
-                    current.push(evaluator.square(val));
+                    current.push(evaluator.square(val, fan_out[result_index]));
                 }
             }
         }
