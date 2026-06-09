@@ -58,6 +58,24 @@ pub type SecretKey<Params: BGVInstantiation> = El<CiphertextRing<Params>>;
 pub type RelinKey<Params: BGVInstantiation> = KeySwitchKey<Params>;
 
 ///
+/// Contains the trait [`noise_estimator::BGVNoiseEstimator`] for objects that provide
+/// estimates of the noise level of ciphertexts after BGV homomorphic operations.
+/// Currently, the only provided implementation is the somewhat imprecise and not rigorously
+/// justified [`noise_estimator::NaiveBGVNoiseEstimator`], which is based on simple asymptotic
+/// formulas.
+/// 
+// pub mod noise_estimator;
+///
+/// Contains the trait [`modswitch::BGVModswitchStrategy`] and the implementation
+/// [`modswitch::DefaultModswitchStrategy`] for automatic modulus management in BGV.
+/// 
+// pub mod modswitch;
+///
+/// Contains the implementation of BGV thin bootstrapping.
+/// 
+// pub mod bootstrap;
+
+///
 /// When choosing primes for an RNS base, we restrict to primes of this bitlength.
 /// The reason is that the corresponding quotient rings can be represented by [`zn_64::Zn`].
 /// 
@@ -141,24 +159,6 @@ impl<Params: ?Sized + BGVInstantiation> KeySwitchKey<Params> {
         &self.k1
     }
 }
-
-///
-/// Contains the trait [`noise_estimator::BGVNoiseEstimator`] for objects that provide
-/// estimates of the noise level of ciphertexts after BGV homomorphic operations.
-/// Currently, the only provided implementation is the somewhat imprecise and not rigorously
-/// justified [`noise_estimator::NaiveBGVNoiseEstimator`], which is based on simple asymptotic
-/// formulas.
-/// 
-pub mod noise_estimator;
-///
-/// Contains the trait [`modswitch::BGVModswitchStrategy`] and the implementation
-/// [`modswitch::DefaultModswitchStrategy`] for automatic modulus management in BGV.
-/// 
-pub mod modswitch;
-///
-/// Contains the implementation of BGV thin bootstrapping.
-/// 
-pub mod bootstrap;
 
 ///
 /// A BGV ciphertext w.r.t. some [`BGVInstantiation`]. Note that this implementation

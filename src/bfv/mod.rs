@@ -50,7 +50,6 @@ use crate::*;
 use rand::{Rng, CryptoRng};
 use rand_distr::StandardNormal;
 
-
 pub mod eval;
 
 ///
@@ -1173,7 +1172,7 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BFVInstantiation for Comp
         NumberRingQuotientByIntBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip_all)]h fu
     fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>) {
         let number_ring = self.number_ring();
         let required_root_of_unity = 1 << ZZi64.abs_log2_ceil(&(number_ring.m() as i64 * 4)).unwrap();
