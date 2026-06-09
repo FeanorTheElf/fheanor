@@ -1,4 +1,5 @@
 use std::alloc::{Allocator, Global};
+use std::borrow::Borrow;
 use std::convert::identity;
 use std::fmt::Display;
 use std::marker::PhantomData;
@@ -8,7 +9,6 @@ use std::sync::Arc;
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::eea::signed_gcd;
 use feanor_math::algorithms::int_factor::is_prime_power;
-use feanor_math::algorithms::rational_reconstruction::reduce_2d_modular_relation_basis;
 use feanor_math::homomorphism::*;
 use feanor_math::integer::{int_cast, BigIntRing, IntegerRingStore};
 use feanor_math::matrix::OwnedMatrix;
@@ -17,7 +17,7 @@ use feanor_math::ring::*;
 use feanor_math::rings::extension::*;
 use feanor_math::rings::finite::*;
 use feanor_math::rings::zn::zn_64::{Zn, ZnBase};
-use feanor_math::rings::zn::{zn_rns, ZnRing};
+use feanor_math::rings::zn::zn_rns;
 use feanor_math::rings::zn::ZnRingStore;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::seq::*;
@@ -108,6 +108,30 @@ pub enum SecretKeyDistribution {
 }
 
 ///
+/// Specifies how the implicit scales of ciphertexts are handled by operations
+/// that add ciphertexts (i.e. [`BGVInstantiation::hom_add()`] and the various
+/// inner-product functions).
+///
+/// Recall that a BGV ciphertext represents the value `implicit_scale^-1 (c0 + c1 s) mod t`,
+/// so two ciphertexts can only be added directly if their implicit scales agree.
+///
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImplicitScalePolicy {
+    ///
+    /// Before adding, each summand is rescaled to implicit scale `1` (by multiplying
+    /// it with the inverse of its implicit scale, see [`BGVInstantiation::merge_implicit_scale()`]).
+    /// The result then also has implicit scale `1`. This always works, but introduces
+    /// a small amount of additional noise.
+    ///
+    Merge,
+    ///
+    /// Assert that all summands have the same implicit scale, add them directly, and
+    /// keep that implicit scale for the result. Panics if the implicit scales differ.
+    ///
+    AssertEqual
+}
+
+///
 /// A key-switching key for BGV. This includes Relinearization and Galois keys.
 /// Note that this implementation does not include an automatic management of
 /// the ciphertext modulus chain, it is up to the user to keep track of the RNS
@@ -176,28 +200,19 @@ pub struct Ciphertext<Params: ?Sized + BGVInstantiation> {
 }
 
 ///
-/// Computes small `a, b` such that `a/b = implicit_scale_quotient` modulo `t`.
-/// 
-pub fn equalize_implicit_scale<R>(Zt: R, implicit_scale_quotient: El<R>) -> (El<<R::Type as ZnRing>::IntegerRing>, El<<R::Type as ZnRing>::IntegerRing>)
-    where R: Copy + RingStore,
-        R::Type: ZnRing
-{
-    assert!(Zt.is_unit(&implicit_scale_quotient));
-    let ([u0, u1], [v0, v1]) = reduce_2d_modular_relation_basis(Zt, Zt.clone_el(&implicit_scale_quotient));
-    let ZZi64_to_Zt = Zt.can_hom(Zt.integer_ring()).unwrap();
-    let result: (El<<R::Type as ZnRing>::IntegerRing>, El<<R::Type as ZnRing>::IntegerRing>) = if Zt.is_unit(&ZZi64_to_Zt.map_ref(&u0)) {
-        (u1, u0)
-    } else {
-        if !Zt.is_unit(&ZZi64_to_Zt.map_ref(&v0)) {
-            // this cannot happen if t is a prime power, since the lattice contains `(1, x)`, hence `a u[0] + b v[0] = 1 mod t`
-            // for some `a, b`. If `t` is a prime power, this implies that either `u[0]` or `v[0]` must be a unit mod `t`.
-            unimplemented!("the case that the plaintext modulus t is not a prime power is not yet fully supported")
-        }
-        (v1, v0)
-    };
-    let ZZ_to_Zt = Zt.can_hom(Zt.integer_ring()).unwrap();
-    debug_assert!(Zt.eq_el(&implicit_scale_quotient, &Zt.checked_div(&ZZ_to_Zt.map_ref(&result.0), &ZZ_to_Zt.map_ref(&result.1)).unwrap()));
-    return result;
+/// A BGV ciphertext that has not been relinearized yet, i.e. the result of a
+/// ciphertext-ciphertext multiplication before the relinearization step.
+///
+/// As opposed to [`Ciphertext`], it has three components `c0, c1, c2`, and
+/// decrypts via `implicit_scale^-1 lift(c0 + c1 s + c2 s^2) mod t`. Use
+/// [`BGVInstantiation::relinearize()`] to turn it back into a [`Ciphertext`].
+///
+pub struct CiphertextNoRelin<Params: ?Sized + BGVInstantiation> {
+    /// the implicit scale, see [`Ciphertext::implicit_scale`].
+    pub implicit_scale: <Params::PlaintextZnRing as RingBase>::Element,
+    pub c0: El<CiphertextRing<Params>>,
+    pub c1: El<CiphertextRing<Params>>,
+    pub c2: El<CiphertextRing<Params>>
 }
 
 ///
@@ -408,6 +423,16 @@ pub trait BGVInstantiation {
     }
 
     ///
+    /// Returns an encryption of the sum of the encrypted input and the given scalar
+    /// from `Z/tZ` (interpreted as a constant plaintext).
+    ///
+    #[instrument(skip_all)]
+    fn hom_add_plain_scalar(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &<Self::PlaintextZnRing as RingBase>::Element, ct: Ciphertext<Self>) -> Ciphertext<Self> {
+        let m_encoded = C.inclusion().map(C.base_ring().coerce(&ZZbig, int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(m)), ZZbig, P.base_ring().integer_ring())));
+        Self::hom_add_plain_encoded(P, C, &m_encoded, ct)
+    }
+
+    ///
     /// Returns a fresh encryption of the given element, i.e. a ciphertext `(c0, c1) = (-as + te + m, a)`
     /// where `s = sk` is the given secret key. `a` and `e` are sampled using the randomness of `rng`. 
     /// Currently, the standard deviation of the error is fixed to `3.2`.
@@ -491,6 +516,73 @@ pub trait BGVInstantiation {
         let mut result = Self::hom_mul_plain_scalar(P, C, &scale, ct);
         result.implicit_scale = P.base_ring().one();
         return result;
+    }
+
+    ///
+    /// Computes `sum_i m_i * ct_i`, where each `m_i` is a scalar from `Z/tZ` and each
+    /// `ct_i` is a ciphertext. The `policy` controls how the implicit scales of the
+    /// summands are combined, see [`ImplicitScalePolicy`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_inner_product_plain_scalar<L, R, I>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, summands: I, policy: ImplicitScalePolicy) -> Ciphertext<Self>
+        where L: Borrow<<Self::PlaintextZnRing as RingBase>::Element>,
+            R: Borrow<Ciphertext<Self>>,
+            I: IntoIterator<Item = (L, R)>
+    {
+        let mut result: Option<Ciphertext<Self>> = None;
+        for (m, ct) in summands {
+            let summand = Self::hom_mul_plain_scalar(P, C, m.borrow(), Self::clone_ct(P, C, ct.borrow()));
+            result = Some(match result {
+                None => summand,
+                Some(acc) => Self::hom_add(P, C, acc, summand, policy)
+            });
+        }
+        return result.unwrap_or_else(|| Self::transparent_zero(P, C));
+    }
+
+    ///
+    /// Computes `sum_i m_i * ct_i`, where each `m_i` is a plaintext from `R/tR` and each
+    /// `ct_i` is a ciphertext. The `policy` controls how the implicit scales of the
+    /// summands are combined, see [`ImplicitScalePolicy`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_inner_product_plain<L, R, I>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, summands: I, policy: ImplicitScalePolicy) -> Ciphertext<Self>
+        where L: Borrow<El<PlaintextRing<Self>>>,
+            R: Borrow<Ciphertext<Self>>,
+            I: IntoIterator<Item = (L, R)>
+    {
+        let mut result: Option<Ciphertext<Self>> = None;
+        for (m, ct) in summands {
+            let summand = Self::hom_mul_plain(P, C, m.borrow(), Self::clone_ct(P, C, ct.borrow()));
+            result = Some(match result {
+                None => summand,
+                Some(acc) => Self::hom_add(P, C, acc, summand, policy)
+            });
+        }
+        return result.unwrap_or_else(|| Self::transparent_zero(P, C));
+    }
+
+    ///
+    /// Computes `sum_i m_i * ct_i`, where each `m_i` is an encoded plaintext (see
+    /// [`BGVInstantiation::encode_plain()`]) and each `ct_i` is a ciphertext. The
+    /// `policy` controls how the implicit scales of the summands are combined, see
+    /// [`ImplicitScalePolicy`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_inner_product_encoded<L, R, I>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, summands: I, policy: ImplicitScalePolicy) -> Ciphertext<Self>
+        where L: Borrow<El<CiphertextRing<Self>>>,
+            R: Borrow<Ciphertext<Self>>,
+            I: IntoIterator<Item = (L, R)>
+    {
+        let mut result: Option<Ciphertext<Self>> = None;
+        for (m, ct) in summands {
+            let summand = Self::hom_mul_plain_encoded(P, C, m.borrow(), Self::clone_ct(P, C, ct.borrow()));
+            result = Some(match result {
+                None => summand,
+                Some(acc) => Self::hom_add(P, C, acc, summand, policy)
+            });
+        }
+        return result.unwrap_or_else(|| Self::transparent_zero(P, C));
     }
 
     ///
@@ -634,79 +726,315 @@ pub trait BGVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn hom_mul(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, lhs: &Ciphertext<Self>, rhs: &Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
+        Self::relinearize(P, C, C_special, Self::hom_mul_norelin(P, C, lhs, rhs), rk)
+    }
+
+    ///
+    /// Computes the (un-relinearized) product of two encrypted inputs, i.e. the
+    /// three-component ciphertext `(c0, c1, c2)` resulting from a ciphertext-ciphertext
+    /// multiplication before relinearization. Use [`BGVInstantiation::relinearize()`] to
+    /// turn the result back into a normal [`Ciphertext`].
+    ///
+    /// As opposed to [`BGVInstantiation::hom_mul()`], this does not require a relinearization
+    /// key (and no special modulus).
+    ///
+    #[instrument(skip_all)]
+    fn hom_mul_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, lhs: &Ciphertext<Self>, rhs: &Ciphertext<Self>) -> CiphertextNoRelin<Self> {
         assert!(P.base_ring().is_unit(&lhs.implicit_scale));
         assert!(P.base_ring().is_unit(&rhs.implicit_scale));
 
         let [res0, res1, res2] = C.get_ring().two_by_two_convolution([&lhs.c0, &lhs.c1], [&rhs.c0, &rhs.c1]);
-        
-        let mut result = Self::key_switch(P, C, C_special, Ciphertext {
+        return CiphertextNoRelin {
             c0: res0,
-            c1: res2,
+            c1: res1,
+            c2: res2,
             implicit_scale: P.base_ring().mul_ref(&lhs.implicit_scale, &rhs.implicit_scale)
-        }, rk);
-        C.add_assign(&mut result.c1, res1);
-        assert!(P.base_ring().is_unit(&result.implicit_scale));
-        return result;
+        };
     }
-    
+
     ///
-    /// Computes an encryption of the square of an encrypted input.
-    /// 
-    /// Since Fheanor does not (at least not implicitly) perform automatic modulus management,
-    /// it is necessary to modulus-switch between calls to `hom_square()` in order to prevent
-    /// `hom_square()` from causing exponential noise growth. For more info on modulus-switching
-    /// and the modulus chain, see [`crate::examples::bgv_basics`].
-    ///  
+    /// Relinearizes an un-relinearized ciphertext (see [`CiphertextNoRelin`]), i.e. converts
+    /// the three-component ciphertext `(c0, c1, c2)` back into a normal two-component
+    /// [`Ciphertext`], using the relinearization key.
+    ///
     /// `C_special` must be the ciphertext ring w.r.t. which the relinearization key is defined.
     /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
     /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
     /// For more details, see [`BGVInstantiation::key_switch()`].
-    /// 
+    ///
+    #[instrument(skip_all)]
+    fn relinearize(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: CiphertextNoRelin<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
+        assert!(P.base_ring().is_unit(&ct.implicit_scale));
+
+        let mut result = Self::key_switch(P, C, C_special, Ciphertext {
+            c0: ct.c0,
+            c1: ct.c2,
+            implicit_scale: ct.implicit_scale
+        }, rk);
+        C.add_assign(&mut result.c1, ct.c1);
+        assert!(P.base_ring().is_unit(&result.implicit_scale));
+        return result;
+    }
+
+    ///
+    /// Computes an encryption of the square of an encrypted input.
+    ///
+    /// Since Fheanor does not (at least not implicitly) perform automatic modulus management,
+    /// it is necessary to modulus-switch between calls to `hom_square()` in order to prevent
+    /// `hom_square()` from causing exponential noise growth. For more info on modulus-switching
+    /// and the modulus chain, see [`crate::examples::bgv_basics`].
+    ///
+    /// `C_special` must be the ciphertext ring w.r.t. which the relinearization key is defined.
+    /// In other words, this is the ciphertext ring, with additional RNS factors corresponding
+    /// to the special modulus. This can be equal to `C`, if no hybrid key-switching is used.
+    /// For more details, see [`BGVInstantiation::key_switch()`].
+    ///
     #[instrument(skip_all)]
     fn hom_square(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, val: &Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
-        Self::hom_mul(P, C, C_special, val, val, rk)
+        Self::relinearize(P, C, C_special, Self::hom_square_norelin(P, C, val), rk)
     }
-    
+
     ///
-    /// Computes an encryption of the sum of two encrypted inputs.
-    /// 
+    /// Computes the (un-relinearized) square of an encrypted input, see
+    /// [`BGVInstantiation::hom_mul_norelin()`].
+    ///
     #[instrument(skip_all)]
-    fn hom_add(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, mut lhs: Ciphertext<Self>, mut rhs: Ciphertext<Self>) -> Ciphertext<Self> {
+    fn hom_square_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, val: &Ciphertext<Self>) -> CiphertextNoRelin<Self> {
+        Self::hom_mul_norelin(P, C, val, val)
+    }
+
+    ///
+    /// Computes an encryption of the sum of two encrypted inputs. The `policy` controls
+    /// how the implicit scales of the summands are combined, see [`ImplicitScalePolicy`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_add(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, policy: ImplicitScalePolicy) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&lhs.implicit_scale));
         assert!(P.base_ring().is_unit(&rhs.implicit_scale));
 
-        let Zt = P.base_ring();
-        let (a, b) = equalize_implicit_scale(Zt, Zt.checked_div(&lhs.implicit_scale, &rhs.implicit_scale).unwrap());
-
-        debug_assert!(!Zt.eq_el(&lhs.implicit_scale, &rhs.implicit_scale) || Zt.integer_ring().is_one(&a) && Zt.integer_ring().is_one(&b));
-        let ZZ_to_C = C.inclusion().compose(C.base_ring().can_hom(Zt.integer_ring()).unwrap());
-        let ZZ_to_Zt = P.base_ring().can_hom(Zt.integer_ring()).unwrap();
-        if !Zt.integer_ring().is_one(&a) {
-            ZZ_to_C.mul_assign_ref_map(&mut rhs.c0, &a);
-            ZZ_to_C.mul_assign_ref_map(&mut rhs.c1, &a);
-            ZZ_to_Zt.mul_assign_map(&mut rhs.implicit_scale, a);
-        }
-        if !Zt.integer_ring().is_one(&b) {
-            ZZ_to_C.mul_assign_ref_map(&mut lhs.c0, &b);
-            ZZ_to_C.mul_assign_ref_map(&mut lhs.c1, &b);
-            ZZ_to_Zt.mul_assign_map(&mut lhs.implicit_scale, b);
-        }
-
-        debug_assert!(Zt.eq_el(&lhs.implicit_scale, &rhs.implicit_scale));
+        let (lhs, rhs, implicit_scale) = match policy {
+            ImplicitScalePolicy::AssertEqual => {
+                assert!(P.base_ring().eq_el(&lhs.implicit_scale, &rhs.implicit_scale), "ImplicitScalePolicy::AssertEqual requires all summands to have the same implicit scale");
+                let implicit_scale = P.base_ring().clone_el(&lhs.implicit_scale);
+                (lhs, rhs, implicit_scale)
+            },
+            ImplicitScalePolicy::Merge => {
+                (Self::merge_implicit_scale(P, C, lhs), Self::merge_implicit_scale(P, C, rhs), P.base_ring().one())
+            }
+        };
         let result = Ciphertext {
             c0: C.add(lhs.c0, rhs.c0),
             c1: C.add(lhs.c1, rhs.c1),
-            implicit_scale: lhs.implicit_scale
+            implicit_scale
         };
         assert!(P.base_ring().is_unit(&result.implicit_scale));
         return result;
     }
 
     ///
-    /// Computes an encryption of the difference of two encrypted inputs.
-    /// 
-    fn hom_sub(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>) -> Ciphertext<Self> {
-        Self::hom_add(P, C, lhs, Ciphertext { c0: rhs.c0, c1: rhs.c1, implicit_scale: P.base_ring().negate(rhs.implicit_scale) })
+    /// Computes an encryption of the difference of two encrypted inputs. The `policy`
+    /// controls how the implicit scales of the operands are combined, see
+    /// [`ImplicitScalePolicy`].
+    ///
+    fn hom_sub(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, policy: ImplicitScalePolicy) -> Ciphertext<Self> {
+        Self::hom_add(P, C, lhs, Ciphertext { c0: rhs.c0, c1: rhs.c1, implicit_scale: P.base_ring().negate(rhs.implicit_scale) }, policy)
+    }
+
+    ///
+    /// Copies an un-relinearized ciphertext, see [`BGVInstantiation::clone_ct()`].
+    ///
+    #[instrument(skip_all)]
+    fn clone_ct_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &CiphertextNoRelin<Self>) -> CiphertextNoRelin<Self> {
+        assert!(P.base_ring().is_unit(&ct.implicit_scale));
+        CiphertextNoRelin {
+            c0: C.clone_el(&ct.c0),
+            c1: C.clone_el(&ct.c1),
+            c2: C.clone_el(&ct.c2),
+            implicit_scale: P.base_ring().clone_el(&ct.implicit_scale)
+        }
+    }
+
+    ///
+    /// Returns a "transparent" un-relinearized encryption of zero, see
+    /// [`BGVInstantiation::transparent_zero()`].
+    ///
+    #[instrument(skip_all)]
+    fn transparent_zero_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>) -> CiphertextNoRelin<Self> {
+        CiphertextNoRelin {
+            c0: C.zero(),
+            c1: C.zero(),
+            c2: C.zero(),
+            implicit_scale: P.base_ring().one()
+        }
+    }
+
+    ///
+    /// Converts an un-relinearized ciphertext into one with `implicit_scale = 1`, see
+    /// [`BGVInstantiation::merge_implicit_scale()`].
+    ///
+    fn merge_implicit_scale_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: CiphertextNoRelin<Self>) -> CiphertextNoRelin<Self> {
+        let scale = P.base_ring().invert(&ct.implicit_scale).unwrap();
+        let mut result = Self::hom_mul_plain_scalar_norelin(P, C, &scale, ct);
+        result.implicit_scale = P.base_ring().one();
+        return result;
+    }
+
+    ///
+    /// Computes the sum of two un-relinearized ciphertexts, see
+    /// [`BGVInstantiation::hom_add()`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_add_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, lhs: CiphertextNoRelin<Self>, rhs: CiphertextNoRelin<Self>, policy: ImplicitScalePolicy) -> CiphertextNoRelin<Self> {
+        assert!(P.base_ring().is_unit(&lhs.implicit_scale));
+        assert!(P.base_ring().is_unit(&rhs.implicit_scale));
+
+        let (lhs, rhs, implicit_scale) = match policy {
+            ImplicitScalePolicy::AssertEqual => {
+                assert!(P.base_ring().eq_el(&lhs.implicit_scale, &rhs.implicit_scale), "ImplicitScalePolicy::AssertEqual requires all summands to have the same implicit scale");
+                let implicit_scale = P.base_ring().clone_el(&lhs.implicit_scale);
+                (lhs, rhs, implicit_scale)
+            },
+            ImplicitScalePolicy::Merge => {
+                (Self::merge_implicit_scale_norelin(P, C, lhs), Self::merge_implicit_scale_norelin(P, C, rhs), P.base_ring().one())
+            }
+        };
+        return CiphertextNoRelin {
+            c0: C.add(lhs.c0, rhs.c0),
+            c1: C.add(lhs.c1, rhs.c1),
+            c2: C.add(lhs.c2, rhs.c2),
+            implicit_scale
+        };
+    }
+
+    ///
+    /// [`CiphertextNoRelin`] variant of [`BGVInstantiation::hom_add_plain_encoded()`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_add_plain_encoded_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<CiphertextRing<Self>>, ct: CiphertextNoRelin<Self>) -> CiphertextNoRelin<Self> {
+        assert!(P.base_ring().is_unit(&ct.implicit_scale));
+        let implicit_scale = C.base_ring().coerce(&ZZbig, int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(&ct.implicit_scale)), ZZbig, P.base_ring().integer_ring()));
+        let result = CiphertextNoRelin {
+            c0: C.add(ct.c0, C.inclusion().mul_ref_map(m, &implicit_scale)),
+            c1: ct.c1,
+            c2: ct.c2,
+            implicit_scale: ct.implicit_scale
+        };
+        assert!(P.base_ring().is_unit(&result.implicit_scale));
+        return result;
+    }
+
+    ///
+    /// [`CiphertextNoRelin`] variant of [`BGVInstantiation::hom_add_plain()`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_add_plain_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>, ct: CiphertextNoRelin<Self>) -> CiphertextNoRelin<Self> {
+        Self::hom_add_plain_encoded_norelin(P, C, &Self::encode_plain(P, C, m), ct)
+    }
+
+    ///
+    /// [`CiphertextNoRelin`] variant of [`BGVInstantiation::hom_add_plain_scalar()`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_add_plain_scalar_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &<Self::PlaintextZnRing as RingBase>::Element, ct: CiphertextNoRelin<Self>) -> CiphertextNoRelin<Self> {
+        let m_encoded = C.inclusion().map(C.base_ring().coerce(&ZZbig, int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(m)), ZZbig, P.base_ring().integer_ring())));
+        Self::hom_add_plain_encoded_norelin(P, C, &m_encoded, ct)
+    }
+
+    ///
+    /// [`CiphertextNoRelin`] variant of [`BGVInstantiation::hom_mul_plain_encoded()`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_mul_plain_encoded_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<CiphertextRing<Self>>, ct: CiphertextNoRelin<Self>) -> CiphertextNoRelin<Self> {
+        assert!(P.base_ring().is_unit(&ct.implicit_scale));
+        let result = CiphertextNoRelin {
+            c0: C.mul_ref_snd(ct.c0, m),
+            c1: C.mul_ref_snd(ct.c1, m),
+            c2: C.mul_ref_snd(ct.c2, m),
+            implicit_scale: ct.implicit_scale
+        };
+        assert!(P.base_ring().is_unit(&result.implicit_scale));
+        return result;
+    }
+
+    ///
+    /// [`CiphertextNoRelin`] variant of [`BGVInstantiation::hom_mul_plain()`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_mul_plain_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>, ct: CiphertextNoRelin<Self>) -> CiphertextNoRelin<Self> {
+        Self::hom_mul_plain_encoded_norelin(P, C, &Self::encode_plain(P, C, m), ct)
+    }
+
+    ///
+    /// [`CiphertextNoRelin`] variant of [`BGVInstantiation::hom_mul_plain_scalar()`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_mul_plain_scalar_norelin(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &<Self::PlaintextZnRing as RingBase>::Element, mut ct: CiphertextNoRelin<Self>) -> CiphertextNoRelin<Self> {
+        let hom = C.inclusion().compose(C.base_ring().can_hom(&ZZbig).unwrap());
+        let factor = int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(m)), ZZbig, P.base_ring().integer_ring());
+        hom.mul_assign_ref_map(&mut ct.c0, &factor);
+        hom.mul_assign_ref_map(&mut ct.c1, &factor);
+        hom.mul_assign_ref_map(&mut ct.c2, &factor);
+        return ct;
+    }
+
+    ///
+    /// [`CiphertextNoRelin`] variant of [`BGVInstantiation::hom_inner_product_plain_scalar()`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_inner_product_plain_scalar_norelin<L, R, I>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, summands: I, policy: ImplicitScalePolicy) -> CiphertextNoRelin<Self>
+        where L: Borrow<<Self::PlaintextZnRing as RingBase>::Element>,
+            R: Borrow<CiphertextNoRelin<Self>>,
+            I: IntoIterator<Item = (L, R)>
+    {
+        let mut result: Option<CiphertextNoRelin<Self>> = None;
+        for (m, ct) in summands {
+            let summand = Self::hom_mul_plain_scalar_norelin(P, C, m.borrow(), Self::clone_ct_norelin(P, C, ct.borrow()));
+            result = Some(match result {
+                None => summand,
+                Some(acc) => Self::hom_add_norelin(P, C, acc, summand, policy)
+            });
+        }
+        return result.unwrap_or_else(|| Self::transparent_zero_norelin(P, C));
+    }
+
+    ///
+    /// [`CiphertextNoRelin`] variant of [`BGVInstantiation::hom_inner_product_plain()`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_inner_product_plain_norelin<L, R, I>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, summands: I, policy: ImplicitScalePolicy) -> CiphertextNoRelin<Self>
+        where L: Borrow<El<PlaintextRing<Self>>>,
+            R: Borrow<CiphertextNoRelin<Self>>,
+            I: IntoIterator<Item = (L, R)>
+    {
+        let mut result: Option<CiphertextNoRelin<Self>> = None;
+        for (m, ct) in summands {
+            let summand = Self::hom_mul_plain_norelin(P, C, m.borrow(), Self::clone_ct_norelin(P, C, ct.borrow()));
+            result = Some(match result {
+                None => summand,
+                Some(acc) => Self::hom_add_norelin(P, C, acc, summand, policy)
+            });
+        }
+        return result.unwrap_or_else(|| Self::transparent_zero_norelin(P, C));
+    }
+
+    ///
+    /// [`CiphertextNoRelin`] variant of [`BGVInstantiation::hom_inner_product_encoded()`].
+    ///
+    #[instrument(skip_all)]
+    fn hom_inner_product_encoded_norelin<L, R, I>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, summands: I, policy: ImplicitScalePolicy) -> CiphertextNoRelin<Self>
+        where L: Borrow<El<CiphertextRing<Self>>>,
+            R: Borrow<CiphertextNoRelin<Self>>,
+            I: IntoIterator<Item = (L, R)>
+    {
+        let mut result: Option<CiphertextNoRelin<Self>> = None;
+        for (m, ct) in summands {
+            let summand = Self::hom_mul_plain_encoded_norelin(P, C, m.borrow(), Self::clone_ct_norelin(P, C, ct.borrow()));
+            result = Some(match result {
+                None => summand,
+                Some(acc) => Self::hom_add_norelin(P, C, acc, summand, policy)
+            });
+        }
+        return result.unwrap_or_else(|| Self::transparent_zero_norelin(P, C));
     }
     
     ///
@@ -965,8 +1293,25 @@ pub trait BGVInstantiation {
     }
 
     ///
+    /// [`CiphertextNoRelin`] variant of [`BGVInstantiation::mod_switch_ct()`].
+    ///
+    #[instrument(skip_all)]
+    fn mod_switch_norelin(P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: CiphertextNoRelin<Self>) -> CiphertextNoRelin<Self> {
+        assert!(P.base_ring().is_unit(&ct.implicit_scale));
+        let mut rescale = Self::rescale_ring_element_fn(P, Cnew, Cold);
+        let result = CiphertextNoRelin {
+            c0: rescale(ct.c0),
+            c1: rescale(ct.c1),
+            c2: rescale(ct.c2),
+            implicit_scale: P.base_ring().mul(ct.implicit_scale, Self::mod_switch_compute_implicit_scale_factor(P, Cnew.base_ring().modulus(), Cold.base_ring().modulus()))
+        };
+        assert!(P.base_ring().is_unit(&result.implicit_scale));
+        return result;
+    }
+
+    ///
     /// Generates a Galois key, usable for homomorphically applying Galois automorphisms.
-    /// 
+    ///
     /// Note that we use a variant of hybrid key switching, where the Galois key
     /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
@@ -1551,7 +1896,7 @@ fn test_pow2_modulus_switch_hom_add() {
         let sk_modswitch = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
         let ctxt_other = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(30), &sk_modswitch, 3.2);
 
-        let ctxt_result = Pow2BGV::hom_add(&P, &C1, ctxt_modswitch, ctxt_other);
+        let ctxt_result = Pow2BGV::hom_add(&P, &C1, ctxt_modswitch, ctxt_other, ImplicitScalePolicy::Merge);
 
         let result = Pow2BGV::dec(&P, &C1, ctxt_result, &sk_modswitch);
         assert_el_eq!(&P, P.int_hom().map(32), result);
