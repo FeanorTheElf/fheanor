@@ -140,3 +140,9 @@ Both points addressed (relinearized and `_norelin` inner products, for consisten
 
 Added a test `test_pow2_bgv_hom_inner_product` covering the scalar/plaintext/encoded
 variants, both `AssertEqual` and `Merge` policies, and the `_norelin` path.
+
+# Review
+
+Actually it doesn't make sense to distinguish `ImplicitScalePolicy` in the `inner_product_plain` and `inner_product_plain_scalar` functions - merging the implicit scale into plaintexts is (essentially) free. Change the code to always merge implicit scale into plaintext here (and remove the policy parameter). Keep the current logic for `inner_product_plain_encoded` and `hom_add` and `hom_add_norelin`, where merging implicit scale actually increases noise.
+
+Related: rename `inner_product_encoded` to `inner_product_plain_encoded` and similarly for `*_norelin`.
