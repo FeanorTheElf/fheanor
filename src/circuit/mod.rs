@@ -1033,9 +1033,8 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     }
     
     ///
-    /// Computes, for every value produced by a gate, the number of later gates or
-    /// outputs that use it (i.e. whose linear combination has a non-zero coefficient
-    /// for that value). The returned vector is indexed by the position of the value
+    /// Computes, for every value produced by a gate, the number of times it is
+    /// later used. The returned vector is indexed by the position of the value
     /// in the sequence of gate outputs (the same indexing used internally by
     /// [`PlaintextCircuit::evaluate_generic()`]).
     ///
@@ -1043,16 +1042,11 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// output transforms.
     ///
     fn compute_gate_output_fan_out(&self) -> Vec<usize> {
-        fn mark<R: ?Sized + RingBase>(lc: &LinearCombination<R>, consumer: usize, input_count: usize, fan_out: &mut [usize], last_consumer: &mut [usize]) {
+        fn update_uses_to_fan_out<R: ?Sized + RingBase>(lc: &LinearCombination<R>, input_count: usize, fan_out: &mut [usize]) {
             for (pos, c) in lc.factors.iter().enumerate() {
                 if pos >= input_count && !c.is_zero() {
                     let value_index = pos - input_count;
-                    // count each consumer at most once, even if it references the value
-                    // in several of its linear combinations (or multiple times in one)
-                    if last_consumer[value_index] != consumer {
-                        last_consumer[value_index] = consumer;
-                        fan_out[value_index] += 1;
-                    }
+                    fan_out[value_index] += 1;
                 }
             }
         }
@@ -1062,22 +1056,18 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
             PlaintextCircuitGate::Gal(gs, _) => gs.len()
         }).sum();
         let mut fan_out = vec![0; total_values];
-        let mut last_consumer = vec![usize::MAX; total_values];
-        let mut consumer = 0;
         for gate in &self.gates {
             match gate {
                 PlaintextCircuitGate::Mul(lhs, rhs) => {
-                    mark(lhs, consumer, self.input_count, &mut fan_out, &mut last_consumer);
-                    mark(rhs, consumer, self.input_count, &mut fan_out, &mut last_consumer);
+                    update_uses_to_fan_out(lhs, self.input_count, &mut fan_out);
+                    update_uses_to_fan_out(rhs, self.input_count, &mut fan_out);
                 },
-                PlaintextCircuitGate::Square(t) => mark(t, consumer, self.input_count, &mut fan_out, &mut last_consumer),
-                PlaintextCircuitGate::Gal(_, t) => mark(t, consumer, self.input_count, &mut fan_out, &mut last_consumer)
+                PlaintextCircuitGate::Square(t) => update_uses_to_fan_out(t, self.input_count, &mut fan_out),
+                PlaintextCircuitGate::Gal(_, t) => update_uses_to_fan_out(t, self.input_count, &mut fan_out)
             }
-            consumer += 1;
         }
         for t in &self.output_transforms {
-            mark(t, consumer, self.input_count, &mut fan_out, &mut last_consumer);
-            consumer += 1;
+            update_uses_to_fan_out(t, self.input_count, &mut fan_out);
         }
         return fan_out;
     }
@@ -1435,6 +1425,17 @@ fn test_giant_step_circuit() {
     let giant_steps_before_baby_steps = PlaintextCircuit::constant(1, ring).tensor(PlaintextCircuit::identity(1, ring), ring);
     let baby_and_giant_steps = PlaintextCircuit::identity(4, ring).tensor(giant_steps_before_baby_steps, ring).compose(baby_steps, ring);
     assert_eq!(vec![1, 2, 4, 8, 1, 16], baby_and_giant_steps.evaluate_no_galois(&[2], ring.identity()));
+}
+
+#[test]
+fn test_compute_fan_out() {
+    feanor_tracing::DelayedLogger::init_test();
+    let ring = StaticRing::<i64>::RING;
+    let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
+    let x_sqr = PlaintextCircuit::mul(ring).compose(x.output_twice(ring), ring);
+    let x_sqr_x_pow4 = PlaintextCircuit::square(ring).tensor(PlaintextCircuit::identity(1, ring), ring).compose(x_sqr.output_twice(ring), ring);
+    let circuit = PlaintextCircuit::square(ring).compose(PlaintextCircuit::add(ring), ring).compose(x_sqr_x_pow4, ring);
+    assert_eq!(vec![2, 1, 1], circuit.compute_gate_output_fan_out());
 }
 
 #[test]

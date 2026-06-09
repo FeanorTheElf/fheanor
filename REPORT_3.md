@@ -72,3 +72,8 @@ The computation is a single linear-time forward sweep:
   eager relinearization decision in Step 4 this is also the conservative-correct choice
   (only fan-out exactly 1 triggers lazy relinearization). Flag if you'd prefer a raw
   reference count instead.
+
+# Human approved
+
+I have changed the "Counting per consumer, not per reference"; In fact, both readings would be ok
+for the future functionality, and implementation for the "count per reference" is much simpler.
