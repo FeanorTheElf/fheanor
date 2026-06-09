@@ -334,6 +334,7 @@ pub trait BGVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, noise_sigma: f64) -> Ciphertext<Self> {
+        assert!(ZZbig.is_one(&signed_gcd(ZZbig.clone_el(C.base_ring().modulus()), int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring()), ZZbig)));
         let t = C.base_ring().coerce(&ZZbig, int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring()));
         let (a, b) = Self::rlwe_sample(C, rng, sk, noise_sigma);
         return Ciphertext {
@@ -1481,19 +1482,6 @@ impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow
             unimplemented!("Plaintext modulus greater than 2^{} are not yet supported for BGV", SAMPLE_PRIMES_SIZE - 2)
         }
         NumberRingQuotientByIntBase::create(self.number_ring().clone(), Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64), self.ciphertext_allocator.clone(), STANDARD_CONVOLUTION)
-    }
-
-    #[instrument(skip_all)]
-    fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, noise_sigma: f64) -> Ciphertext<Self> {
-        assert!(ZZbig.is_one(&signed_gcd(ZZbig.clone_el(C.base_ring().modulus()), int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring()), ZZbig)));
-        let t = C.base_ring().coerce(&ZZi64, *P.base_ring().modulus());
-        let (a, b) = Self::rlwe_sample(C, rng, sk, noise_sigma);
-        let result = Ciphertext {
-            c0: C.inclusion().mul_ref_snd_map(b, &t),
-            c1: C.inclusion().mul_ref_snd_map(a, &t),
-            implicit_scale: P.base_ring().one()
-        };
-        return result;
     }
 
     #[instrument(skip_all)]

@@ -111,3 +111,10 @@ into module-private free functions instead.
   modulus and no relin key; `relinearize` takes `C_special` and the relin key. This matches
   the lazy-relinearization design used later in Step 4.
 - No `fma` variants were added (as instructed).
+
+# Review
+
+Generally looks good. I praise you for the definition of `inner_product` using `Borrow`, that's very clever. But fix the following points:
+ - the `inner_product` variants should use the `inner_product` operation in the ciphertext ring, whenever appropriate. More concretely, `inner_product_plain_encoded` should use `<CiphertextRing as ComputeInnerProduct>::inner_product` (from feanor-math), which can be faster than the current loop. Furthermore, `inner_product_plain` should encode the operands (it is ok to store the encoded ones in a new, temporary vector) and then use `inner_product_plain_encoded`. Finally, `hom_inner_product_plain_scalar` doesn't (cannot) call an inner product function of the ring, but should instead use `Inclusion::fma_map()` from feanor-math.
+ Make sure to still respect the implicitscalepolicy.
+ - `hom_mul_plain_scalar` should only lift the scalar once (irrelevant for performance, but cleaner)
