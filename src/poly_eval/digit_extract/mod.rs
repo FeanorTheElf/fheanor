@@ -37,7 +37,7 @@ use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupOps
 use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
 use crate::poly_eval::digit_extract::serialization::*;
 use crate::poly_eval::to_circuit::{poly_to_circuit, poly_to_circuit_with_galois};
-use crate::circuit::{Coefficient, PlaintextCircuit};
+use crate::circuit::*;
 use crate::{NiceZn, ZZbig, ZZi64, filename_keys};
 
 mod serialization;
@@ -144,7 +144,7 @@ impl<R> DigitExtract<R>
     /// **Warning**: Currently the Galois-based arithmetization is very slow. Improvements are planned.
     /// 
     #[instrument(skip_all)]
-    pub fn new_digit_retain_based_with_galois<S: RingStore<Type = R>>(rings: &[S], H: &HypercubeIsomorphism<S>) -> Self {
+    pub fn new_digit_retain_based_with_galois<S: RingStore<Type = R>>(rings: &[S], H: &HypercubeIsomorphism<S>, cost_model: &CircuitEvaluatorCosts) -> Self {
         let (p, r, v, _e) = Self::get_p_r_v_e(rings);
         assert!(rings.last().unwrap().get_ring() == H.ring().get_ring());
         for ring in rings {
@@ -155,7 +155,7 @@ impl<R> DigitExtract<R>
             let required_digits = (2..=i).chain([r + i].into_iter()).collect::<Vec<_>>();
             let poly_ring = DensePolyRing::new(zn_big::Zn::new(ZZbig, ZZbig.pow(ZZbig.clone_el(&p), r + i)), "X");
             let current_H = H.change_modulus(&rings[i]);
-            let circuit = poly_to_circuit_with_galois(&current_H, &poly_ring, &required_digits.iter().map(|j| centered_digit_retain_poly(&poly_ring, *j)).collect::<Vec<_>>());
+            let circuit = poly_to_circuit_with_galois(&current_H, &poly_ring, &required_digits.iter().map(|j| centered_digit_retain_poly(&poly_ring, *j)).collect::<Vec<_>>(), cost_model);
             return DigitExtractionCircuit {
                 circuit: circuit,
                 extracted_digit_mod_exp: required_digits,
@@ -176,7 +176,7 @@ impl<R> DigitExtract<R>
     /// **Warning**: Currently the Galois-based arithmetization is very slow. Improvements are planned.
     /// 
     #[instrument(skip_all)]
-    pub fn new_bounded_error_with_galois<S: RingStore<Type = R>>(rings: &[S], hypercube_iso: &HypercubeIsomorphism<S>, B: i64) -> Self {
+    pub fn new_bounded_error_with_galois<S: RingStore<Type = R>>(rings: &[S], hypercube_iso: &HypercubeIsomorphism<S>, B: i64, cost_model: &CircuitEvaluatorCosts) -> Self {
         let (p, _r, v, e) = Self::get_p_r_v_e(rings);
         assert_eq!(1, v);
         assert!(rings.last().unwrap().get_ring() == hypercube_iso.ring().get_ring());
@@ -185,7 +185,7 @@ impl<R> DigitExtract<R>
         }
         
         let poly_ring = DensePolyRing::new(zn_big::Zn::new(ZZbig, ZZbig.pow(ZZbig.clone_el(&p), e)), "X");
-        let circuit = poly_to_circuit_with_galois(hypercube_iso, &poly_ring, &[bounded_digit_retain_poly(&poly_ring, B)]);
+        let circuit = poly_to_circuit_with_galois(hypercube_iso, &poly_ring, &[bounded_digit_retain_poly(&poly_ring, B)], cost_model);
         let digit_extraction_circuits = vec![DigitExtractionCircuit {
             extracted_digit_mod_exp: vec![e],
             global_mod_exp: e,
@@ -1128,7 +1128,7 @@ fn test_digit_retain_based_right_digits() {
     let h = HypercubeStructure::halevi_shoup_hypercube(plaintext_rings.last().unwrap().acting_galois_group(), int_cast(p, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new(plaintext_rings.last().unwrap(), &h, None);
     let plaintext_rings = plaintext_rings.iter().collect::<Vec<_>>();
-    let extraction = DigitExtract::new_digit_retain_based_with_galois(&plaintext_rings, &H);
+    let extraction = DigitExtract::new_digit_retain_based_with_galois(&plaintext_rings, &H, &DEFAULT_EVALUATOR_COSTS);
     let mut circuits = extraction.extraction_circuits;
     circuits.sort_unstable_by_key(|circuit| circuit.global_mod_exp);
     assert_eq!(5, circuits.len());

@@ -19,7 +19,7 @@ use feanor_math::homomorphism::*;
 
 use tracing::instrument;
 
-use crate::circuit::{Coefficient, PlaintextCircuit};
+use crate::circuit::{CircuitEvaluatorCosts, Coefficient, PlaintextCircuit};
 use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::*;
@@ -27,13 +27,6 @@ use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use crate::number_ring::*;
 use super::trace::extract_linear_map;
 use crate::{NiceZn};
-
-///
-/// Approximately, how much an unhoisted automorphism is more expensive
-/// than a hoisted one; used for determining the optimal bs/gs ratio
-/// when optimizing the circuit layout.
-/// 
-const UNHOISTED_AUTO_COUNT_OVERHEAD: usize = 3;
 
 ///
 /// A linear transform of the ring `R_t = Z[X]/(Phi_m(X), t)`, written in the form
@@ -761,17 +754,22 @@ impl<R> MatmulTransform<R>
     /// Requires that `self` is defined w.r.t. the given ring and [`HypercubeStructure`].
     /// 
     #[instrument(skip_all)]
-    pub fn to_circuit<S>(self, ring: S, H: &HypercubeStructure) -> PlaintextCircuit<R>
+    pub fn to_circuit<S>(self, ring: S, H: &HypercubeStructure, cost_model: &CircuitEvaluatorCosts) -> PlaintextCircuit<R>
         where S: Copy + RingStore<Type = R>
     {
         self.check_valid(ring, H);
 
         let (_, _, _, sizes) = self.compute_automorphisms_per_dimension(ring, H);
 
-        let preferred_baby_steps = (1..=(sizes.iter().copied().product::<usize>())).min_by_key(|preferred_baby_steps| {
-            let params = Self::baby_step_giant_step_params(sizes.as_fn().map_fn(|s| *s), *preferred_baby_steps);
-            return params.hoisted_automorphism_count + params.unhoisted_automorphism_count * UNHOISTED_AUTO_COUNT_OVERHEAD;
-        }).unwrap();
+        let preferred_baby_steps = (1..=(sizes.iter().copied().product::<usize>())).map(|preferred_baby_steps| {
+            let params = Self::baby_step_giant_step_params(sizes.as_fn().map_fn(|s| *s), preferred_baby_steps);
+            (
+                preferred_baby_steps,
+                cost_model.cost_setup_hoisted_gal 
+                    + params.hoisted_automorphism_count as f64 * cost_model.cost_hoisted_gal 
+                    + params.unhoisted_automorphism_count as f64 * cost_model.cost_single_gal
+            )
+        }).min_by(|(_, lc), (_, rc)| f64::total_cmp(lc, rc)).unwrap().0;
 
         return self.to_circuit_with_baby_steps(ring, H, preferred_baby_steps);
     }
@@ -786,7 +784,7 @@ impl<R> MatmulTransform<R>
     /// Requires that all transforms are defined w.r.t. the given ring and [`HypercubeStructure`].
     /// 
     #[instrument(skip_all)]
-    pub fn to_circuit_many<S>(ring: S, H: &HypercubeStructure, mut transforms: Vec<Self>, max_levels: usize) -> PlaintextCircuit<R>
+    pub fn to_circuit_many<S>(ring: S, H: &HypercubeStructure, mut transforms: Vec<Self>, max_levels: usize, cost_model: &CircuitEvaluatorCosts) -> PlaintextCircuit<R>
         where S: Copy + RingStore<Type = R>
     {
         assert!(max_levels > 0);
@@ -799,7 +797,7 @@ impl<R> MatmulTransform<R>
             transforms[merge_idx] = t2.compose(ring, H, &transforms[merge_idx]);
         }
         transforms.into_iter().fold(PlaintextCircuit::identity(1, ring), |current, next| {
-            let next_circuit = next.to_circuit(ring, H);
+            let next_circuit = next.to_circuit(ring, H, cost_model);
             next_circuit.compose(current, ring)
         })
     }
@@ -979,6 +977,8 @@ use feanor_math::integer::*;
 use std::slice::from_ref;
 #[cfg(test)]
 use crate::circuit::evaluator::CircuitEvaluator;
+#[cfg(test)]
+use crate::circuit::DEFAULT_EVALUATOR_COSTS;
 
 #[test]
 fn test_to_circuit_single() {
@@ -993,7 +993,7 @@ fn test_to_circuit_single() {
 
     let transform = MatmulTransform::identity(&ring, H.hypercube());
     let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
-    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube());
+    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube(), &DEFAULT_EVALUATOR_COSTS);
     let actual = compiled_transform.evaluate(from_ref(&input), ring.identity()).pop().unwrap();
     assert_el_eq!(&ring, &input, &actual);
 
@@ -1005,7 +1005,7 @@ fn test_to_circuit_single() {
     let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     let expected = H.from_slot_values([2, 3, 4, 0].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
 
-    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube());
+    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube(), &DEFAULT_EVALUATOR_COSTS);
     let actual = compiled_transform.evaluate(&[input], ring.identity()).pop().unwrap();
     assert_el_eq!(&ring, &expected, &actual);
 
@@ -1015,7 +1015,7 @@ fn test_to_circuit_single() {
         ([1], H.from_slot_values([0, 3, 3, 3].into_iter().map(|x| H.slot_ring().int_hom().map(x)))),
     ].into_iter());
 
-    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube());
+    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube(), &DEFAULT_EVALUATOR_COSTS);
     let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     let expected = H.from_slot_values([4, 10, 16, 17].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
 
@@ -1039,7 +1039,7 @@ fn test_to_circuit_single() {
         ([8, 0], ring.int_hom().map(4))
     ].into_iter());
 
-    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube());
+    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube(), &DEFAULT_EVALUATOR_COSTS);
     let input = (0..16).collect::<Vec<_>>();
     let mut expected = (0..16).map(|_| 0).collect::<Vec<_>>();
     for (i, s) in [0, 1, 2, 4, 8].into_iter().enumerate() {
@@ -1100,7 +1100,7 @@ fn test_to_circuit_many() {
         permutation.clone(&ring),
         permutation.clone(&ring),
         MatmulTransform::mult_ring_element(&ring, H.hypercube(), &ring.int_hom().map(2))
-    ], 2);
+    ], 2, &DEFAULT_EVALUATOR_COSTS);
     assert_eq!(4, transform.galois_gate_output_sum());
 
     let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
@@ -1110,7 +1110,7 @@ fn test_to_circuit_many() {
         MatmulTransform::blockmatmul0d(&H, |i, j, _| if i == 0 && j == 0 { ring.base_ring().one() } else { ring.base_ring().zero() }),
         permutation,
         MatmulTransform::mult_ring_element(&ring, H.hypercube(), &ring.int_hom().map(2))
-    ], 2);
+    ], 2, &DEFAULT_EVALUATOR_COSTS);
     assert_eq!(2 + 4, transform.galois_gate_output_sum());
 
     let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
@@ -1141,7 +1141,7 @@ fn test_to_circuit_many() {
             ([0, 0], ring.int_hom().map(7)),
             ([8, 0], ring.int_hom().map(8)),
         ])
-    ], 2);
+    ], 2, &DEFAULT_EVALUATOR_COSTS);
     // no bs/gs algorithm will be used here, since hoisting is considered better with current configuration
     assert_eq!(3 + 3, transform.galois_gate_output_sum());
 

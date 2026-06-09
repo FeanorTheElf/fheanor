@@ -184,13 +184,13 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 #     P.base_ring().int_hom().map(i)
 # ));
 # let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk, 3.2);
-let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+let enc_x_sqr = Pow2BGV::hom_square(&P, &C_initial, &C_initial, &enc_x, &rk);
 let dec_x_sqr = Pow2BGV::dec(&P, &C_initial, enc_x_sqr, &sk);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 2), &dec_x_sqr);
 ```
-Here we used the function [`BGVInstantiation::hom_mul()`] to multiply two encryped plaintexts.
+Here we used the function [`BGVInstantiation::hom_square()`] to square an encryped plaintexts.
 Internally, the homomorphic multiplication will perform an operation called "relinearization" (hence the relinearization key).
-Relinearization also makes sense if the relinearization key is defined modulo a larger modulus than the ciphertext, in which case two ciphertext rings, with a smaller and a larger modulus, can be passed to `hom_mul()`.
+Relinearization also makes sense if the relinearization key is defined modulo a larger modulus than the ciphertext, in which case two ciphertext rings, with a smaller and a larger modulus, can be passed to `hom_square()`.
 The next parameter should then be the list of indices of RNS factors only occuring in the larger modulus, which is in this context called the "special modulus".
 Here, we don't have any special modulus, thus we pass `C_initial` twice, and an empty list.
 
@@ -226,10 +226,10 @@ The naïve way would be to compute
 #     P.base_ring().int_hom().map(i)
 # ));
 # let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk, 3.2);
-let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+let enc_x_sqr = Pow2BGV::hom_square(&P, &C_initial, &C_initial, &enc_x, &rk);
 assert_eq!(96, Pow2BGV::noise_budget(&P, &C_initial, &enc_x_sqr, &sk));
 
-let enc_x_pow4 = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, Pow2BGV::clone_ct(&P, &C_initial, &enc_x_sqr), enc_x_sqr, &rk);
+let enc_x_pow4 = Pow2BGV::hom_square(&P, &C_initial, &C_initial, &enc_x_sqr, &rk);
 assert_eq!(0, Pow2BGV::noise_budget(&P, &C_initial, &enc_x_pow4, &sk)); // this is 0, i.e. noise overflow
 ```
 By querying the noise budget (note that determining the noise budget requires the secret key), we see that 96 bits are left after the first multiplication, and it is 0 after the second multiplication.
@@ -271,7 +271,7 @@ Alternatively, these can also determined manually: [`BGVInstantiation::mod_switc
 #     P.base_ring().int_hom().map(i)
 # ));
 # let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk, 3.2);
-let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+let enc_x_sqr = Pow2BGV::hom_square(&P, &C_initial, &C_initial, &enc_x, &rk);
 
 let num_digits_to_drop = 2;
 let to_drop = drop_rns_factors_balanced(rk.gadget_vector_digits(), num_digits_to_drop);
@@ -281,7 +281,7 @@ let enc_x_modswitch = Pow2BGV::mod_switch_ct(&P, &C_new, &C_initial, enc_x_sqr);
 let sk_modswitch = Pow2BGV::mod_switch_sk(&C_new, &C_initial, &sk);
 let rk_modswitch = Pow2BGV::mod_switch_down_rk(&C_new, &C_initial, &rk);
 
-let enc_x_pow4 = Pow2BGV::hom_mul(&P, &C_new, &C_new, Pow2BGV::clone_ct(&P, &C_new, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
+let enc_x_pow4 = Pow2BGV::hom_square(&P, &C_new, &C_new, &enc_x_modswitch, &rk_modswitch);
 assert_eq!(40, Pow2BGV::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
 let dec_x_pow4 = Pow2BGV::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);
@@ -319,7 +319,7 @@ We can even reduce the noise growth slightly more by using hybrid key switching 
 #     P.base_ring().int_hom().map(i)
 # ));
 # let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk, 3.2);
-let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+let enc_x_sqr = Pow2BGV::hom_square(&P, &C_initial, &C_initial, &enc_x, &rk);
 
 let num_digits_to_drop = 2;
 let to_drop = drop_rns_factors_balanced(rk.gadget_vector_digits(), num_digits_to_drop);
@@ -330,7 +330,7 @@ let sk_modswitch = Pow2BGV::mod_switch_sk(&C_new, &C_initial, &sk);
 // don't modswitch the rk!
 
 // pass both the ring `C_new` where the ciphertext lives, and the ring `C_initial` where the `rk` lives
-let enc_x_pow4 = Pow2BGV::hom_mul(&P, &C_new, &C_initial, Pow2BGV::clone_ct(&P, &C_new, &enc_x_modswitch), enc_x_modswitch, &rk);
+let enc_x_pow4 = Pow2BGV::hom_square(&P, &C_new, &C_initial, &enc_x_modswitch, &rk);
 assert_eq!(78, Pow2BGV::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
 let dec_x_pow4 = Pow2BGV::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);

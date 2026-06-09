@@ -181,8 +181,19 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         let base_H = LazyCell::new(|| H.change_modulus(&base_plaintext_ring));
 
         let m = intermediate_plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs = create_circuit_cached(&base_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || pow2::slots_to_coeffs_thin(&base_H, lin_transform_max_levels));
-        let coeffs_to_slots = create_circuit_cached(&intermediate_plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || pow2::coeffs_to_slots_thin(&H, lin_transform_max_levels));
+        let cost_model = instantiation.cost_model();
+        let slots_to_coeffs = create_circuit_cached(
+            &base_plaintext_ring, 
+            &filename_keys![slots2coeffs, m: m, p: &p, r: r, lvl: lin_transform_max_levels, cm: &cost_model], 
+            cache_dir, 
+            || pow2::slots_to_coeffs_thin(&base_H, lin_transform_max_levels, &cost_model)
+        );
+        let coeffs_to_slots = create_circuit_cached(
+            &intermediate_plaintext_ring, 
+            &filename_keys![coeffs2slots, m: m, p: &p, e: e, lvl: lin_transform_max_levels, cm: &cost_model], 
+            cache_dir, 
+            || pow2::coeffs_to_slots_thin(&H, lin_transform_max_levels, &cost_model)
+        );
         let digit_extract = DigitExtract::new_default(&all_plaintext_rings, &H, digit_extract_error_bound, cache_dir);
 
         // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
@@ -254,8 +265,19 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         let base_H = LazyCell::new(|| H.change_modulus(&base_plaintext_ring));
 
         let m = intermediate_plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs =  create_circuit_cached(&base_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || composite::slots_to_powcoeffs_thin(&base_H, lin_transform_max_levels));
-        let coeffs_to_slots = create_circuit_cached(&intermediate_plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || composite::powcoeffs_to_slots_thin(&H, lin_transform_max_levels));
+        let cost_model = instantiation.cost_model();
+        let slots_to_coeffs =  create_circuit_cached(
+            &base_plaintext_ring, 
+            &filename_keys![slots2coeffs, m: m, p: &p, r: r, lvl: lin_transform_max_levels, cm: &cost_model], 
+            cache_dir, 
+            || composite::slots_to_powcoeffs_thin(&base_H, lin_transform_max_levels, &cost_model)
+        );
+        let coeffs_to_slots = create_circuit_cached(
+            &intermediate_plaintext_ring, 
+            &filename_keys![coeffs2slots, m: m, p: &p, e: e, lvl: lin_transform_max_levels, cm: &cost_model], 
+            cache_dir, 
+            || composite::powcoeffs_to_slots_thin(&H, lin_transform_max_levels, &cost_model)
+        );
         let digit_extract = DigitExtract::new_default(&all_plaintext_rings, &H, digit_extract_error_bound, cache_dir);
 
         // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
@@ -372,7 +394,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
 
         let sk_input = debug_sk.map(|sk| Inst::mod_switch_sk(&C_input, &C_master, sk));
         if let Some(sk) = &sk_input {
-            Inst::dec_println_slots(P_base, &C_input, &ct_input, sk, Some("."));
+            Inst::dec_println_slots(P_base, &C_input, &ct_input, sk, Some("./cache"));
         }
         return (C_input, ct_input);
     }
@@ -489,7 +511,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         let result = result.into_iter().next().unwrap();
         if let Some(sk) = debug_sk {
             let C_current = Inst::mod_switch_down_C(C_master, &result.dropped_rns_factor_indices);
-            Inst::dec_println_slots(P_main, &C_current, &result.data, &Inst::mod_switch_sk(&C_current, C_master, sk), Some("."));
+            Inst::dec_println_slots(P_main, &C_current, &result.data, &Inst::mod_switch_sk(&C_current, C_master, sk), Some("./cache"));
         }
         return result;
     }
@@ -660,7 +682,7 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
                         modswitch_strategy.print_info(P[exp - self.r()], C_master, ct);
                         let Clocal = Inst::mod_switch_down_C(C_master, &ct.dropped_rns_factor_indices);
                         let sk_local = Inst::mod_switch_sk(&Clocal, C_master, sk);
-                        Inst::dec_println_slots(P[exp - self.r()], &Clocal, &ct.data, &sk_local, Some("."));
+                        Inst::dec_println_slots(P[exp - self.r()], &Clocal, &ct.data, &sk_local, Some("./cache"));
                         println!();
                     }
                 }
@@ -730,7 +752,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     let P = params.create_plaintext_ring(t);
     let C_master = params.create_ciphertext_ring(790..800);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C_master, 2, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C_master, 2, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), Some("./cache"));
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = Pow2BGV::gen_gks(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
@@ -764,7 +786,7 @@ fn test_composite_bgv_thin_bootstrapping_2_sparse_key_encapsulation() {
     let P = params.create_plaintext_ring(t);
     let C_master = params.create_ciphertext_ring(790..800);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C_master, 4, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), Some("."));
+    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C_master, 4, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), Some("./cache"));
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = CompositeBGV::gen_gks(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
@@ -792,6 +814,9 @@ fn test_composite_bgv_thin_bootstrapping_2_sparse_key_encapsulation() {
 #[test]
 fn measure_time_single_rns_composite_bgv_thin_bootstrapping() {
     feanor_tracing::DelayedLogger::init_test();
+    // let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    // let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer, tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    // tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
 
     let mut rng = StdRng::from_seed([0; 32]);
 
@@ -802,7 +827,7 @@ fn measure_time_single_rns_composite_bgv_thin_bootstrapping() {
     let C_master = params.create_ciphertext_ring(805..820);
     assert_eq!(15, C_master.base_ring().len());
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C_master, 7, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
+    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C_master, 7, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("./cache"));
     
     let sk = CompositeSingleRNSBGV::gen_sk(&C_master, &mut rng, sk_distr);
     let gk = CompositeSingleRNSBGV::gen_gks(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
@@ -831,6 +856,9 @@ fn measure_time_single_rns_composite_bgv_thin_bootstrapping() {
 #[test]
 fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     feanor_tracing::DelayedLogger::init_test();
+    // let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    // let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer, tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    // tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
 
     let mut rng = StdRng::from_seed([0; 32]);
 
@@ -841,7 +869,7 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let C_master = params.create_ciphertext_ring(805..820);
     assert_eq!(15, C_master.base_ring().len());
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C_master, 7, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
+    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C_master, 7, None, 4, &key_switch_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("./cache"));
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, sk_distr);
     let gk = CompositeBGV::gen_gks(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
@@ -880,7 +908,7 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
     assert_eq!(15, C_master.base_ring().len());
     let gk_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
     let rk_params = RNSGadgetVectorDigitIndices::select_digits(3, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C_master, 2, None, 4, &gk_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C_master, 2, None, 4, &gk_params, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("./cache"));
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, sk_distr);
     let gk = Pow2BGV::gen_gks(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &gk_params, 3.2);

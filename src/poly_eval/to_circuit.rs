@@ -22,14 +22,6 @@ use crate::poly_eval::galois_based::poly_circuit_via_norm;
 use crate::poly_eval::paterson_stockmeyer::paterson_stockmeyer_circuit;
 use crate::*;
 
-const DEFAULT_COSTS: CircuitEvaluatorCosts = CircuitEvaluatorCosts {
-    cost_mul: 1.,
-    cost_sqr: 0.83,
-    cost_hoisted_gal: 0.5,
-    cost_single_gal: 0.5,
-    cost_setup_hoisted_gal: 0.
-};
-
 ///
 /// Heuristically chooses a low-depth, low-complexity circuit that
 /// evaluates all the given univariate polynomials.
@@ -362,7 +354,7 @@ pub fn low_depth_bsgs_circuit_with_baby_steps<P>(poly_ring: P, polys: &[El<P>], 
 }
 
 #[instrument(skip_all)]
-pub fn poly_to_circuit_with_galois<P, R>(hypercube_iso: &HypercubeIsomorphism<R>, poly_ring: P, polys: &[El<P>]) -> PlaintextCircuit<R::Type>
+pub fn poly_to_circuit_with_galois<P, R>(hypercube_iso: &HypercubeIsomorphism<R>, poly_ring: P, polys: &[El<P>], cost_model: &CircuitEvaluatorCosts) -> PlaintextCircuit<R::Type>
     where P: RingStore,
         P::Type: PolyRing,
         BaseRing<P>: ZnRing + DivisibilityRing,
@@ -377,7 +369,7 @@ pub fn poly_to_circuit_with_galois<P, R>(hypercube_iso: &HypercubeIsomorphism<R>
             None
         };
         let standard = poly_to_circuit(&poly_ring, &factors).change_ring_uniform(|x| x.change_ring(|x| hom.map(x)));
-        if norm_based.is_some() && norm_based.as_ref().unwrap().cost(&DEFAULT_COSTS) < standard.cost(&DEFAULT_COSTS) {
+        if norm_based.is_some() && norm_based.as_ref().unwrap().cost(cost_model) < standard.cost(cost_model) {
             norm_based.unwrap()
         } else {
             standard
@@ -644,14 +636,14 @@ fn circuit_for_65537() {
         &Zp2X,
         || RingElSerializeDeserializeWithRing::from(centered_digit_extract_poly(&Zp2X, 2)), 
         &filename_keys!(digit_retain_poly, p: 65537, e: 2), 
-        Some("."), 
+        Some("./cache"), 
         cache::StoreAs::AlwaysJson
     ).into();
     let circuit: PlaintextCircuit<feanor_math::rings::zn::zn_64::ZnBase> = create_cached(
         (Zp2X.base_ring(), &CyclotomicGaloisGroupBase::new(2).into().full_subgroup()),
         || poly_to_circuit(&Zp2X, &[Zp2X.clone_el(&poly)]),
         &filename_keys!(digit_extract, p: 65537, e: 2),
-        Some("."),
+        Some("./cache"),
         StoreAs::AlwaysJson
     );
     println!("p-s mults  {}", circuit.multiplication_gate_count());

@@ -47,7 +47,7 @@ use super::*;
 /// let P = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
 /// let (C, C_mul) = params.create_ciphertext_rings(420..440);
 /// let digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-/// let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 2, None, 4, &digits, Some("."));
+/// let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 2, None, 4, &digits, Some("./cache"));
 /// 
 /// // creating keys
 /// let sk = Pow2BFV::gen_sk(&C, rng(), SecretKeyDistribution::UniformTernary);
@@ -229,8 +229,19 @@ impl<Inst: BFVInstantiation> ThinBootstrapper<Inst> {
         let base_H = LazyCell::new(|| H.change_modulus(&base_plaintext_ring));
 
         let m = intermediate_plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs = create_circuit_cached(&base_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || pow2::slots_to_coeffs_thin(&base_H, lin_transform_max_levels));
-        let coeffs_to_slots = create_circuit_cached(&intermediate_plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || pow2::coeffs_to_slots_thin(&H, lin_transform_max_levels));
+        let cost_model = instantiation.cost_model();
+        let slots_to_coeffs = create_circuit_cached(
+            &base_plaintext_ring, 
+            &filename_keys![slots2coeffs, m: m, p: &p, r: r, lvl: lin_transform_max_levels, cm: &cost_model], 
+            cache_dir, 
+            || pow2::slots_to_coeffs_thin(&base_H, lin_transform_max_levels, &cost_model)
+        );
+        let coeffs_to_slots = create_circuit_cached(
+            &intermediate_plaintext_ring, 
+            &filename_keys![coeffs2slots, m: m, p: &p, e: e, lvl: lin_transform_max_levels, cm: &cost_model], 
+            cache_dir, 
+            || pow2::coeffs_to_slots_thin(&H, lin_transform_max_levels, &cost_model)
+        );
         let digit_extract = DigitExtract::new_default(&all_plaintext_rings, &H, digit_extract_error_bound, cache_dir);
 
         // we estimate the noise growth of the slots-to-coeffs transform as `log2(|Gal|)` multiplications by
@@ -314,8 +325,19 @@ impl<Inst: BFVInstantiation> ThinBootstrapper<Inst> {
         let base_H = LazyCell::new(|| H.change_modulus(&base_plaintext_ring));
 
         let m = intermediate_plaintext_ring.number_ring().galois_group().m();
-        let slots_to_coeffs = create_circuit_cached(&base_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r, levels: lin_transform_max_levels], cache_dir, || composite::slots_to_powcoeffs_thin(&base_H, lin_transform_max_levels));
-        let coeffs_to_slots = create_circuit_cached(&intermediate_plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e, levels: lin_transform_max_levels], cache_dir, || composite::powcoeffs_to_slots_thin(&H, lin_transform_max_levels));
+        let cost_model = instantiation.cost_model();
+        let slots_to_coeffs = create_circuit_cached(
+            &base_plaintext_ring, 
+            &filename_keys![slots2coeffs, m: m, p: &p, r: r, lvl: lin_transform_max_levels, cm: &cost_model], 
+            cache_dir, 
+            || composite::slots_to_powcoeffs_thin(&base_H, lin_transform_max_levels, &cost_model)
+        );
+        let coeffs_to_slots = create_circuit_cached(
+            &intermediate_plaintext_ring, 
+            &filename_keys![coeffs2slots, m: m, p: &p, e: e, lvl: lin_transform_max_levels, cm: &cost_model], 
+            cache_dir, 
+            || composite::powcoeffs_to_slots_thin(&H, lin_transform_max_levels, &cost_model)
+        );
         let digit_extract = DigitExtract::new_default(&all_plaintext_rings, &H, digit_extract_error_bound, cache_dir);
 
         // we estimate the noise growth of the slots-to-coeffs transform as `log2(m)` multiplications by
@@ -692,7 +714,7 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
             },
             |exp_from, _, x| {
                 if let Some(sk) = debug_sk {
-                    Inst::dec_println_slots(P[exp_from - self.r()], C, &x, sk, Some("."));
+                    Inst::dec_println_slots(P[exp_from - self.r()], C, &x, sk, Some("./cache"));
                 }
                 return x;
             }
@@ -740,7 +762,7 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 2, None, 4, &key_switch_params, Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 2, None, 4, &key_switch_params, Some("./cache"));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = Pow2BFV::gen_gks(&C, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
@@ -758,7 +780,7 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
         Some(&sk)
     );
 
-    Pow2BFV::dec_println_slots(&P, &C, &res_ct, &sk, Some("."));
+    Pow2BFV::dec_println_slots(&P, &C, &res_ct, &sk, Some("./cache"));
 
     assert_el_eq!(P, P.int_hom().map(2), Pow2BFV::dec(&P, &C, res_ct, &sk));
 }
@@ -774,7 +796,7 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 2, None, 4, &key_switch_params, Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 2, None, 4, &key_switch_params, Some("./cache"));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = Pow2BFV::gen_gks(&C, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
@@ -805,7 +827,7 @@ fn test_pow2_bfv_thin_bootstrapping_sparse_key_encapsulation() {
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 2, None, 4, &key_switch_params, Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 2, None, 4, &key_switch_params, Some("./cache"));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = Pow2BFV::gen_gks(&C, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
@@ -838,7 +860,7 @@ fn test_composite_bfv_thin_bootstrapping_2() {
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(685..700);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C, 9, None, 4, &key_switch_params, Some("."));
+    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C, 9, None, 4, &key_switch_params, Some("./cache"));
     
     let sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = CompositeBFV::gen_gks(&C, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &key_switch_params, 3.2);
@@ -872,7 +894,7 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
     let gk_params = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
     let rk_params = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C, 6, None, 4, &gk_params, Some("."));
+    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C, 6, None, 4, &gk_params, Some("./cache"));
     
     let sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = CompositeBFV::gen_gks(&C, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &gk_params, 3.2);
@@ -908,7 +930,7 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping_t257_sqr() {
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
     let gk_params = RNSGadgetVectorDigitIndices::select_digits(C.base_ring().len().div_ceil(2), C.base_ring().len());
     let rk_params = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 1, Some(6), 4, &gk_params, Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 1, Some(6), 4, &gk_params, Some("./cache"));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
     let gk = Pow2BFV::gen_gks(&C, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &gk_params, 3.2);
@@ -944,7 +966,7 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping_t65537() {
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
     let gk_params = RNSGadgetVectorDigitIndices::select_digits(C.base_ring().len().div_ceil(2), C.base_ring().len());
     let rk_params = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 1, Some(6), 4, &gk_params, Some("."));
+    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 1, Some(6), 4, &gk_params, Some("./cache"));
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
     let gk = Pow2BFV::gen_gks(&C, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &gk_params, 3.2);
@@ -984,7 +1006,7 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
     let gk_params = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
     let rk_params = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C, 6, None, 4, &gk_params, Some("."));
+    let bootstrapper = ThinBootstrapper::build_odd(&params, &P, &C, 6, None, 4, &gk_params, Some("./cache"));
     
     let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = CompositeSingleRNSBFV::gen_gks(&C, &mut rng, &sk, bootstrapper.required_galois_keys(&P), &gk_params, 3.2);

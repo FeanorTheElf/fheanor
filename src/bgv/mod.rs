@@ -29,6 +29,7 @@ use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::{perform_rns_op, single_rns_ring::*, RNSFactorCongruence};
 use crate::ciphertext_ring::NumberRingRNSQuotient;
+use crate::circuit::CircuitEvaluatorCosts;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
 use crate::number_ring::galois::GaloisGroupEl;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
@@ -264,6 +265,12 @@ pub trait BGVInstantiation {
     /// 
     fn create_plaintext_ring(&self, modulus: El<BigIntRing>) -> PlaintextRing<Self>;
 
+    ///
+    /// Returns an estimate of the relative cost of different FHE operations under
+    /// this concrete scheme instantiation. Used to optimize circuits.
+    /// 
+    fn cost_model(&self) -> CircuitEvaluatorCosts;
+    
     ///
     /// Generates a secret key, which is either a sparse ternary element of the
     /// ciphertext ring (with hamming weight `hwt`), or a uniform ternary element
@@ -626,7 +633,7 @@ pub trait BGVInstantiation {
     /// For more details, see [`BGVInstantiation::key_switch()`].
     /// 
     #[instrument(skip_all)]
-    fn hom_mul(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
+    fn hom_mul(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, lhs: &Ciphertext<Self>, rhs: &Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&lhs.implicit_scale));
         assert!(P.base_ring().is_unit(&rhs.implicit_scale));
 
@@ -635,7 +642,7 @@ pub trait BGVInstantiation {
         let mut result = Self::key_switch(P, C, C_special, Ciphertext {
             c0: res0,
             c1: res2,
-            implicit_scale: P.base_ring().mul(lhs.implicit_scale, rhs.implicit_scale)
+            implicit_scale: P.base_ring().mul_ref(&lhs.implicit_scale, &rhs.implicit_scale)
         }, rk);
         C.add_assign(&mut result.c1, res1);
         assert!(P.base_ring().is_unit(&result.implicit_scale));
@@ -656,19 +663,8 @@ pub trait BGVInstantiation {
     /// For more details, see [`BGVInstantiation::key_switch()`].
     /// 
     #[instrument(skip_all)]
-    fn hom_square(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
-        assert!(P.base_ring().is_unit(&val.implicit_scale));
-
-        let [res0, res1, res2] = C.get_ring().two_by_two_convolution([&val.c0, &val.c1], [&val.c0, &val.c1]);
-                
-        let mut result = Self::key_switch(P, C, C_special, Ciphertext {
-            c0: res0,
-            c1: res2,
-            implicit_scale: P.base_ring().pow(val.implicit_scale, 2)
-        }, rk);
-        C.add_assign(&mut result.c1, res1);
-        assert!(P.base_ring().is_unit(&result.implicit_scale));
-        return result;
+    fn hom_square(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, val: &Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
+        Self::hom_mul(P, C, C_special, val, val, rk)
     }
     
     ///
@@ -1070,6 +1066,15 @@ pub trait BGVInstantiation {
     }
 }
 
+pub const DOUBLE_RNS_BGV_COST: CircuitEvaluatorCosts = CircuitEvaluatorCosts {
+    name: "drnsbgv",
+    cost_mul: 1.,
+    cost_sqr: 1.,
+    cost_single_gal: 0.7,
+    cost_setup_hoisted_gal: 0.6,
+    cost_hoisted_gal: 0.2
+};
+
 #[derive(Debug)]
 pub struct Pow2BGV<A: Allocator + Clone = DefaultCiphertextAllocator, C: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
     number_ring: Pow2CyclotomicNumberRing<C>,
@@ -1175,6 +1180,10 @@ impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow
         let result = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZi64_to_Zq.map(P.base_ring().smallest_lift(c))));
         return result;
     }
+
+    fn cost_model(&self) -> CircuitEvaluatorCosts {
+        DOUBLE_RNS_BGV_COST
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1268,8 +1277,24 @@ impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
         let result = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZi64_to_Zq.map(P.base_ring().smallest_lift(c))));
         return C.get_ring().to_doublerns(&result).map(|x| C.get_ring().from_doublerns(C.get_ring().unmanaged_ring().clone_el(x))).unwrap_or(C.zero());
     }
+
+    fn cost_model(&self) -> CircuitEvaluatorCosts {
+        DOUBLE_RNS_BGV_COST
+    }
 }
 
+pub const SINGLE_RNS_BGV_COST: CircuitEvaluatorCosts = CircuitEvaluatorCosts {
+    name: "srnsbgv",
+    cost_mul: 1.,
+    cost_sqr: 1.,
+    cost_single_gal: 0.7,
+    cost_setup_hoisted_gal: 0.,
+    cost_hoisted_gal: 0.7
+};
+
+/// Usually, single-RNS form is faster for homomorphic multiplications and squarings,
+/// but significantly slower with Galois automorphisms and prepared plaintext-ciphertext
+/// multiplications.
 #[derive(Clone, Debug)]
 pub struct CompositeSingleRNSBGV<A: Allocator + Clone = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
     number_ring: TensorProductNumberRing,
@@ -1339,6 +1364,10 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BGVInstantiation for Comp
             convolutions
         );
     }
+
+    fn cost_model(&self) -> CircuitEvaluatorCosts {
+        SINGLE_RNS_BGV_COST
+    }
 }
 
 #[cfg(test)]
@@ -1398,7 +1427,7 @@ fn test_pow2_bgv_mul() {
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = Pow2BGV::hom_mul(&P, &C, &C, Pow2BGV::clone_ct(&P, &C, &ctxt), ctxt, &rk);
+    let result_ctxt = Pow2BGV::hom_mul(&P, &C, &C, &ctxt, &ctxt, &rk);
     let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
     assert_el_eq!(&P, P.int_hom().map(4), result);
 }
@@ -1433,7 +1462,7 @@ fn test_pow2_bgv_hybrid_key_switch() {
     let sk_current = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk_current, 3.2);
-    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, Pow2BGV::clone_ct(&P, &C, &ctxt), &rk);
+    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, &ctxt, &rk);
     let result = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &result_ctxt), &sk_current);
     assert_el_eq!(&P, P.int_hom().map(4), result);
     assert!(critical_quantity_size(&result_ctxt, &sk) <= critical_quantity_size(&ctxt, &sk) + 20, "critical quantity size increased too much; {} increased to {}", critical_quantity_size(&ctxt, &sk), critical_quantity_size(&result_ctxt, &sk));
@@ -1445,10 +1474,10 @@ fn test_pow2_bgv_hybrid_key_switch() {
     let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()), 3.2);
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C_special, &mut rng, &input, &sk, 3.2);
-    let first_mul_ctxt = Pow2BGV::hom_square(&P, &C_special, &C_special, ctxt, &rk);
+    let first_mul_ctxt = Pow2BGV::hom_square(&P, &C_special, &C_special, &ctxt, &rk);
     let modswitched_ctxt = Pow2BGV::mod_switch_ct(&P, &C, &C_special, first_mul_ctxt);
     let sk = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
-    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, modswitched_ctxt, &rk);
+    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, &modswitched_ctxt, &rk);
     let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
     assert_el_eq!(&P, P.int_hom().map(16), result);
 }
@@ -1555,8 +1584,8 @@ fn test_pow2_bgv_modulus_switch_rk() {
             &P,
             &C1,
             &C1,
-            Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt)),
-            ctxt2,
+            &Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt)),
+            &ctxt2,
             &new_rk
         );
         let result = Pow2BGV::dec(&P, &C1, result_ctxt, &new_sk);
@@ -1627,7 +1656,7 @@ fn measure_time_pow2_bgv_basic_ops() {
     );
     let ct2 = Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
     let res = log_time("HomMul", |[]| 
-        Pow2BGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
+        Pow2BGV::hom_mul(&P, &C, &C, &ct, &ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &res), &sk));
 
@@ -1682,7 +1711,7 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
     );
     let ct2 = CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
     let res = log_time("HomMul", |[]|
-        CompositeBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
+        CompositeBGV::hom_mul(&P, &C, &C, &ct, &ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &res), &sk));
 
@@ -1737,7 +1766,7 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
     );
     let ct2 = CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
     let res = log_time("HomMul", |[]| 
-        CompositeSingleRNSBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
+        CompositeSingleRNSBGV::hom_mul(&P, &C, &C, &ct, &ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &res), &sk));
 

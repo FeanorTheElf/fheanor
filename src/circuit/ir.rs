@@ -476,6 +476,8 @@ use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 #[cfg(test)]
 use crate::number_ring::NumberRingQuotientStore;
+#[cfg(test)]
+use crate::circuit::DEFAULT_EVALUATOR_COSTS;
 
 #[test]
 fn test_circuit_to_ir() {
@@ -536,15 +538,15 @@ fn test_from_to_ir() {
     let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)));
     let H = {
         let hypercube = HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
-        HypercubeIsomorphism::new(&P, &hypercube, Some("."))
+        HypercubeIsomorphism::new(&P, &hypercube, Some("./cache"))
     };
-    let coeffs_to_slots = pow2::coeffs_to_slots_thin(&H, 4);
+    let coeffs_to_slots = pow2::coeffs_to_slots_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS);
     let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));
     assert!(coeffs_to_slots.eq(&PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program), &P, Some(P.acting_galois_group())));
 
     let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e)));
     let H = H.change_modulus(&P);
-    let slots_to_coeffs = pow2::slots_to_coeffs_thin(&H, 4);
+    let slots_to_coeffs = pow2::slots_to_coeffs_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS);
     let program = slots_to_coeffs.to_ir(&P, Some(P.acting_galois_group()));
     assert!(slots_to_coeffs.eq(&PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program), &P, Some(P.acting_galois_group())));
 }

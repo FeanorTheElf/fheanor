@@ -34,14 +34,24 @@ pub mod evaluator;
 /// 
 pub mod ir;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct CircuitEvaluatorCosts {
+    pub name: &'static str,
     pub cost_mul: f64,
     pub cost_sqr: f64,
     pub cost_single_gal: f64,
     pub cost_setup_hoisted_gal: f64,
     pub cost_hoisted_gal: f64
 }
+
+pub const DEFAULT_EVALUATOR_COSTS: CircuitEvaluatorCosts = CircuitEvaluatorCosts {
+    name: "default",
+    cost_mul: 1.,
+    cost_sqr: 0.83,
+    cost_single_gal: 0.7,
+    cost_setup_hoisted_gal: 0.6,
+    cost_hoisted_gal: 0.2
+};
 
 ///
 /// A coefficient used in a [`PlaintextCircuit`].
@@ -1442,13 +1452,13 @@ fn generate_slots_to_coeffs() {
     let P = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(m), zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)));
     let H = LazyCell::new(|| {
         let hypercube = HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
-        HypercubeIsomorphism::new(&P, &hypercube, Some("."))
+        HypercubeIsomorphism::new(&P, &hypercube, Some("./cache"))
     });
     let coeffs_to_slots = create_circuit_cached(
         &P, 
         &filename_keys![coeffs2slots, m: m, p: 65537, e: e + 1, levels: 4], 
-        Some("."), 
-        || pow2::coeffs_to_slots_thin(&H, 4)
+        Some("./cache"), 
+        || pow2::coeffs_to_slots_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS)
     );
     let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));
     write!(BufWriter::new(File::create(format!("./coeffs_to_slots_m{}_p65537_e{}_levels4.fheir", m, e + 1).as_str()).unwrap()), "{}", program).unwrap();
@@ -1459,8 +1469,8 @@ fn generate_slots_to_coeffs() {
     let slots_to_coeffs = create_circuit_cached(
         &P, 
         &filename_keys![slots2coeffs, m: m, p: 65537, e: e, levels: 4], 
-        Some("."), 
-        || pow2::slots_to_coeffs_thin(&H, 4)
+        Some("./cache"), 
+        || pow2::slots_to_coeffs_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS)
     );
     let program = slots_to_coeffs.to_ir(&P, Some(P.acting_galois_group()));
     write!(BufWriter::new(File::create(format!("./slots_to_coeffs_m{}_p65537_e{}_levels4.fheir", m, e).as_str()).unwrap()), "{}", program).unwrap();

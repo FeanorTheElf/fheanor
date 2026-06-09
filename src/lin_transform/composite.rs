@@ -9,6 +9,8 @@ use feanor_math::primitive_int::*;
 use feanor_math::seq::VectorFn;
 use tracing::instrument;
 
+use crate::circuit::CircuitEvaluatorCosts;
+use crate::circuit::DEFAULT_EVALUATOR_COSTS;
 use crate::circuit::PlaintextCircuit;
 use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
@@ -171,12 +173,12 @@ fn slots_to_powcoeffs_fat_fst_step<R>(H: &HypercubeIsomorphism<R>, dim_index: us
 /// This requires that the underlying hypercube structure is a Halevi-Shoup hypercube structure, and that `d l_1 = phi(m_1)`.
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_powcoeffs_fat<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
+pub fn slots_to_powcoeffs_fat<R>(H: &HypercubeIsomorphism<R>, max_levels: usize, cost_model: &CircuitEvaluatorCosts) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_fat_impl(H), max_levels)
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_fat_impl(H), max_levels, cost_model)
 }
 
 fn slots_to_powcoeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
@@ -218,12 +220,12 @@ fn slots_to_powcoeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTran
 /// This requires that the underlying hypercube structure is a Halevi-Shoup hypercube structure, and that `d l_1 = phi(m_1)`.
 /// 
 #[instrument(skip_all)]
-pub fn powcoeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
+pub fn powcoeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>, max_levels: usize, cost_model: &CircuitEvaluatorCosts) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_fat_impl(H), max_levels)
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_fat_impl(H), max_levels, cost_model)
 }
 
 fn powcoeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
@@ -263,12 +265,12 @@ fn powcoeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTran
 /// doesn't contain a scalar, the behavior is unspecified.
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_powcoeffs_thin<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
+pub fn slots_to_powcoeffs_thin<R>(H: &HypercubeIsomorphism<R>, max_levels: usize, cost_model: &CircuitEvaluatorCosts) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_thin_impl(H), max_levels)
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_thin_impl(H), max_levels, cost_model)
 }
 
 fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
@@ -296,12 +298,12 @@ fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTra
 /// full rank, and cannot be the mathematical inverse of [`slots_to_powcoeffs_thin()`].
 /// 
 #[instrument(skip_all)]
-pub fn powcoeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>, max_levels: usize) -> PlaintextCircuit<R::Type>
+pub fn powcoeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>, max_levels: usize, cost_model: &CircuitEvaluatorCosts) -> PlaintextCircuit<R::Type>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_thin_impl(H), max_levels)
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_thin_impl(H), max_levels, cost_model)
 }
 
 fn powcoeffs_to_slots_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
@@ -530,18 +532,22 @@ fn test_powcoeffs_to_slots_fat() {
 
 #[test]
 #[ignore]
-fn test_powcoeffs_to_slots_fat_large() {
+fn test_powcoeffs_to_slots_thin_large() {
     feanor_tracing::DelayedLogger::init_test();
-    // let allocator = feanor_mempool::AllocRc(Rc::new(feanor_mempool::dynsize::DynLayoutMempool::<Global>::new(Alignment::of::<u64>())));
     let ring = RingValue::from(NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(337, 127), Zn::new(65536)).into());
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(2, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
+    let h = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(2, ZZbig, ZZi64));
+    let H = HypercubeIsomorphism::new(&ring, &h, Some("./cache"));
     assert_eq!(337, H.hypercube().factor_of_m(0).unwrap());
     assert_eq!(16, H.hypercube().dim_length(0));
     assert_eq!(127, H.hypercube().factor_of_m(1).unwrap());
     assert_eq!(126, H.hypercube().dim_length(1));
 
-    let transform = powcoeffs_to_slots_fat_impl(&H);
+    let transform = powcoeffs_to_slots_thin_impl(&H);
+
+    println!("{}", transform.len());
+    println!("{}", transform.last().unwrap().automorphism_count());
+    let circuit = transform.last().unwrap().clone(&ring).to_circuit(&ring, &h, &DEFAULT_EVALUATOR_COSTS);
+    println!("{}", circuit.galois_gate_output_sum());
 
     let ring_ref = &ring;
     let mut current = ring.pow(ring_ref.canonical_gen(), 7 * 127 + 2 * 337);

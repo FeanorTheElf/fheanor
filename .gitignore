@@ -4,16 +4,7 @@ trace-*.json
 out-*
 perf.data
 perf.data.*
-hypercube_*.json
-hypercube_*.pcd
-coeffs2slots_*.json
-slots2coeffs_*.json
-coeffs2slots_*.pcd
-slots2coeffs_*.pcd
-digit_extract_*.json
-digit_extract_*.pcd
-digit_retain_poly_*.json
-digit_retain_poly_*.pcd
+cache
 *.fheir
 bgv_memtrace
 .vscode

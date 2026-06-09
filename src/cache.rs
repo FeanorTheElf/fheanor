@@ -2,11 +2,13 @@
 use tracing::{Level, span};
 
 use std::fmt::Display;
+use std::fs;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::BufWriter;
 use std::io::Read;
 use std::marker::PhantomData;
+use std::path::Path;
 
 use feanor_math::integer::*;
 use feanor_math::ring::*;
@@ -18,6 +20,7 @@ use serde::de::DeserializeSeed;
 use serde::{Deserialize, Serialize};
 use feanor_serde::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};
 
+use crate::circuit::CircuitEvaluatorCosts;
 use crate::{ZZbig, ZZi64};
 
 pub enum CachedDataKey {
@@ -179,6 +182,13 @@ impl<'a> From<(&'a str, u64)> for CachedDataKeyLiteral {
 
     fn from(value: (&'a str, u64)) -> Self {
         Self::from((value.0, TryInto::<i64>::try_into(value.1).unwrap()))
+    }
+}
+
+impl<'a> From<(&'a str, &'a CircuitEvaluatorCosts)> for CachedDataKeyLiteral {
+
+    fn from(value: (&'a str, &'a CircuitEvaluatorCosts)) -> Self {
+        Self::String(format!("{}-{}", value.0, value.1.name))
     }
 }
 
@@ -345,7 +355,11 @@ pub fn create_cached<T, D, F>(data: D, create_fn: F, keys: &[CachedDataKey], dir
                 )
             })
         };
+
         if store_json {
+            if let Some(parent) = Path::new(filename_json.as_str()).parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
             let file = File::create(filename_json).unwrap();
             let mut serializer = serde_json::Serializer::new(BufWriter::new(file));
             SerializeKeyedData::<T, D> {
@@ -355,6 +369,9 @@ pub fn create_cached<T, D, F>(data: D, create_fn: F, keys: &[CachedDataKey], dir
             }.serialize(&mut serializer).unwrap();
         }
         if store_postcard {
+            if let Some(parent) = Path::new(filename_postcard.as_str()).parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
             let file = File::create(filename_postcard).unwrap();
             postcard::to_io(&SerializeKeyedData::<T, D> {
                 data: SerializeSerializableWithData::new(&data, &result),

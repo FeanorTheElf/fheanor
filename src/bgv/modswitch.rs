@@ -1369,8 +1369,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
             P, 
             &C_target, 
             &C_special, 
-            x_modswitched.data, 
-            y_modswitched.data, 
+            &x_modswitched.data, 
+            &y_modswitched.data, 
             &rk_modswitch
         );
         let res_info = self.noise_estimator.hom_mul(
@@ -1455,7 +1455,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
             P, 
             &C_target, 
             &C_special, 
-            x_modswitched.data, 
+            &x_modswitched.data, 
             &rk_modswitch
         );
         if LOG {

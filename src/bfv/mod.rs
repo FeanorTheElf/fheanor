@@ -27,7 +27,7 @@ use tracing::instrument;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::perform_rns_op;
 use crate::ciphertext_ring::NumberRingRNSQuotient;
-use crate::circuit::PlaintextCircuit;
+use crate::circuit::{CircuitEvaluatorCosts, DEFAULT_EVALUATOR_COSTS, PlaintextCircuit};
 use crate::gadget_product::digits::*;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
 use crate::ntt::{FheanorNegacyclicNTT, FheanorConvolution};
@@ -148,6 +148,12 @@ pub trait BFVInstantiation {
     /// the plaintext ring is `R/tR`.
     /// 
     fn number_ring(&self) -> &NumberRing<Self>;
+
+    ///
+    /// Returns an estimate of the relative cost of different FHE operations under
+    /// this concrete scheme instantiation. Used to optimize circuits.
+    /// 
+    fn cost_model(&self) -> CircuitEvaluatorCosts;
 
     ///
     /// Creates the ciphertext ring `R/qR` and the extended-modulus ciphertext ring
@@ -883,6 +889,10 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Po
     fn lift_to_Cmul<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |C_delta, delta| force_double_rns_repr(C_delta, delta))
     }
+
+    fn cost_model(&self) -> CircuitEvaluatorCosts {
+        DEFAULT_EVALUATOR_COSTS
+    }
 }
 
 ///
@@ -965,6 +975,10 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Po
     
     fn lift_to_Cmul<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |C_delta, delta| force_double_rns_repr(C_delta, delta))
+    }
+
+    fn cost_model(&self) -> CircuitEvaluatorCosts {
+        DEFAULT_EVALUATOR_COSTS
     }
 }
 
@@ -1066,12 +1080,20 @@ impl<A: Allocator + Clone > BFVInstantiation for CompositeBFV<A> {
     fn lift_to_Cmul<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |C_delta, delta| force_double_rns_repr(C_delta, delta))
     }
+
+    fn cost_model(&self) -> CircuitEvaluatorCosts {
+        DEFAULT_EVALUATOR_COSTS
+    }
 }
 
 ///
 /// Instantiation of BFV over odd, composite cyclotomic rings `Z[X]/(Phi_m(X))`
 /// with `m = m1 m2` and `m2, m2` odd coprime integers. Ciphertexts are represented
 /// in single-RNS form. If double-RNS form is instead requires, use [`CompositeBFV`].
+/// 
+/// Usually, single-RNS form is faster for homomorphic multiplications and squarings,
+/// but significantly slower with Galois automorphisms and prepared plaintext-ciphertext
+/// multiplications.
 /// 
 /// This takes a type `C` as last generic argument, which is the type of the convolution
 /// algorithm to use to instantiate the ciphertext ring. This has a major impact on 
@@ -1125,6 +1147,15 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> Display for CompositeSing
     }
 }
 
+pub const SINGLE_RNS_BFV_COST: CircuitEvaluatorCosts = CircuitEvaluatorCosts {
+    name: "srsnbfv",
+    cost_mul: 1.,
+    cost_sqr: 0.83,
+    cost_single_gal: 0.6,
+    cost_setup_hoisted_gal: 0.,
+    cost_hoisted_gal: 0.6
+};
+
 impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BFVInstantiation for CompositeSingleRNSBFV<A, C> {
 
     type NumberRing = TensorProductNumberRing;
@@ -1172,6 +1203,10 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BFVInstantiation for Comp
         let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
         assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
         return (C, C_mul);
+    }
+
+    fn cost_model(&self) -> CircuitEvaluatorCosts {
+        SINGLE_RNS_BFV_COST
     }
 }
 
