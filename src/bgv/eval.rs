@@ -219,15 +219,15 @@ pub trait AsBGVPlaintext<Params: BGVInstantiation>: RingBase {
     }
 }
 
-// Note: this is the impl for `Params::PlaintextRing`. We cannot write
-// `impl<Params> AsBGVPlaintext<Params> for Params::PlaintextRing` literally, because an
-// associated-type projection in the self-type position is opaque to coherence and would
-// be considered as possibly overlapping the `BigIntRingBase` and `EncodedBGVPlaintextRingBase`
-// impls below. Instead we spell out the concrete plaintext ring type used by all current
-// instantiations and tie it to `Params::PlaintextRing` via a where-clause; this is exactly
-// `Params::PlaintextRing` for every `BGVInstantiation`.
-impl<Params> AsBGVPlaintext<Params> for NumberRingQuotientByIntBase<NumberRing<Params>, Zn>
-    where Params: BGVInstantiation<PlaintextRing = NumberRingQuotientByIntBase<NumberRing<Params>, Zn>>
+// This is the impl for `Params::PlaintextRing`. We cannot write
+// `impl<Params> AsBGVPlaintext<Params> for Params::PlaintextRing` literally (an associated-type
+// projection in the self-type position is opaque to coherence). Instead we use a `NumberRingQuotient`
+// type parameter `R` tied to `Params::PlaintextRing`; the `R: NumberRingQuotient` bound lets
+// coherence rule out overlap with the (non-`NumberRingQuotient`) `BigIntRingBase` and
+// `EncodedBGVPlaintextRingBase` impls below.
+impl<Params, R> AsBGVPlaintext<Params> for R
+    where Params: BGVInstantiation<PlaintextRing = R>,
+        R: NumberRingQuotient
 {
     fn hom_add_to(
         &self,
@@ -295,7 +295,7 @@ impl<Params> AsBGVPlaintext<Params> for NumberRingQuotientByIntBase<NumberRing<P
         estimator.hom_mul_plain(P, C, m, ct)
     }
 
-    fn hom_inner_product_noise<N, L, R, I>(
+    fn hom_inner_product_noise<N, L, Rhs, I>(
         &self,
         estimator: &N,
         P: &PlaintextRing<Params>,
@@ -304,8 +304,8 @@ impl<Params> AsBGVPlaintext<Params> for NumberRingQuotientByIntBase<NumberRing<P
     ) -> CiphertextDescriptor<Params, N>
         where N: BGVNoiseEstimator<Params>,
             L: Borrow<Self::Element>,
-            R: Borrow<CiphertextDescriptor<Params, N>>,
-            I: IntoIterator<Item = (L, R)>
+            Rhs: Borrow<CiphertextDescriptor<Params, N>>,
+            I: IntoIterator<Item = (L, Rhs)>
     {
         estimator.hom_inner_product_plain(P, C, summands)
     }
@@ -553,6 +553,14 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for EncodedBGVPlaintextRin
         where I: IntoIterator<Item = (Self::Element, CiphertextOrNoRelin<Params>)>
     {
         assert!(self.P.get_ring() == P.get_ring());
+        // NOTE: unlike `hom_mul_to`, this does not make use of the prepared multiplicants
+        // stored in the elements. Doing so would require an inner-product routine over the
+        // ciphertext ring that consumes prepared right-hand operands (and that also handles
+        // the modulus-switched-down case, where the prepared multiplicant - which is prepared
+        // w.r.t. the stored ring - no longer applies). `Params::hom_inner_product_plain_encoded`
+        // has no such variant, so we go through it without prepared operands; it still uses the
+        // ciphertext ring's accelerated `ComputeInnerProduct`. This is a deliberate scope choice
+        // for this refactor and could be revisited (e.g. via a prepared inner product) later.
         let summands = summands.into_iter().map(|(m, ct)| (self.encoded_for(C, &m), ct)).collect::<Vec<_>>();
         if summands.iter().any(|(_, ct)| ct.is_norelin()) {
             let summands = summands.into_iter().map(|(m, ct)| (m, ct.into_norelin(C))).collect::<Vec<_>>();

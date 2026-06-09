@@ -173,3 +173,23 @@ Please fix the following points:
  - I'm surprised that `impl<Params> AsBGVPlaintext<Params> for Params::PlaintextRing`; After all, `EncodedBGVPlaintextRingBase` is not `NumberRingQuotient`, which is necessary to be any `Param::PlaintextRing`. But ok, if it doesn't work, try first `impl<Params, R> AsBGVPlaintext<Params> for R where Params: BGVInstantiation<PlaintextRing = R>, R: NumberRingQuotient`; if that also doesn't work, do what is done in `src/bfv/eval.rs`, i.e. `impl<Params, R> AsBGVPlaintext<Params> for R where Params::PlaintextRing: CanHomFrom<R>, R: NumberRingQuotient`. I don't want to have a separate implementation for every ring that is used as plaintext ring by some `BGVInstantiation`.
  - It's a bit annoying that `EncodedBGVPlaintextRing::hom_inner_product` cannot currently use the prepared operand. However, fixing that for now would go beyond the scope of this refactor, so just add a note there explaining why this is difficult and that this choice was made, potentially to be fixed in the future.
  - Let's leave the ownership question on the `inner_product` functions as-is for now. While `Borrow` pattern might be an improvement, I just realized that here and for `BGVInstantiation`, the even better choice would actually be to use `src/boo.rs`. But let's leave it for now, to be fixed later.
+# Review response
+
+- **`AsBGVPlaintext` for the plaintext ring.** Replaced the concrete
+  `NumberRingQuotientByIntBase` impl with the first form you suggested:
+  ```rust
+  impl<Params, R> AsBGVPlaintext<Params> for R
+      where Params: BGVInstantiation<PlaintextRing = R>, R: NumberRingQuotient
+  ```
+  This compiles: the `R: NumberRingQuotient` bound lets coherence rule out overlap with the
+  `BigIntRingBase` and `EncodedBGVPlaintextRingBase` impls (neither is `NumberRingQuotient`), so
+  the second (`CanHomFrom`) fallback was not needed. There is no longer a per-ring impl.
+  (One incidental rename: in this impl the `hom_inner_product_noise` method's `R` type
+  parameter was renamed to `Rhs` to avoid clashing with the new impl-level `R`.)
+- **`EncodedBGVPlaintextRingBase::hom_inner_product` not using the prepared operand.** Added a
+  `NOTE` comment at that method explaining why (no prepared-operand inner-product routine on the
+  ciphertext ring, plus the modulus-switched-down case where the stored prepared multiplicant no
+  longer applies), that it still uses the ring's accelerated `ComputeInnerProduct`, and that this
+  is a deliberate scope choice to potentially revisit later.
+- **Ownership of the `inner_product` operands.** Left as-is, per your note (to be revisited later,
+  possibly using `src/boo.rs`).
