@@ -55,8 +55,13 @@ pub mod eval;
 ///
 /// Contains [`bootstrap::ThinBootstrapper`], an implementation of
 /// thin bootstrapping for BFV.
-/// 
-pub mod bootstrap;
+///
+/// Temporarily disabled while the BGV refactoring is in progress: this module
+/// depends on `crate::bgv::modswitch::compute_optimal_special_modulus`, and
+/// `bgv::modswitch` is currently commented out (see `src/bgv/mod.rs`). It will be
+/// re-enabled once `bgv::modswitch` is re-included.
+///
+// pub mod bootstrap;
 
 pub type NumberRing<Inst: BFVInstantiation> = <<Inst as BFVInstantiation>::CiphertextRing as NumberRingQuotient>::NumberRing;
 pub type PlaintextRing<Inst: BFVInstantiation> = RingValue<<Inst as BFVInstantiation>::PlaintextRing>;
@@ -1172,7 +1177,7 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BFVInstantiation for Comp
         NumberRingQuotientByIntBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
     }
 
-    #[instrument(skip_all)]h fu
+    #[instrument(skip_all)]
     fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>) {
         let number_ring = self.number_ring();
         let required_root_of_unity = 1 << ZZi64.abs_log2_ceil(&(number_ring.m() as i64 * 4)).unwrap();
