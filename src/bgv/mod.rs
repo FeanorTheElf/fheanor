@@ -9,6 +9,7 @@ use std::sync::Arc;
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::eea::signed_gcd;
 use feanor_math::algorithms::int_factor::is_prime_power;
+use feanor_math::algorithms::matmul::ComputeInnerProduct;
 use feanor_math::homomorphism::*;
 use feanor_math::integer::{int_cast, BigIntRing, IntegerRingStore};
 use feanor_math::matrix::OwnedMatrix;
@@ -503,8 +504,9 @@ pub trait BGVInstantiation {
     #[instrument(skip_all)]
     fn hom_mul_plain_scalar(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &<Self::PlaintextZnRing as RingBase>::Element, mut ct: Ciphertext<Self>) -> Ciphertext<Self> {
         let hom = C.inclusion().compose(C.base_ring().can_hom(&ZZbig).unwrap());
-        hom.mul_assign_map(&mut ct.c0, int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(m)), ZZbig, P.base_ring().integer_ring()));
-        hom.mul_assign_map(&mut ct.c1, int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(m)), ZZbig, P.base_ring().integer_ring()));
+        let factor = int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(m)), ZZbig, P.base_ring().integer_ring());
+        hom.mul_assign_ref_map(&mut ct.c0, &factor);
+        hom.mul_assign_ref_map(&mut ct.c1, &factor);
         return ct;
     }
 
@@ -530,15 +532,41 @@ pub trait BGVInstantiation {
             R: Borrow<Ciphertext<Self>>,
             I: IntoIterator<Item = (L, R)>
     {
-        let mut result: Option<Ciphertext<Self>> = None;
+        // a scalar inner product cannot use the ciphertext ring's inner product, but we can
+        // still accumulate the components without intermediate allocations via `fma_map`.
+        let incl = C.inclusion();
+        let to_Cbase = C.base_ring().can_hom(&ZZbig).unwrap();
+        let mut c0 = C.zero();
+        let mut c1 = C.zero();
+        let mut common_scale: Option<<Self::PlaintextZnRing as RingBase>::Element> = None;
+        let mut empty = true;
         for (m, ct) in summands {
-            let summand = Self::hom_mul_plain_scalar(P, C, m.borrow(), Self::clone_ct(P, C, ct.borrow()));
-            result = Some(match result {
-                None => summand,
-                Some(acc) => Self::hom_add(P, C, acc, summand, policy)
-            });
+            empty = false;
+            let ct = ct.borrow();
+            assert!(P.base_ring().is_unit(&ct.implicit_scale));
+            // fold the implicit scale into the scalar (`Merge`) or assert that it matches (`AssertEqual`)
+            let scalar = match policy {
+                ImplicitScalePolicy::Merge => P.base_ring().mul_ref_fst(m.borrow(), P.base_ring().invert(&ct.implicit_scale).unwrap()),
+                ImplicitScalePolicy::AssertEqual => {
+                    match &common_scale {
+                        None => common_scale = Some(P.base_ring().clone_el(&ct.implicit_scale)),
+                        Some(s) => assert!(P.base_ring().eq_el(s, &ct.implicit_scale), "ImplicitScalePolicy::AssertEqual requires all summands to have the same implicit scale")
+                    }
+                    P.base_ring().clone_el(m.borrow())
+                }
+            };
+            let scalar = to_Cbase.map(int_cast(P.base_ring().smallest_lift(scalar), ZZbig, P.base_ring().integer_ring()));
+            c0 = incl.fma_map(&ct.c0, &scalar, c0);
+            c1 = incl.fma_map(&ct.c1, &scalar, c1);
         }
-        return result.unwrap_or_else(|| Self::transparent_zero(P, C));
+        if empty {
+            return Self::transparent_zero(P, C);
+        }
+        let implicit_scale = match policy {
+            ImplicitScalePolicy::Merge => P.base_ring().one(),
+            ImplicitScalePolicy::AssertEqual => common_scale.unwrap()
+        };
+        return Ciphertext { c0, c1, implicit_scale };
     }
 
     ///
@@ -552,15 +580,9 @@ pub trait BGVInstantiation {
             R: Borrow<Ciphertext<Self>>,
             I: IntoIterator<Item = (L, R)>
     {
-        let mut result: Option<Ciphertext<Self>> = None;
-        for (m, ct) in summands {
-            let summand = Self::hom_mul_plain(P, C, m.borrow(), Self::clone_ct(P, C, ct.borrow()));
-            result = Some(match result {
-                None => summand,
-                Some(acc) => Self::hom_add(P, C, acc, summand, policy)
-            });
-        }
-        return result.unwrap_or_else(|| Self::transparent_zero(P, C));
+        // encode the plaintexts into a temporary vector and delegate to the encoded variant
+        let encoded = summands.into_iter().map(|(m, ct)| (Self::encode_plain(P, C, m.borrow()), ct)).collect::<Vec<_>>();
+        Self::hom_inner_product_encoded(P, C, encoded.iter().map(|(m, ct)| (m, ct.borrow())), policy)
     }
 
     ///
@@ -575,15 +597,38 @@ pub trait BGVInstantiation {
             R: Borrow<Ciphertext<Self>>,
             I: IntoIterator<Item = (L, R)>
     {
-        let mut result: Option<Ciphertext<Self>> = None;
+        // bring all summands to a common implicit scale, then use the ciphertext ring's
+        // (potentially accelerated) inner product on each ciphertext component
+        let mut ms: Vec<L> = Vec::new();
+        let mut c0s: Vec<El<CiphertextRing<Self>>> = Vec::new();
+        let mut c1s: Vec<El<CiphertextRing<Self>>> = Vec::new();
+        let mut common_scale: Option<<Self::PlaintextZnRing as RingBase>::Element> = None;
         for (m, ct) in summands {
-            let summand = Self::hom_mul_plain_encoded(P, C, m.borrow(), Self::clone_ct(P, C, ct.borrow()));
-            result = Some(match result {
-                None => summand,
-                Some(acc) => Self::hom_add(P, C, acc, summand, policy)
-            });
+            let ct = Self::clone_ct(P, C, ct.borrow());
+            let ct = match policy {
+                ImplicitScalePolicy::Merge => Self::merge_implicit_scale(P, C, ct),
+                ImplicitScalePolicy::AssertEqual => {
+                    match &common_scale {
+                        None => common_scale = Some(P.base_ring().clone_el(&ct.implicit_scale)),
+                        Some(s) => assert!(P.base_ring().eq_el(s, &ct.implicit_scale), "ImplicitScalePolicy::AssertEqual requires all summands to have the same implicit scale")
+                    }
+                    ct
+                }
+            };
+            ms.push(m);
+            c0s.push(ct.c0);
+            c1s.push(ct.c1);
         }
-        return result.unwrap_or_else(|| Self::transparent_zero(P, C));
+        if ms.is_empty() {
+            return Self::transparent_zero(P, C);
+        }
+        let implicit_scale = match policy {
+            ImplicitScalePolicy::Merge => P.base_ring().one(),
+            ImplicitScalePolicy::AssertEqual => common_scale.unwrap()
+        };
+        let c0 = <_ as ComputeInnerProduct>::inner_product_ref_fst(C.get_ring(), ms.iter().map(|m| m.borrow()).zip(c0s.into_iter()));
+        let c1 = <_ as ComputeInnerProduct>::inner_product_ref_fst(C.get_ring(), ms.iter().map(|m| m.borrow()).zip(c1s.into_iter()));
+        return Ciphertext { c0, c1, implicit_scale };
     }
 
     ///
@@ -987,15 +1032,42 @@ pub trait BGVInstantiation {
             R: Borrow<CiphertextNoRelin<Self>>,
             I: IntoIterator<Item = (L, R)>
     {
-        let mut result: Option<CiphertextNoRelin<Self>> = None;
+        // see [`BGVInstantiation::hom_inner_product_plain_scalar()`]; accumulate the three
+        // components without intermediate allocations via `fma_map`
+        let incl = C.inclusion();
+        let to_Cbase = C.base_ring().can_hom(&ZZbig).unwrap();
+        let mut c0 = C.zero();
+        let mut c1 = C.zero();
+        let mut c2 = C.zero();
+        let mut common_scale: Option<<Self::PlaintextZnRing as RingBase>::Element> = None;
+        let mut empty = true;
         for (m, ct) in summands {
-            let summand = Self::hom_mul_plain_scalar_norelin(P, C, m.borrow(), Self::clone_ct_norelin(P, C, ct.borrow()));
-            result = Some(match result {
-                None => summand,
-                Some(acc) => Self::hom_add_norelin(P, C, acc, summand, policy)
-            });
+            empty = false;
+            let ct = ct.borrow();
+            assert!(P.base_ring().is_unit(&ct.implicit_scale));
+            let scalar = match policy {
+                ImplicitScalePolicy::Merge => P.base_ring().mul_ref_fst(m.borrow(), P.base_ring().invert(&ct.implicit_scale).unwrap()),
+                ImplicitScalePolicy::AssertEqual => {
+                    match &common_scale {
+                        None => common_scale = Some(P.base_ring().clone_el(&ct.implicit_scale)),
+                        Some(s) => assert!(P.base_ring().eq_el(s, &ct.implicit_scale), "ImplicitScalePolicy::AssertEqual requires all summands to have the same implicit scale")
+                    }
+                    P.base_ring().clone_el(m.borrow())
+                }
+            };
+            let scalar = to_Cbase.map(int_cast(P.base_ring().smallest_lift(scalar), ZZbig, P.base_ring().integer_ring()));
+            c0 = incl.fma_map(&ct.c0, &scalar, c0);
+            c1 = incl.fma_map(&ct.c1, &scalar, c1);
+            c2 = incl.fma_map(&ct.c2, &scalar, c2);
         }
-        return result.unwrap_or_else(|| Self::transparent_zero_norelin(P, C));
+        if empty {
+            return Self::transparent_zero_norelin(P, C);
+        }
+        let implicit_scale = match policy {
+            ImplicitScalePolicy::Merge => P.base_ring().one(),
+            ImplicitScalePolicy::AssertEqual => common_scale.unwrap()
+        };
+        return CiphertextNoRelin { c0, c1, c2, implicit_scale };
     }
 
     ///
@@ -1007,15 +1079,8 @@ pub trait BGVInstantiation {
             R: Borrow<CiphertextNoRelin<Self>>,
             I: IntoIterator<Item = (L, R)>
     {
-        let mut result: Option<CiphertextNoRelin<Self>> = None;
-        for (m, ct) in summands {
-            let summand = Self::hom_mul_plain_norelin(P, C, m.borrow(), Self::clone_ct_norelin(P, C, ct.borrow()));
-            result = Some(match result {
-                None => summand,
-                Some(acc) => Self::hom_add_norelin(P, C, acc, summand, policy)
-            });
-        }
-        return result.unwrap_or_else(|| Self::transparent_zero_norelin(P, C));
+        let encoded = summands.into_iter().map(|(m, ct)| (Self::encode_plain(P, C, m.borrow()), ct)).collect::<Vec<_>>();
+        Self::hom_inner_product_encoded_norelin(P, C, encoded.iter().map(|(m, ct)| (m, ct.borrow())), policy)
     }
 
     ///
@@ -1027,15 +1092,41 @@ pub trait BGVInstantiation {
             R: Borrow<CiphertextNoRelin<Self>>,
             I: IntoIterator<Item = (L, R)>
     {
-        let mut result: Option<CiphertextNoRelin<Self>> = None;
+        // see [`BGVInstantiation::hom_inner_product_encoded()`]; bring summands to a common
+        // implicit scale, then use the ciphertext ring's inner product on each component
+        let mut ms: Vec<L> = Vec::new();
+        let mut c0s: Vec<El<CiphertextRing<Self>>> = Vec::new();
+        let mut c1s: Vec<El<CiphertextRing<Self>>> = Vec::new();
+        let mut c2s: Vec<El<CiphertextRing<Self>>> = Vec::new();
+        let mut common_scale: Option<<Self::PlaintextZnRing as RingBase>::Element> = None;
         for (m, ct) in summands {
-            let summand = Self::hom_mul_plain_encoded_norelin(P, C, m.borrow(), Self::clone_ct_norelin(P, C, ct.borrow()));
-            result = Some(match result {
-                None => summand,
-                Some(acc) => Self::hom_add_norelin(P, C, acc, summand, policy)
-            });
+            let ct = Self::clone_ct_norelin(P, C, ct.borrow());
+            let ct = match policy {
+                ImplicitScalePolicy::Merge => Self::merge_implicit_scale_norelin(P, C, ct),
+                ImplicitScalePolicy::AssertEqual => {
+                    match &common_scale {
+                        None => common_scale = Some(P.base_ring().clone_el(&ct.implicit_scale)),
+                        Some(s) => assert!(P.base_ring().eq_el(s, &ct.implicit_scale), "ImplicitScalePolicy::AssertEqual requires all summands to have the same implicit scale")
+                    }
+                    ct
+                }
+            };
+            ms.push(m);
+            c0s.push(ct.c0);
+            c1s.push(ct.c1);
+            c2s.push(ct.c2);
         }
-        return result.unwrap_or_else(|| Self::transparent_zero_norelin(P, C));
+        if ms.is_empty() {
+            return Self::transparent_zero_norelin(P, C);
+        }
+        let implicit_scale = match policy {
+            ImplicitScalePolicy::Merge => P.base_ring().one(),
+            ImplicitScalePolicy::AssertEqual => common_scale.unwrap()
+        };
+        let c0 = <_ as ComputeInnerProduct>::inner_product_ref_fst(C.get_ring(), ms.iter().map(|m| m.borrow()).zip(c0s.into_iter()));
+        let c1 = <_ as ComputeInnerProduct>::inner_product_ref_fst(C.get_ring(), ms.iter().map(|m| m.borrow()).zip(c1s.into_iter()));
+        let c2 = <_ as ComputeInnerProduct>::inner_product_ref_fst(C.get_ring(), ms.iter().map(|m| m.borrow()).zip(c2s.into_iter()));
+        return CiphertextNoRelin { c0, c1, c2, implicit_scale };
     }
     
     ///
@@ -1763,6 +1854,55 @@ fn test_pow2_bgv_mul() {
     let result_ctxt = Pow2BGV::hom_mul(&P, &C, &C, &ctxt, &ctxt, &rk);
     let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
     assert_el_eq!(&P, P.int_hom().map(4), result);
+}
+
+#[test]
+fn test_pow2_bgv_hom_inner_product() {
+    feanor_tracing::DelayedLogger::init_test();
+    let mut rng = rand::rng();
+
+    let params = Pow2BGV::new(1 << 8);
+    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+    let C = params.create_ciphertext_ring(500..520);
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
+
+    let ms = [P.int_hom().map(2), P.int_hom().map(3), P.int_hom().map(5)];
+    let cts = ms.iter().map(|m| Pow2BGV::enc_sym(&P, &C, &mut rng, m, &sk, 3.2)).collect::<Vec<_>>();
+    let scalars = [P.base_ring().int_hom().map(7), P.base_ring().int_hom().map(11), P.base_ring().int_hom().map(13)];
+    // 7*2 + 11*3 + 13*5 = 112
+    let expected = P.int_hom().map(112);
+
+    // scalar inner product, all summands have implicit scale 1
+    let result = Pow2BGV::hom_inner_product_plain_scalar(&P, &C, scalars.iter().zip(cts.iter()), ImplicitScalePolicy::AssertEqual);
+    assert_el_eq!(&P, &expected, &Pow2BGV::dec(&P, &C, result, &sk));
+
+    // plaintext inner product (same coefficients, as constant plaintexts)
+    let coeffs = [P.int_hom().map(7), P.int_hom().map(11), P.int_hom().map(13)];
+    let result = Pow2BGV::hom_inner_product_plain(&P, &C, coeffs.iter().zip(cts.iter()), ImplicitScalePolicy::AssertEqual);
+    assert_el_eq!(&P, &expected, &Pow2BGV::dec(&P, &C, result, &sk));
+
+    // encoded inner product
+    let encoded = coeffs.iter().map(|m| Pow2BGV::encode_plain(&P, &C, m)).collect::<Vec<_>>();
+    let result = Pow2BGV::hom_inner_product_encoded(&P, &C, encoded.iter().zip(cts.iter()), ImplicitScalePolicy::AssertEqual);
+    assert_el_eq!(&P, &expected, &Pow2BGV::dec(&P, &C, result, &sk));
+
+    // un-relinearized inner product over real (squared) ciphertexts, then relinearize.
+    // 7*2^2 + 11*3^2 + 13*5^2 = 28 + 99 + 325 = 452 = 195 (mod 257)
+    let squares = cts.iter().map(|ct| Pow2BGV::hom_square_norelin(&P, &C, ct)).collect::<Vec<_>>();
+    let result_norelin = Pow2BGV::hom_inner_product_plain_scalar_norelin(&P, &C, scalars.iter().zip(squares.iter()), ImplicitScalePolicy::AssertEqual);
+    let result = Pow2BGV::relinearize(&P, &C, &C, result_norelin, &rk);
+    assert_el_eq!(&P, P.int_hom().map(195), &Pow2BGV::dec(&P, &C, result, &sk));
+
+    // `Merge` policy with summands of differing implicit scales (one modulus-switched, one fresh)
+    let C1 = Pow2BGV::mod_switch_down_C(&C, &RNSFactorIndexList::from(vec![0], C.base_ring().len()));
+    let sk1 = Pow2BGV::mod_switch_sk(&C1, &C, &sk);
+    let ct0_ms = Pow2BGV::mod_switch_ct(&P, &C1, &C, Pow2BGV::clone_ct(&P, &C, &cts[0]));
+    let ct1_fresh = Pow2BGV::enc_sym(&P, &C1, &mut rng, &ms[1], &sk1, 3.2);
+    assert!(!P.base_ring().eq_el(&ct0_ms.implicit_scale, &ct1_fresh.implicit_scale));
+    // 7*2 + 11*3 = 47
+    let result = Pow2BGV::hom_inner_product_plain_scalar(&P, &C1, [(&scalars[0], &ct0_ms), (&scalars[1], &ct1_fresh)], ImplicitScalePolicy::Merge);
+    assert_el_eq!(&P, P.int_hom().map(47), &Pow2BGV::dec(&P, &C1, result, &sk1));
 }
 
 #[test]

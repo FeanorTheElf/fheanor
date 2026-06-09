@@ -118,3 +118,25 @@ Generally looks good. I praise you for the definition of `inner_product` using `
  - the `inner_product` variants should use the `inner_product` operation in the ciphertext ring, whenever appropriate. More concretely, `inner_product_plain_encoded` should use `<CiphertextRing as ComputeInnerProduct>::inner_product` (from feanor-math), which can be faster than the current loop. Furthermore, `inner_product_plain` should encode the operands (it is ok to store the encoded ones in a new, temporary vector) and then use `inner_product_plain_encoded`. Finally, `hom_inner_product_plain_scalar` doesn't (cannot) call an inner product function of the ring, but should instead use `Inclusion::fma_map()` from feanor-math.
  Make sure to still respect the implicitscalepolicy.
  - `hom_mul_plain_scalar` should only lift the scalar once (irrelevant for performance, but cleaner)
+
+# Review response
+
+Both points addressed (relinearized and `_norelin` inner products, for consistency):
+
+- **`hom_inner_product_encoded`** now brings all summands to a common implicit scale
+  (per the `ImplicitScalePolicy`: `Merge` rescales each via `merge_implicit_scale`,
+  `AssertEqual` checks equality), collects the ciphertext components, and computes each
+  component with `<CiphertextRing as ComputeInnerProduct>::inner_product_ref_fst` (so the
+  accelerated ring inner products are used where available; the blanket impl in feanor-math
+  covers the rest).
+- **`hom_inner_product_plain`** now encodes the operands into a temporary vector and
+  delegates to `hom_inner_product_encoded`.
+- **`hom_inner_product_plain_scalar`** cannot use a ring inner product; it folds the
+  implicit scale into the (lifted) scalar and accumulates the components with
+  `Inclusion::fma_map`, avoiding intermediate allocations. The `ImplicitScalePolicy` is
+  respected in all cases.
+- The same three changes were applied to the `_norelin` variants (three components).
+- **`hom_mul_plain_scalar`** now lifts the scalar only once (and uses `mul_assign_ref_map`).
+
+Added a test `test_pow2_bgv_hom_inner_product` covering the scalar/plaintext/encoded
+variants, both `AssertEqual` and `Merge` policies, and the `_norelin` path.
