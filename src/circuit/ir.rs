@@ -283,9 +283,15 @@ impl<'idents, 'constants, 'values, R: ?Sized + RingBase> CircuitEvaluator<'const
             return if let Coefficient::One = data[0].0 {
                 *data[0].1
             } else if let Some(int) = data[0].0.as_integer() {
-                let (id, name) = self.new_ident();
-                self.instructions.push(Instruction::MulIntCtx { out: name, value: self.identifiers[*data[0].1].as_str(), integer: int as i64 });
-                id
+                if ZZbig.abs_log2_ceil(&int).unwrap_or(0) <= i64::BITS as usize {
+                    let (id, name) = self.new_ident();
+                    self.instructions.push(Instruction::MulIntCtx { out: name, value: self.identifiers[*data[0].1].as_str(), integer: int_cast(int, ZZi64, ZZbig) });
+                    id
+                } else {
+                    let (id, name) = self.new_ident();
+                    self.instructions.push(Instruction::MulPtxCtx { out: name, value: self.identifiers[*data[0].1].as_str(), plaintext: self.new_plaintext(&data[0].0) });
+                    id
+                }
             } else {
                 let (id, name) = self.new_ident();
                 self.instructions.push(Instruction::MulPtxCtx { out: name, value: self.identifiers[*data[0].1].as_str(), plaintext: self.new_plaintext(&data[0].0) });
@@ -416,7 +422,7 @@ pub fn ir_to_circuit<R>(ring: R, galois_group: Option<&Subgroup<CyclotomicGalois
                 }
             },
             GenericInstruction::Zero { out } => {
-                current = PlaintextCircuit::identity(current_wires, ring).tensor(PlaintextCircuit::constant_i32(0, ring), ring).compose(current.output_twice(ring), ring);
+                current = PlaintextCircuit::identity(current_wires, ring).tensor(PlaintextCircuit::constant_int(ZZbig.zero(), ring), ring).compose(current.output_twice(ring), ring);
                 _ = mapping.insert(out, current_wires);
             },
             GenericInstruction::InnerProduct { out, values, coefficients } => {
@@ -449,7 +455,7 @@ pub fn ir_to_circuit<R>(ring: R, galois_group: Option<&Subgroup<CyclotomicGalois
                     0 => Coefficient::Zero,
                     1 => Coefficient::One,
                     -1 => Coefficient::NegOne,
-                    x => Coefficient::Integer(x.try_into().unwrap())
+                    x => Coefficient::Integer(int_cast(x, ZZbig, ZZi64))
                 };
                 current = PlaintextCircuit::identity(current_wires, ring).tensor(
                     PlaintextCircuit::linear_transform(&[coefficient], ring)

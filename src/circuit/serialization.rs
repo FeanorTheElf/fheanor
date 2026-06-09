@@ -2,14 +2,16 @@ use std::marker::PhantomData;
 
 use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::group::{DeserializeWithGroup, SerializeWithGroup};
+use feanor_math::integer::BigIntRing;
 use feanor_math::ring::*;
-use feanor_math::serialization::{SerializableElementRing, SerializeWithRing, DeserializeWithRing};
+use feanor_math::serialization::{DeserializeWithRing, SerializableElementRing, SerializeWithRing};
 use serde::de::DeserializeSeed;
 use serde::Serialize;
 use feanor_serde::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};
 use feanor_serde::seq::*;
 use tracing::instrument;
 
+use crate::ZZbig;
 use crate::number_ring::galois::*;
 
 use super::{Coefficient, LinearCombination, PlaintextCircuit, PlaintextCircuitGate};
@@ -20,7 +22,7 @@ enum SerializableCoefficient<'a, R>
     where R: RingStore + Copy,
         R::Type: SerializableElementRing
 {
-    Integer(i32),
+    Integer(SerializeWithRing<'a, BigIntRing>),
     Other(SerializeWithRing<'a, R>)
 }
 
@@ -84,43 +86,53 @@ impl<'a, R> Serialize for SerializablePlaintextCircuit<'a, R>
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer
     {
-        fn serialize_coefficient<'a, R>(c: &'a Coefficient<R::Type>, ring: R) -> SerializableCoefficient<'a, R>
+        struct Constants {
+            one: El<BigIntRing>,
+            neg_one: El<BigIntRing>,
+            zero: El<BigIntRing>
+        }
+        let constants = Constants {
+            neg_one: ZZbig.neg_one(),
+            one: ZZbig.one(),
+            zero: ZZbig.zero()
+        };
+        fn serialize_coefficient<'a, R>(c: &'a Coefficient<R::Type>, ring: R, constants: &'a Constants) -> SerializableCoefficient<'a, R>
             where R: RingStore + Copy,
                 R::Type: SerializableElementRing
         {
             match c {
-                Coefficient::Integer(x) => SerializableCoefficient::Integer(*x),
-                Coefficient::One => SerializableCoefficient::Integer(1),
-                Coefficient::NegOne => SerializableCoefficient::Integer(-1),
-                Coefficient::Zero => SerializableCoefficient::Integer(0),
+                Coefficient::Integer(x) => SerializableCoefficient::Integer(SerializeWithRing::new(x, ZZbig)),
+                Coefficient::One => SerializableCoefficient::Integer(SerializeWithRing::new(&constants.one, ZZbig)),
+                Coefficient::NegOne => SerializableCoefficient::Integer(SerializeWithRing::new(&constants.neg_one, ZZbig)),
+                Coefficient::Zero => SerializableCoefficient::Integer(SerializeWithRing::new(&constants.zero, ZZbig)),
                 Coefficient::Other(x) => SerializableCoefficient::Other(SerializeWithRing::new(x, ring))
             }
         }
-        fn serialize_lin_transform<'a, R: Copy + RingStore>(t: &'a LinearCombination<R::Type>, ring: R) -> SerializableLinearCombination<SerializableCoefficient<'a, R>, impl use<'a, R> + Serialize>
+        fn serialize_lin_transform<'a, R: Copy + RingStore>(t: &'a LinearCombination<R::Type>, ring: R, constants: &'a Constants) -> SerializableLinearCombination<SerializableCoefficient<'a, R>, impl use<'a, R> + Serialize>
             where R::Type: SerializableElementRing,
                 R: 'a
         {
             SerializableLinearCombination {
-                constant: serialize_coefficient(&t.constant, ring),
-                factors: SerializableSeq::new_with_len(t.factors.iter().map(move |c| serialize_coefficient(c, ring)), t.factors.len())
+                constant: serialize_coefficient(&t.constant, ring, constants),
+                factors: SerializableSeq::new_with_len(t.factors.iter().map(move |c| serialize_coefficient(c, ring, constants)), t.factors.len())
             }
         }
         SerializablePlaintextCircuitData {
             input_count: self.circuit.input_count,
             gates: SerializableSeq::new_with_len(self.circuit.gates.iter().map(|gate| match gate {
                 PlaintextCircuitGate::Mul(lhs, rhs) => SerializablePlaintextCircuitGate::Mul(SerializablePlaintextCircuitMulGate {
-                    lhs: serialize_lin_transform(lhs, self.ring), 
-                    rhs: serialize_lin_transform(rhs, self.ring)
+                    lhs: serialize_lin_transform(lhs, self.ring, &constants), 
+                    rhs: serialize_lin_transform(rhs, self.ring, &constants)
                 }),
                 PlaintextCircuitGate::Gal(gs, val) => SerializablePlaintextCircuitGate::Gal(SerializablePlaintextCircuitGalGate {
                     automorphisms: SerializableSeq::new_with_len(gs.iter().map(|g| SerializeWithGroup::new(g, self.galois_group.unwrap().parent())), gs.len()), 
-                    input: serialize_lin_transform(val, self.ring)
+                    input: serialize_lin_transform(val, self.ring, &constants)
                 }),
                 PlaintextCircuitGate::Square(val) => SerializablePlaintextCircuitGate::Square(SerializablePlaintextCircuitSquareGate { 
-                    val: serialize_lin_transform(val, self.ring) 
+                    val: serialize_lin_transform(val, self.ring, &constants) 
                 })
             }), self.circuit.gates.len()),
-            output_transforms: SerializableSeq::new_with_len(self.circuit.output_transforms.iter().map(|t| serialize_lin_transform(t, self.ring)), self.circuit.output_transforms.len())
+            output_transforms: SerializableSeq::new_with_len(self.circuit.output_transforms.iter().map(|t| serialize_lin_transform(t, self.ring, &constants)), self.circuit.output_transforms.len())
         }.serialize(serializer)
     }
 }
@@ -154,7 +166,7 @@ impl<'de, 'a, R> DeserializeSeed<'de> for DeserializeSeedPlaintextCircuit<'a, R>
 
         impl_deserialize_seed_for_dependent_enum!{
             <{'de, R}> pub enum CoefficientData<{'de, R}> using DeserializeSeedCoefficient<R> {
-                Integer(i32): |_: DeserializeSeedCoefficient<R>| PhantomData,
+                Integer(El<BigIntRing>): |_: DeserializeSeedCoefficient<R>| DeserializeWithRing::new(ZZbig),
                 Other(El<R>): |d: DeserializeSeedCoefficient<R>| d.deserializer
             } where R: RingStore + Copy,
                 R::Type: SerializableElementRing
@@ -282,9 +294,9 @@ impl<'de, 'a, R> DeserializeSeed<'de> for DeserializeSeedPlaintextCircuit<'a, R>
 
 
         let convert_coefficient = |c: CoefficientData<_>| match c {
-            CoefficientData::Integer((x, _)) if x == 0 => Coefficient::Zero,
-            CoefficientData::Integer((x, _)) if x == 1 => Coefficient::One,
-            CoefficientData::Integer((x, _)) if x == -1 => Coefficient::NegOne,
+            CoefficientData::Integer((x, _)) if ZZbig.is_zero(&x) => Coefficient::Zero,
+            CoefficientData::Integer((x, _)) if ZZbig.is_one(&x) => Coefficient::One,
+            CoefficientData::Integer((x, _)) if ZZbig.is_neg_one(&x) => Coefficient::NegOne,
             CoefficientData::Integer((x, _)) => Coefficient::Integer(x),
             CoefficientData::Other((x, _)) => Coefficient::Other(x)
         };

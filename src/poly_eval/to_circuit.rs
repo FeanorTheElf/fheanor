@@ -63,7 +63,7 @@ pub fn compute_powers_circuit<R>(ring: R, input_powers: &[usize], output_powers:
     let mut circuit = PlaintextCircuit::identity(current.len(), ring);
     if current.get(0) == Some(&1) {
         current.insert(0, 0);
-        circuit = PlaintextCircuit::constant_i32(1, ring).tensor(circuit, ring);
+        circuit = PlaintextCircuit::constant_int(ZZbig.one(), ring).tensor(circuit, ring);
     }
     let get_idx = |k: usize, values: &[usize]| values.iter().enumerate().filter(|(_, v)| **v == k).next().unwrap().0;
 

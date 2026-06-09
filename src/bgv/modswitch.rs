@@ -420,11 +420,11 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for StaticRingBase<i64> {
         &self, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
-        _dropped_factors: &RNSFactorIndexList, 
+        dropped_factors: &RNSFactorIndexList, 
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_add_plain_encoded(P, C, &C.inclusion().compose(C.base_ring().can_hom(&ZZi64).unwrap()).map(*m), ct)
+        ZZbig.get_ring().hom_add_to(P, C, dropped_factors, &int_cast(*m, ZZbig, ZZi64), ct)
     }
 
     fn hom_add_to_noise<N: BGVNoiseEstimator<Params>>(
@@ -432,23 +432,23 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for StaticRingBase<i64> {
         estimator: &N, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
-        _dropped_factors: &RNSFactorIndexList, 
+        dropped_factors: &RNSFactorIndexList, 
         m: &Self::Element, 
         ct_info: &N::CiphertextDescriptor, 
         implicit_scale: &El<PlaintextZnRing<Params>>
     ) -> N::CiphertextDescriptor {
-        estimator.hom_add_plain_encoded(P, C, &C.inclusion().compose(C.base_ring().can_hom(&ZZi64).unwrap()).map(*m), ct_info, implicit_scale)
+        ZZbig.get_ring().hom_add_to_noise(estimator, P, C, dropped_factors, &int_cast(*m, ZZbig, ZZi64), ct_info, implicit_scale)
     }
 
     fn hom_mul_to(
         &self, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
-        _dropped_factors: &RNSFactorIndexList, 
+        dropped_factors: &RNSFactorIndexList, 
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_mul_plain_scalar(P, C, &P.base_ring().coerce(&ZZi64, *m), ct)
+        ZZbig.get_ring().hom_mul_to(P, C, dropped_factors, &int_cast(*m, ZZbig, ZZi64), ct)
     }
 
     fn hom_mul_to_noise<N: BGVNoiseEstimator<Params>>(
@@ -456,38 +456,27 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for StaticRingBase<i64> {
         estimator: &N, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
-        _dropped_factors: &RNSFactorIndexList, 
+        dropped_factors: &RNSFactorIndexList, 
         m: &Self::Element, 
         ct_info: &N::CiphertextDescriptor, 
         implicit_scale: &El<PlaintextZnRing<Params>>
     ) -> N::CiphertextDescriptor {
-        estimator.hom_mul_plain_int(P, C, &int_cast(*m, ZZbig, ZZi64), ct_info, implicit_scale)
+        ZZbig.get_ring().hom_mul_to_noise(estimator, P, C, dropped_factors, &int_cast(*m, ZZbig, ZZi64), ct_info, implicit_scale)
     }
 
-    #[instrument(skip_all)]
     fn hom_inner_product_ref<'a, I>(
         &self, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
-        _dropped_factors: &RNSFactorIndexList, 
+        dropped_factors: &RNSFactorIndexList, 
         data: I
     ) -> Ciphertext<Params>
         where I: Iterator<Item = (&'a Self::Element, &'a Ciphertext<Params>)>,
             Params: 'a,
             Self: 'a
     {
-        let h = C.inclusion().compose(C.base_ring().can_hom(&ZZi64).unwrap());
-        let mut c0 = C.zero();
-        let mut c1 = C.zero();
-        for (l, r) in data {
-            c0 = h.fma_map(&r.c0, l, c0);
-            c1 = h.fma_map(&r.c1, l, c1);
-        }
-        return Ciphertext {
-            implicit_scale: P.base_ring().one(),
-            c0: c0,
-            c1: c1
-        }
+        let data = data.map(|(x, ct)| (int_cast(*x, ZZbig, ZZi64), ct)).collect::<Vec<_>>();
+        ZZbig.get_ring().hom_inner_product_ref(P, C, dropped_factors, data.iter().map(|(x, ct)| (x, *ct)))
     }
 }
 
@@ -497,24 +486,24 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for ZnBase {
         &self, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>,
-        _dropped_factors: &RNSFactorIndexList,
+        dropped_factors: &RNSFactorIndexList,
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
         assert_eq!(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()), *self.modulus());
-        Params::hom_add_plain(P, C, &P.inclusion().compose(P.base_ring().can_hom(&ZZi64).unwrap()).map(self.smallest_lift(*m)), ct)
+        ZZbig.get_ring().hom_add_to(P, C, dropped_factors, &int_cast(self.smallest_lift(self.clone_el(m)), ZZbig, ZZi64), ct)
     }
 
     fn hom_mul_to(
         &self, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>,
-        _dropped_factors: &RNSFactorIndexList,
+        dropped_factors: &RNSFactorIndexList,
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
         assert_eq!(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()), *self.modulus());
-        Params::hom_mul_plain_scalar(P, C, &P.base_ring().can_hom(&ZZi64).unwrap().map(self.smallest_lift(*m)), ct)
+        ZZbig.get_ring().hom_mul_to(P, C, dropped_factors, &int_cast(self.smallest_lift(self.clone_el(m)), ZZbig, ZZi64), ct)
     }
 
     fn hom_add_to_noise<N: BGVNoiseEstimator<Params>>(
@@ -522,13 +511,13 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for ZnBase {
         estimator: &N, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
-        _dropped_factors: &RNSFactorIndexList, 
+        dropped_factors: &RNSFactorIndexList, 
         m: &Self::Element, 
         ct_info: &N::CiphertextDescriptor, 
         implicit_scale: &El<PlaintextZnRing<Params>>
     ) -> N::CiphertextDescriptor {
         assert_eq!(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()), *self.modulus());
-        estimator.hom_add_plain_encoded(P, C, &C.inclusion().compose(C.base_ring().can_hom(&ZZi64).unwrap()).map(self.smallest_lift(*m)), ct_info, implicit_scale)
+        ZZbig.get_ring().hom_add_to_noise(estimator, P, C, dropped_factors, &int_cast(self.smallest_lift(self.clone_el(m)), ZZbig, ZZi64), ct_info, implicit_scale)
     }
 
     fn hom_mul_to_noise<N: BGVNoiseEstimator<Params>>(
@@ -536,13 +525,28 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for ZnBase {
         estimator: &N, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
-        _dropped_factors: &RNSFactorIndexList, 
+        dropped_factors: &RNSFactorIndexList, 
         m: &Self::Element, 
         ct_info: &N::CiphertextDescriptor, 
         implicit_scale: &El<PlaintextZnRing<Params>>
     ) -> N::CiphertextDescriptor {
         assert_eq!(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()), *self.modulus());
-        estimator.hom_mul_plain_int(P, C, &int_cast(self.smallest_lift(*m), ZZbig, ZZi64), ct_info, implicit_scale)
+        ZZbig.get_ring().hom_mul_to_noise(estimator, P, C, dropped_factors, &int_cast(self.smallest_lift(self.clone_el(m)), ZZbig, ZZi64), ct_info, implicit_scale)
+    }
+
+    fn hom_inner_product_ref<'a, I>(
+        &self, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        dropped_factors: &RNSFactorIndexList, 
+        data: I
+    ) -> Ciphertext<Params>
+        where I: Iterator<Item = (&'a Self::Element, &'a Ciphertext<Params>)>,
+            Params: 'a,
+            Self: 'a
+    {
+        let data = data.map(|(x, ct)| (int_cast(self.smallest_lift(self.clone_el(x)), ZZbig, ZZi64), ct)).collect::<Vec<_>>();
+        ZZbig.get_ring().hom_inner_product_ref(P, C, dropped_factors, data.iter().map(|(x, ct)| (x, *ct)))
     }
 }
 
@@ -1240,7 +1244,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         //  - the constant part, which does not contain any ciphertexts and is immediately computed
         //  - the integer part, which is of the form `sum_i c[i] * ct[i]` with `c[i]` being integers
         //  - the main part, which is of the form `sum_i c[i] * ct[i]` with `c[i]` being elements of `R`
-        let mut int_products: Vec<(i32, &ModulusAwareCiphertext<Params, Self>)> = Vec::new();
+        let mut int_products: Vec<(El<BigIntRing>, &ModulusAwareCiphertext<Params, Self>)> = Vec::new();
         let mut main_products:  Vec<(&El<R>, &ModulusAwareCiphertext<Params, Self>)> = Vec::new();
 
         // while separating the different summands, we also keep track of which will be the result modulus
@@ -1258,9 +1262,9 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                 used_sk = assert_sk_distr_match(used_sk, rhs.sk);
                 match lhs {
                     Coefficient::Zero => unreachable!(),
-                    Coefficient::One => int_products.push((1, rhs)),
-                    Coefficient::NegOne => int_products.push((-1, rhs)),
-                    Coefficient::Integer(c) => int_products.push((*c, rhs)),
+                    Coefficient::One => int_products.push((ZZbig.one(), rhs)),
+                    Coefficient::NegOne => int_products.push((ZZbig.neg_one(), rhs)),
+                    Coefficient::Integer(c) => int_products.push((ZZbig.clone_el(c), rhs)),
                     Coefficient::Other(c) => main_products.push((c, rhs)),
                 }
             }
@@ -1274,8 +1278,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         let C_target = Params::mod_switch_down_C(C_master, &total_drop);
 
         // now perform modulus-switches when necessary
-        let int_products: Vec<(i32, Boo<ModulusAwareCiphertext<Params, Self>>)> = int_products.iter().map(|(lhs, rhs)| (
-            *lhs,
+        let int_products: Vec<(El<BigIntRing>, Boo<ModulusAwareCiphertext<Params, Self>>)> = int_products.iter().map(|(lhs, rhs)| (
+            ZZbig.clone_el(lhs),
             self.mod_switch_down_ref(P, &C_target, C_master, &total_drop, rhs, "HomInnerProduct", debug_sk)
         )).collect();
 
@@ -1289,12 +1293,12 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         // we avoid multiplying its size up further
         let Zt = P.base_ring();
         let ZZ: &_ = Zt.integer_ring();
-        let output_implicit_scale = int_products.iter().filter_map(|(c, ct)| Zt.invert(&Zt.int_hom().map(*c)).map(|c| (c, ct)))
+        let output_implicit_scale = int_products.iter().filter_map(|(c, ct)| Zt.invert(&Zt.coerce(&ZZbig, ZZbig.clone_el(c))).map(|c| (c, ct)))
             .map(|(c, ct)| (self.noise_estimator.estimate_log2_relative_noise_level(P, &C_target, &ct.info), Zt.mul_ref_fst(&ct.data.implicit_scale, c))
         ).max_by(|(l, _), (r, _)| f64::total_cmp(l, r)).map(|(_, scale)| scale).unwrap_or(P.base_ring().one());
 
         let int_products: Vec<(El<BigIntRing>, Boo<ModulusAwareCiphertext<Params, Self>>)> = int_products.into_iter().map(|(lhs, rhs)| {
-            let lhs = int_cast(Zt.smallest_lift(Zt.mul(Zt.int_hom().map(lhs), Zt.checked_div(&output_implicit_scale, &rhs.data.implicit_scale).unwrap())), ZZbig, ZZ);
+            let lhs = int_cast(Zt.smallest_lift(Zt.mul(Zt.coerce(&ZZbig, lhs), Zt.checked_div(&output_implicit_scale, &rhs.data.implicit_scale).unwrap())), ZZbig, ZZ);
             return (lhs, rhs);
         }).collect();
 
@@ -1565,15 +1569,25 @@ impl<'a, 'b, R, Inst, N, const LOG: bool> CircuitEvaluator<'b, ModulusAwareCiphe
         self.rk.is_some() && self.rk.is_some()
     }
 
+    #[instrument(skip_all)]
     fn add_constant(&mut self, val: ModulusAwareCiphertext<Inst, DefaultModswitchStrategy<Inst, N, LOG>>, constant: &'b Coefficient<R>) -> ModulusAwareCiphertext<Inst, DefaultModswitchStrategy<Inst, N, LOG>> {
-        let ring = RingRef::new(self.ring);
         let current_C = Inst::mod_switch_down_C(self.C_master, &val.dropped_rns_factor_indices);
-        let constant = constant.clone(ring).to_ring_el(ring);
-        ModulusAwareCiphertext {
-            info: self.ring.hom_add_to_noise(&self.strategy.noise_estimator, self.P, &current_C, &val.dropped_rns_factor_indices, &constant, &val.info, &val.data.implicit_scale),
-            data: self.ring.hom_add_to(self.P, &current_C, &val.dropped_rns_factor_indices, &constant, val.data),
-            dropped_rns_factor_indices: val.dropped_rns_factor_indices,
-            sk: val.sk
+        if let Some(int) = constant.as_integer() {
+            ModulusAwareCiphertext {
+                info: ZZbig.get_ring().hom_add_to_noise(&self.strategy.noise_estimator, self.P, &current_C, &val.dropped_rns_factor_indices, &int, &val.info, &val.data.implicit_scale),
+                data: ZZbig.get_ring().hom_add_to(self.P, &current_C, &val.dropped_rns_factor_indices, &int, val.data),
+                dropped_rns_factor_indices: val.dropped_rns_factor_indices,
+                sk: val.sk
+            }
+        } else {
+            let ring = RingRef::new(self.ring);
+            let constant = constant.clone(ring).to_ring_el(ring);
+            ModulusAwareCiphertext {
+                info: self.ring.hom_add_to_noise(&self.strategy.noise_estimator, self.P, &current_C, &val.dropped_rns_factor_indices, &constant, &val.info, &val.data.implicit_scale),
+                data: self.ring.hom_add_to(self.P, &current_C, &val.dropped_rns_factor_indices, &constant, val.data),
+                dropped_rns_factor_indices: val.dropped_rns_factor_indices,
+                sk: val.sk
+            }
         }
     }
 

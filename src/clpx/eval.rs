@@ -161,7 +161,7 @@ impl<'a, 'b, R: ?Sized + AsCLPXPlaintext<Inst> , Inst: CLPXInstantiation> Circui
             let mut result = if let Coefficient::One = coeff {
                 Inst::clone_ct(self.C, ciphertext)
             } else if let Some(int) = coeff.as_integer() {
-                <StaticRingBase<i64> as AsCLPXPlaintext<Inst>>::hom_mul_to(ZZi64.get_ring(), self.P, self.C, &(int as i64), Inst::clone_ct(self.C, ciphertext))
+                <BigIntRingBase as AsCLPXPlaintext<Inst>>::hom_mul_to(ZZbig.get_ring(), self.P, self.C, &int, Inst::clone_ct(self.C, ciphertext))
             } else if let Coefficient::Other(coeff) = coeff {
                 self.ring.hom_mul_to(self.P, self.C, coeff, Inst::clone_ct(self.C, ciphertext))
             } else {
@@ -171,7 +171,7 @@ impl<'a, 'b, R: ?Sized + AsCLPXPlaintext<Inst> , Inst: CLPXInstantiation> Circui
                 if let Coefficient::One = coeff {
                     result = Inst::hom_add(self.C, result, ciphertext);
                 } else if let Some(int) = coeff.as_integer() {
-                    result = <StaticRingBase<i64> as AsCLPXPlaintext<Inst>>::hom_fma(ZZi64.get_ring(), self.P, self.C, result, &(int as i64), ciphertext);
+                    result = <BigIntRingBase as AsCLPXPlaintext<Inst>>::hom_fma(ZZbig.get_ring(), self.P, self.C, result, &int, ciphertext);
                 } else if let Coefficient::Other(coeff) = coeff {
                     result = self.ring.hom_fma(self.P, self.C, result, coeff, ciphertext);
                 }

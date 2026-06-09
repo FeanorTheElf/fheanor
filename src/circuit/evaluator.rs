@@ -2,8 +2,10 @@ use std::marker::PhantomData;
 
 use feanor_math::algorithms::matmul::ComputeInnerProduct;
 use feanor_math::homomorphism::Homomorphism;
+use feanor_math::integer::generic_impls::map_from_integer_ring;
 use feanor_math::ring::*;
 
+use crate::ZZbig;
 use crate::number_ring::galois::*;
 use crate::number_ring::{NumberRingQuotient, NumberRingQuotientStore};
 
@@ -78,7 +80,7 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluator<R, S, H>
             Coefficient::Zero => None,
             Coefficient::One => Some((r, self.hom.codomain().one())),
             Coefficient::NegOne => Some((r, self.hom.codomain().neg_one())),
-            Coefficient::Integer(x) => Some((r, self.hom.codomain().int_hom().map(*x))),
+            Coefficient::Integer(x) => Some((r, map_from_integer_ring(ZZbig, self.hom.codomain(), ZZbig.clone_el(x)))),
             Coefficient::Other(x) => Some((r, self.hom.map_ref(x)))
         }));
         return result;

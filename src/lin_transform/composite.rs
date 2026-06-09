@@ -10,7 +10,6 @@ use feanor_math::seq::VectorFn;
 use tracing::instrument;
 
 use crate::circuit::CircuitEvaluatorCosts;
-use crate::circuit::DEFAULT_EVALUATOR_COSTS;
 use crate::circuit::PlaintextCircuit;
 use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
@@ -354,6 +353,8 @@ use feanor_math::integer::*;
 use crate::number_ring::tensor_ring::TensorProductNumberRing;
 #[cfg(test)]
 use crate::{ZZi64, ZZbig};
+#[cfg(test)]
+use crate::circuit::DEFAULT_EVALUATOR_COSTS;
 
 #[test]
 fn test_slots_to_powcoeffs_thin() {

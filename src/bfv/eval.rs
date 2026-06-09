@@ -331,7 +331,7 @@ impl<'a, 'b, R: ?Sized + AsBFVPlaintext<Inst> , Inst: BFVInstantiation> CircuitE
                 None
             },
             Coefficient::Integer(scalar) => {
-                let scalar = self.P.base_ring().int_hom().map(*scalar);
+                let scalar = self.P.base_ring().coerce(&ZZbig, ZZbig.clone_el(scalar));
                 simple_part = Some(simple_part.take().map(|x| Inst::hom_fma_plain_scalar(self.P, self.C, x, &scalar, r))
                     .unwrap_or_else(|| Inst::hom_mul_plain_scalar(self.P, self.C, &scalar, Inst::clone_ct(self.C, r))));
                 None

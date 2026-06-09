@@ -15,7 +15,7 @@ use feanor_math::group::AbelianGroupStore;
 use feanor_math::homomorphism::{CanHomFrom, Homomorphism};
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ordered::OrderedRingStore;
-use feanor_math::primitive_int::{StaticRing, StaticRingBase};
+use feanor_math::primitive_int::*;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::*;
@@ -117,15 +117,13 @@ impl<R> DigitExtract<R>
         create_cached(
             (rings, Gal),
             || {
-                let zn_rings = (0..=v).map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(ZZbig.clone_el(&p), r + i))).collect::<Vec<_>>();
-                let homs = rings.iter().zip(zn_rings.iter()).map(|(R, Zpk)| R.inclusion().compose(ZnReductionMap::new(Zpk, R.base_ring()).unwrap())).collect::<Vec<_>>();
-                let embed = |k: usize, x: Coefficient<zn_big::ZnBase<_>>| x.change_ring(|x| homs[k - r].map(x));
+                let zn_rings = (0..=v).map(|i| rings[i].base_ring()).collect::<Vec<_>>();
                 if ZZbig.eq_el(&p, &int_cast(2, ZZbig, ZZi64)) && e <= 23 {
-                    DigitExtract::new_precomputed_p_is_2(&zn_rings).change_ring_uniform(embed)
+                    DigitExtract::new_precomputed_p_is_2(&zn_rings).embed_plaintext_ring(rings)
                 } else if v == 1 && B.is_some() && ZZbig.is_lt(&int_cast(B.unwrap() * 2, ZZbig, ZZi64), &p) {
-                    DigitExtract::new_bounded_error(&zn_rings, B.unwrap()).change_ring_uniform(embed)
+                    DigitExtract::new_bounded_error(&zn_rings, B.unwrap()).embed_plaintext_ring(rings)
                 } else {
-                    DigitExtract::new_digit_retain_based(&zn_rings).change_ring_uniform(embed)
+                    DigitExtract::new_digit_retain_based(&zn_rings).embed_plaintext_ring(rings)
                 }
             },
             &filename_keys![digit_extract, m: Gal.m(), o: Gal.group_order(), p: &p, e: e, r: r, B: B],
@@ -207,6 +205,21 @@ impl<R> DigitExtract<R>
 }
 
 impl<R: ?Sized + NiceZn> DigitExtract<R> {
+
+    pub fn embed_plaintext_ring<S>(self, new_rings: &[S]) -> DigitExtract<S::Type>
+        where S: RingStore,
+            S::Type: RingExtension,
+            <S::Type as RingExtension>::BaseRing: RingStore<Type = R>
+    {
+        let r = self.r();
+        self.change_ring_uniform(|i, x| match x {
+            Coefficient::One => Coefficient::One,
+            Coefficient::NegOne => Coefficient::NegOne,
+            Coefficient::Zero => Coefficient::Zero,
+            Coefficient::Integer(x) => Coefficient::Integer(x),
+            Coefficient::Other(x) => Coefficient::from_int(int_cast(new_rings[i - r].base_ring().smallest_lift(x), ZZbig, new_rings[i - r].base_ring().integer_ring()))
+        })
+    }
 
     ///
     /// Creates a [`DigitExtract`] for a scalar ring `Z/2^eZ`.
@@ -345,10 +358,10 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
 
         let center_circuits = if ZZbig.eq_el(&p, &int_cast(2, ZZbig, ZZi64)) {
             let last_ring = rings.last().unwrap();
-            let shift = int_cast(ZZbig.pow(ZZbig.clone_el(&p), v - 1), StaticRing::<i32>::RING, ZZbig);
+            let shift = ZZbig.pow(ZZbig.clone_el(&p), v - 1);
             Some((
-                PlaintextCircuit::add(last_ring).compose(PlaintextCircuit::identity(1, last_ring).tensor(PlaintextCircuit::constant_i32(shift, last_ring), last_ring), last_ring),
-                PlaintextCircuit::sub(last_ring).compose(PlaintextCircuit::identity(1, last_ring).tensor(PlaintextCircuit::constant_i32(shift, last_ring), last_ring), last_ring)
+                PlaintextCircuit::add(last_ring).compose(PlaintextCircuit::identity(1, last_ring).tensor(PlaintextCircuit::constant_int(ZZbig.clone_el(&shift), last_ring), last_ring), last_ring),
+                PlaintextCircuit::sub(last_ring).compose(PlaintextCircuit::identity(1, last_ring).tensor(PlaintextCircuit::constant_int(shift, last_ring), last_ring), last_ring)
             ))
         } else {
             None

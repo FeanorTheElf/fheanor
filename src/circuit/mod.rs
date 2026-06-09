@@ -1,5 +1,7 @@
 use std::cell::RefCell;
 use std::cmp::max;
+use feanor_math::integer::BigIntRing;
+use feanor_math::integer::generic_impls::map_from_integer_ring;
 use serde::Serialize;
 use serde::de::DeserializeSeed;
 
@@ -16,6 +18,7 @@ use feanor_math::serialization::SerializableElementRing;
 use tracing::instrument;
 use fhe_ir::Program;
 
+use crate::ZZbig;
 use crate::circuit::ir::*;
 use crate::cache::*;
 use crate::number_ring::galois::*;
@@ -61,7 +64,7 @@ pub const DEFAULT_EVALUATOR_COSTS: CircuitEvaluatorCosts = CircuitEvaluatorCosts
 /// special cases are stored separately for a more efficient evaluation.
 /// 
 pub enum Coefficient<R: ?Sized + RingBase> {
-    Zero, One, NegOne, Integer(i32), Other(R::Element)
+    Zero, One, NegOne, Integer(El<BigIntRing>), Other(R::Element)
 }
 
 impl<R> Clone for Coefficient<R>
@@ -73,16 +76,11 @@ impl<R> Clone for Coefficient<R>
             Coefficient::Zero => Coefficient::Zero,
             Coefficient::One => Coefficient::One,
             Coefficient::NegOne => Coefficient::NegOne,
-            Coefficient::Integer(x) => Coefficient::Integer(*x),
+            Coefficient::Integer(x) => Coefficient::Integer(ZZbig.clone_el(x)),
             Coefficient::Other(x) => Coefficient::Other(x.clone())
         }
     }
 }
-
-impl<R> Copy for Coefficient<R>
-    where R: ?Sized + RingBase,
-        R::Element: Copy
-{}
 
 impl<R: ?Sized + RingBase> Coefficient<R> {
 
@@ -91,7 +89,7 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
             Coefficient::Zero => Coefficient::Zero,
             Coefficient::One => Coefficient::One,
             Coefficient::NegOne => Coefficient::NegOne,
-            Coefficient::Integer(x) => Coefficient::Integer(*x),
+            Coefficient::Integer(x) => Coefficient::Integer(ZZbig.clone_el(x)),
             Coefficient::Other(x) => Coefficient::Other(ring.clone_el(x))
         }
     }
@@ -108,7 +106,7 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
             Coefficient::Zero => x,
             Coefficient::One => ring.add(x, ring.one()),
             Coefficient::NegOne => ring.add(x, ring.neg_one()),
-            Coefficient::Integer(y) => ring.add(x, ring.int_hom().map(*y)),
+            Coefficient::Integer(_) => ring.add(x, self.clone(&ring).to_ring_el(&ring)),
             Coefficient::Other(y) => ring.add_ref_snd(x, y)
         }
     }
@@ -122,7 +120,7 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
             Coefficient::Zero => ring.zero(),
             Coefficient::One => x,
             Coefficient::NegOne => ring.negate(x),
-            Coefficient::Integer(y) => ring.int_hom().mul_map(x, *y),
+            Coefficient::Integer(_) => ring.mul(x, self.clone(&ring).to_ring_el(&ring)),
             Coefficient::Other(y) => ring.mul_ref_snd(x, y)
         }
     }
@@ -134,7 +132,17 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
         }
     }
 
-    fn from<S: RingStore<Type = R> + Copy>(el: El<S>, ring: S) -> Self {
+    pub fn from_int(el: El<BigIntRing>) -> Self {
+        if ZZbig.is_zero(&el) {
+            Coefficient::Zero
+        } else if ZZbig.is_one(&el) {
+            Coefficient::One
+        } else {
+            Coefficient::Integer(el)
+        }
+    }
+
+    pub fn from<S: RingStore<Type = R> + Copy>(el: El<S>, ring: S) -> Self {
         if ring.is_zero(&el) {
             Coefficient::Zero
         } else if ring.is_one(&el) {
@@ -149,7 +157,7 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
             Coefficient::Zero => ring.zero(),
             Coefficient::One => ring.one(),
             Coefficient::NegOne => ring.neg_one(),
-            Coefficient::Integer(x) => ring.int_hom().map(x),
+            Coefficient::Integer(x) => map_from_integer_ring(&ZZbig, &ring, x),
             Coefficient::Other(x) => x
         }
     }
@@ -159,7 +167,7 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
             Coefficient::Zero => Coefficient::Zero,
             Coefficient::One => Coefficient::NegOne,
             Coefficient::NegOne => Coefficient::One,
-            Coefficient::Integer(x) => Coefficient::Integer(-x),
+            Coefficient::Integer(x) => Coefficient::Integer(ZZbig.negate(x)),
             Coefficient::Other(x) => Coefficient::Other(ring.negate(x))
         }
     }
@@ -168,10 +176,10 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
         match (self, other) {
             (Coefficient::Zero, rhs) => rhs,
             (lhs, Coefficient::Zero) => lhs,
-            (Coefficient::One, Coefficient::Integer(x)) => Coefficient::Integer(x + 1),
-            (Coefficient::NegOne, Coefficient::Integer(x)) => Coefficient::Integer(x - 1),
-            (Coefficient::Integer(x), Coefficient::One) => Coefficient::Integer(x + 1),
-            (Coefficient::Integer(x), Coefficient::NegOne) => Coefficient::Integer(x - 1),
+            (Coefficient::One, Coefficient::Integer(x)) => Coefficient::Integer(ZZbig.add(x, ZZbig.one())),
+            (Coefficient::NegOne, Coefficient::Integer(x)) => Coefficient::Integer(ZZbig.sub(x, ZZbig.one())),
+            (Coefficient::Integer(x), Coefficient::One) => Coefficient::Integer(ZZbig.add(x, ZZbig.one())),
+            (Coefficient::Integer(x), Coefficient::NegOne) => Coefficient::Integer(ZZbig.sub(x, ZZbig.one())),
             (lhs, rhs) => Coefficient::Other(ring.add(lhs.to_ring_el(ring), rhs.to_ring_el(ring)))
         }
     }
@@ -205,12 +213,12 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
         }
     }
 
-    pub fn as_integer(&self) -> Option<i32> {
+    pub fn as_integer(&self) -> Option<El<BigIntRing>> {
         match self {
-            Coefficient::Integer(x) => Some(*x),
-            Coefficient::NegOne => Some(-1),
-            Coefficient::Zero => Some(0),
-            Coefficient::One => Some(1),
+            Coefficient::Integer(x) => Some(ZZbig.clone_el(x)),
+            Coefficient::NegOne => Some(ZZbig.neg_one()),
+            Coefficient::Zero => Some(ZZbig.zero()),
+            Coefficient::One => Some(ZZbig.one()),
             Coefficient::Other(_) => None
         }
     }
@@ -418,14 +426,14 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     ///    |
     /// ```
     /// 
-    pub fn constant_i32<S: RingStore<Type = R>>(c: i32, _ring: S) -> Self {
+    pub fn constant_int<S: RingStore<Type = R>>(c: El<BigIntRing>, _ring: S) -> Self {
         let result = Self {
             input_count: 0,
             gates: Vec::new(),
             output_transforms: vec![LinearCombination {
-                constant: if c == 0{
+                constant: if ZZbig.is_zero(&c) {
                     Coefficient::Zero
-                } else if c == 1 {
+                } else if ZZbig.is_one(&c) {
                     Coefficient::One
                 } else {
                     Coefficient::Integer(c)

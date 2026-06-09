@@ -19,7 +19,7 @@ use tracing::instrument;
 
 use crate::number_ring::*;
 use crate::poly_eval::to_circuit::compute_powers_circuit;
-use crate::{NiceZn, ZZi64};
+use crate::{NiceZn, ZZi64, ZZbig};
 use crate::circuit::{Coefficient, PlaintextCircuit};
 use crate::lin_transform::trace::norm_circuit;
 use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupBase, CyclotomicGaloisGroupOps, GaloisGroupEl};
@@ -78,23 +78,11 @@ fn compute_circuit_from_irreducible_poly<P, R, F>(
         }
     }
     let Fq = FreeAlgebraImpl::new(Fp, S.rank(), modulus).as_field().ok().unwrap();
-    // println!();
-    // println!("factoring poly");
-    // FpX.println(&FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&irred_poly));
-    // println!("over");
-    // FpX.println(&Fq.generating_poly(&FpX, Fp.identity()));
-    // println!();
     let FqX = DensePolyRing::new(&Fq, "X");
     let (roots, _) = <_ as FactorPolyField>::factor_poly(&FqX, &FqX.lifted_hom(&ZpeX, Fq.inclusion().compose(&Zpe_to_Fp)).map_ref(&irred_poly));
     assert_eq!(1, FqX.degree(&roots[0].0).unwrap());
     assert!(Fq.is_one(FqX.lc(&roots[0].0).unwrap()));
     let root = Fq.negate(Fq.clone_el(FqX.coefficient_at(&roots[0].0, 0)));
-    // let mut root_repr = (0..256).map(|_| Fq.base_ring().zero()).collect::<Vec<_>>();
-    // for (c, i) in [(1, 166)] {
-    //     root_repr[i] = Fq.base_ring().int_hom().map(c);
-    // }
-    // let root = Fq.from_canonical_basis(root_repr);
-    // assert!(Fq.is_zero(&FpX.evaluate(&FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&irred_poly), &root, Fq.inclusion())));
 
     let mut root_in_S = S.from_canonical_basis(Fq.wrt_canonical_basis(&root).iter().map(|x| Sbase_to_Fp.smallest_lift(x)));
     let irred_poly_derivate = derive_poly(&ZpeX, &irred_poly);
@@ -111,7 +99,7 @@ fn compute_circuit_from_irreducible_poly<P, R, F>(
     );
     let k = ZZi64.abs_log2_ceil(&ZpeX.degree(&delta).unwrap().try_into().unwrap()).unwrap();
     assert_eq!(1 << k, ZpeX.degree(&delta).unwrap());
-    let pows2_circuit = (0..k).fold(PlaintextCircuit::constant_i32(1, &S).tensor(PlaintextCircuit::identity(1, &S), &S), |current, _| 
+    let pows2_circuit = (0..k).fold(PlaintextCircuit::constant_int(ZZbig.one(), &S).tensor(PlaintextCircuit::identity(1, &S), &S), |current, _| 
         PlaintextCircuit::identity(current.output_count(), &S).tensor(PlaintextCircuit::square(&S).compose(PlaintextCircuit::select(current.output_count(), &[current.output_count() - 1], &S), &S), &S)
             .compose(current.output_twice(&S), &S)
     );
@@ -247,8 +235,6 @@ use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 #[cfg(test)]
 use crate::number_ring::quotient_by_int::*;
-#[cfg(test)]
-use crate::ZZbig;
 
 #[test]
 fn test_poly_circuit_via_norm_pow2() {
