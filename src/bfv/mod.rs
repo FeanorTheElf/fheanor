@@ -56,12 +56,7 @@ pub mod eval;
 /// Contains [`bootstrap::ThinBootstrapper`], an implementation of
 /// thin bootstrapping for BFV.
 ///
-/// Temporarily disabled while the BGV refactoring is in progress: this module
-/// depends on `crate::bgv::modswitch::compute_optimal_special_modulus`, and
-/// `bgv::modswitch` is currently commented out (see `src/bgv/mod.rs`). It will be
-/// re-enabled once `bgv::modswitch` is re-included.
-///
-// pub mod bootstrap;
+pub mod bootstrap;
 
 pub type NumberRing<Inst: BFVInstantiation> = <<Inst as BFVInstantiation>::CiphertextRing as NumberRingQuotient>::NumberRing;
 pub type PlaintextRing<Inst: BFVInstantiation> = RingValue<<Inst as BFVInstantiation>::PlaintextRing>;
