@@ -75,7 +75,7 @@ pub mod eval;
 /// Contains the trait [`modswitch::BGVModswitchStrategy`] and the implementation
 /// [`modswitch::DefaultModswitchStrategy`] for automatic modulus management in BGV.
 ///
-// pub mod modswitch;
+pub mod modswitch;
 ///
 /// Contains the implementation of BGV thin bootstrapping.
 ///
