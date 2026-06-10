@@ -637,8 +637,7 @@ pub struct SparseKeyEncapsulationKey<Inst: BFVInstantiation> {
 }
 
 impl<Params> SparseKeyEncapsulationKey<Params>
-    where Params: BFVInstantiation, 
-        Params::PlaintextRing: AsBFVPlaintext<Params>
+    where Params: BFVInstantiation
 {
     pub fn create<R: CryptoRng + Rng>(P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_sparse_sk: CiphertextRing<Params>, sparse_sk: SecretKey<Params>, standard_sk: &SecretKey<Params>, mut rng: R, noise_sigma: f64) -> Self {
         let switch_to_sparse_key = Params::gen_switch_key(
