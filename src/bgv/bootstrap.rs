@@ -715,13 +715,19 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
                 return digit_extracted;
             },
             |exp_old, exp_new, input| {
+                let P_new = P[exp_new - self.r()];
+                let P_old = P[exp_old - self.r()];
                 let C_current = Inst::mod_switch_down_C(C_master, &input.dropped_rns_factor_indices);
+                // Update the noise info alongside the data: changing the plaintext modulus changes the
+                // implicit scale, and the info (which tracks it, possibly in a different `Zn` ring) must
+                // stay in sync with the data - otherwise later scale arithmetic mixes `Zn` rings.
+                let new_info = modswitch_strategy.change_plaintext_modulus_info(P_new, P_old, &C_current, &input.info);
                 // digit-extraction inputs are always relinearized (circuit outputs are relinearized,
                 // and the original input is an ordinary ciphertext), so this never discards a `c2`.
                 let result = ModulusAwareCiphertext {
-                    data: CiphertextOrNoRelin::Relin(Inst::change_plaintext_modulus(P[exp_new - self.r()], P[exp_old - self.r()], &C_current, input.data.unwrap_relin())),
+                    data: CiphertextOrNoRelin::Relin(Inst::change_plaintext_modulus(P_new, P_old, &C_current, input.data.unwrap_relin())),
                     dropped_rns_factor_indices: input.dropped_rns_factor_indices.clone(),
-                    info: input.info
+                    info: new_info
                 };
                 return result;
             }
