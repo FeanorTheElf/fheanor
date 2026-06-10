@@ -3,6 +3,7 @@ use std::cell::LazyCell;
 use tracing::{Level, event};
 
 use feanor_math::algorithms::int_factor::is_prime_power;
+use feanor_math::delegate::WrapHom;
 use feanor_math::group::AbelianGroupStore;
 use feanor_math::ring::*;
 use feanor_math::assert_el_eq;
@@ -10,6 +11,7 @@ use feanor_math::serialization::SerializableElementRing;
 
 use crate::bgv::*;
 use crate::bgv::modswitch::*;
+use crate::bgv::eval::{AsBGVPlaintext, CiphertextOrNoRelin, EncodedBGVPlaintextRing, EncodedBGVPlaintextRingBase};
 use crate::poly_eval::digit_extract::DigitExtract;
 use crate::circuit::*;
 use crate::filename_keys;
@@ -23,26 +25,28 @@ use crate::lin_transform::pow2;
 /// over a fixed plaintext and ciphertext ring.
 /// 
 pub struct ThinBootstrapper<Inst, Strategy>
-    where Inst: BGVInstantiation, 
-        Strategy: BGVModswitchStrategy<Inst>,
-        <CiphertextRing<Inst> as RingStore>::Type: AsBGVPlaintext<Inst>
+    where Inst: BGVInstantiation,
+        Strategy: BGVModswitchStrategy<Inst>
 {
     modswitch_strategy: Strategy,
     digit_extract: DigitExtract<Inst::PlaintextRing>,
-    slots_to_coeffs_thin: PlaintextCircuit<<CiphertextRing<Inst> as RingStore>::Type>,
-    coeffs_to_slots_thin: PlaintextCircuit<<CiphertextRing<Inst> as RingStore>::Type>,
+    slots_to_coeffs_thin: PlaintextCircuit<EncodedBGVPlaintextRingBase<Inst>>,
+    coeffs_to_slots_thin: PlaintextCircuit<EncodedBGVPlaintextRingBase<Inst>>,
     plaintext_ring_hierarchy: Vec<PlaintextRing<Inst>>,
-    original_plaintext_ring: PlaintextRing<Inst>,
-    intermediate_plaintext_ring: PlaintextRing<Inst>,
+    /// Encoded plaintext ring (plaintext modulus `p^r`, ciphertext ring the master ring) holding
+    /// the constants of the slots-to-coefficients transform.
+    slots_to_coeffs_plaintext_ring: EncodedBGVPlaintextRing<Inst>,
+    /// Encoded plaintext ring (plaintext modulus `p^e`, ciphertext ring the master ring) holding
+    /// the constants of the coefficients-to-slots transform.
+    intermediate_plaintext_ring: EncodedBGVPlaintextRing<Inst>,
     tmp_coprime_modulus_plaintext: PlaintextRing<Inst>,
     slots_to_coeffs_rns_factors: usize,
     master_ciphertext_ring: CiphertextRing<Inst>
 }
 
 impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
-    where Inst: BGVInstantiation, 
-        Strategy: BGVModswitchStrategy<Inst>,
-        <CiphertextRing<Inst> as RingStore>::Type: AsBGVPlaintext<Inst>
+    where Inst: BGVInstantiation,
+        Strategy: BGVModswitchStrategy<Inst>
 {
     ///
     /// Creates a new [`ThinBootstrapper`]. In many cases, it is easier to create
@@ -88,23 +92,36 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
     /// implicitly given through the `digit_extract` parameter.
     /// 
     pub fn create(
-        instantiation: &Inst, 
+        instantiation: &Inst,
         original_plaintext_ring: PlaintextRing<Inst>,
         intermediate_plaintext_ring: PlaintextRing<Inst>,
         C_master: CiphertextRing<Inst>,
-        slots_to_coeffs_thin: PlaintextCircuit<Inst::PlaintextRing>, 
+        slots_to_coeffs_thin: PlaintextCircuit<Inst::PlaintextRing>,
         coeffs_to_slots_thin: PlaintextCircuit<Inst::PlaintextRing>,
-        digit_extract: DigitExtract<Inst::PlaintextRing>, 
+        digit_extract: DigitExtract<Inst::PlaintextRing>,
         modswitch_strategy: Strategy,
         slots_to_coeffs_rns_factors: usize
-    ) -> Self {
+    ) -> Self
+        where Inst::CiphertextRing: Clone
+    {
         let p = digit_extract.p();
         let r = digit_extract.r();
         let e = digit_extract.e();
         let plaintext_ring_hierarchy = ((r + 1)..e).map(|k| instantiation.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
-        let coeffs_to_slots_thin = coeffs_to_slots_thin.change_ring_uniform(|x| x.change_ring(|x| Inst::encode_plain(&intermediate_plaintext_ring, &C_master, &x)));
-        let slots_to_coeffs_thin = slots_to_coeffs_thin.change_ring_uniform(|x| x.change_ring(|x| Inst::encode_plain(&original_plaintext_ring, &C_master, &x)));
-        let tmp_coprime_modulus_plaintext = instantiation.create_plaintext_ring(ZZbig.add(ZZbig.pow(ZZbig.clone_el(&p), e), ZZbig.one())); 
+        let tmp_coprime_modulus_plaintext = instantiation.create_plaintext_ring(ZZbig.add(ZZbig.pow(ZZbig.clone_el(&p), e), ZZbig.one()));
+        // The circuit constants are turned into "encoded" plaintexts (see `EncodedBGVPlaintextRingBase`),
+        // which carry the result of `encode_plain` plus a prepared multiplicant for fast
+        // plaintext-ciphertext multiplications. Both are encoded w.r.t. the master ciphertext ring;
+        // at evaluation time the encoded values are adjusted to the (possibly modulus-switched-down)
+        // operand ring automatically.
+        let slots_to_coeffs_plaintext_ring = EncodedBGVPlaintextRingBase::new(original_plaintext_ring, C_master.clone());
+        let intermediate_plaintext_ring = EncodedBGVPlaintextRingBase::new(intermediate_plaintext_ring, C_master.clone());
+        let coeffs_to_slots_thin = coeffs_to_slots_thin.change_ring_uniform(|x|
+            x.change_ring(|x| WrapHom::to_delegate_ring(intermediate_plaintext_ring.get_ring()).map(x))
+        );
+        let slots_to_coeffs_thin = slots_to_coeffs_thin.change_ring_uniform(|x|
+            x.change_ring(|x| WrapHom::to_delegate_ring(slots_to_coeffs_plaintext_ring.get_ring()).map(x))
+        );
         Self {
             digit_extract,
             coeffs_to_slots_thin,
@@ -112,7 +129,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
             plaintext_ring_hierarchy,
             slots_to_coeffs_rns_factors,
             modswitch_strategy,
-            original_plaintext_ring,
+            slots_to_coeffs_plaintext_ring,
             intermediate_plaintext_ring,
             tmp_coprime_modulus_plaintext,
             master_ciphertext_ring: C_master
@@ -302,7 +319,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
             plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
             master_ciphertext_ring: self.master_ciphertext_ring,
             modswitch_strategy: self.modswitch_strategy,
-            original_plaintext_ring: self.original_plaintext_ring,
+            slots_to_coeffs_plaintext_ring: self.slots_to_coeffs_plaintext_ring,
             slots_to_coeffs_rns_factors: self.slots_to_coeffs_rns_factors,
             tmp_coprime_modulus_plaintext: self.tmp_coprime_modulus_plaintext,
             slots_to_coeffs_thin: self.slots_to_coeffs_thin
@@ -331,14 +348,14 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
     /// of digit extraction.
     /// 
     pub fn intermediate_plaintext_ring(&self) -> &PlaintextRing<Inst> {
-        &self.intermediate_plaintext_ring
+        self.intermediate_plaintext_ring.get_ring().plaintext_ring()
     }
 
     ///
     /// The plaintext ring w.r.t. which the input ciphertext is defined.
-    /// 
+    ///
     pub fn base_plaintext_ring(&self) -> &PlaintextRing<Inst> {
-        &self.original_plaintext_ring
+        self.slots_to_coeffs_plaintext_ring.get_ring().plaintext_ring()
     }
 
     ///
@@ -406,34 +423,40 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         ct: Ciphertext<Inst>,
         gks: &[(GaloisGroupEl, KeySwitchKey<Inst>)],
         debug_sk: Option<&SecretKey<Inst>>
-    ) -> Ciphertext<Inst> {
+    ) -> Ciphertext<Inst>
+        // required so that the concrete `never_modswitch` strategy (which uses
+        // `AlwaysZeroNoiseEstimator`) implements `BGVModswitchStrategy`; always holds in practice
+        // (the plaintext-`Zn` element type is `Copy`)
+        where <Inst::PlaintextZnRing as RingBase>::Element: Clone
+    {
         let P_base = self.base_plaintext_ring();
         let C_master = self.master_ciphertext_ring();
         let dropped_rns_factors = RNSFactorIndexList::missing_from(C_input.base_ring(), C_master.base_ring());
-        let result = DefaultModswitchStrategy::never_modswitch().evaluate_circuit(
-            &self.slots_to_coeffs_thin, 
+        let strategy = DefaultModswitchStrategy::never_modswitch();
+        let result = strategy.evaluate_circuit(
+            &self.slots_to_coeffs_thin,
+            &self.slots_to_coeffs_plaintext_ring,
+            P_base,
             C_master,
-            P_base, 
-            C_master, 
             &[ModulusAwareCiphertext {
-                data: ct, 
-                info: (), 
-                dropped_rns_factor_indices: dropped_rns_factors.clone(),
-                sk: SecretKeyDistribution::UniformTernary
-            }], 
-            None, 
+                data: CiphertextOrNoRelin::Relin(ct),
+                info: strategy.fresh_encryption(P_base, C_input, SecretKeyDistribution::UniformTernary),
+                dropped_rns_factor_indices: dropped_rns_factors.clone()
+            }],
+            None,
             gks,
             debug_sk
         );
         assert_eq!(1, result.len());
         let result = result.into_iter().next().unwrap();
         debug_assert_eq!(result.dropped_rns_factor_indices, dropped_rns_factors);
+        let result_ct = result.data.unwrap_relin();
 
         let sk_input = debug_sk.map(|sk| Inst::mod_switch_sk(&C_input, &C_master, sk));
         if let Some(sk) = &sk_input {
-            Inst::dec_println(P_base, &C_input, &result.data, sk);
+            Inst::dec_println(P_base, &C_input, &result_ct, sk);
         }
-        return result.data;
+        return result_ct;
     }
 
     #[instrument(skip_all)]
@@ -467,10 +490,9 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
                 P_main.from_canonical_basis(self.tmp_coprime_modulus_plaintext.wrt_canonical_basis(&c1).iter().map(|x| mod_pe.map(self.tmp_coprime_modulus_plaintext.base_ring().smallest_lift(x))))
             );
             return ModulusAwareCiphertext {
-                data: Inst::hom_add_plain(P_main, C_master, &c0, Inst::hom_mul_plain(P_main, C_master, &c1, enc_sk)),
-                info: self.modswitch_strategy.info_for_fresh_encryption(P_main, C_master, used_sk),
-                dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-                sk: used_sk
+                data: CiphertextOrNoRelin::Relin(Inst::hom_add_plain(P_main, C_master, &c0, Inst::hom_mul_plain(P_main, C_master, &c1, enc_sk))),
+                info: self.modswitch_strategy.fresh_encryption(P_main, C_master, used_sk),
+                dropped_rns_factor_indices: RNSFactorIndexList::empty()
             };
         };
         let result = if let Some(sparse_sk_encaps) = sparse_sk_encaps {
@@ -483,7 +505,9 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
             perform_noisy_expansion(&C_input, ct, Inst::enc_sk(P_main, C_master))
         };
         if let Some(sk) = debug_sk {
-            Inst::dec_println(P_main, &C_master, &result.data, sk);
+            if let CiphertextOrNoRelin::Relin(ct) = &result.data {
+                Inst::dec_println(P_main, &C_master, ct, sk);
+            }
         }
         return result;
     }
@@ -498,20 +522,22 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         let C_master = self.master_ciphertext_ring();
         let P_main = self.intermediate_plaintext_ring();
         let result = self.modswitch_strategy.evaluate_circuit(
-            &self.coeffs_to_slots_thin, 
+            &self.coeffs_to_slots_thin,
+            &self.intermediate_plaintext_ring,
+            P_main,
             C_master,
-            P_main, 
-            C_master, 
-            &[ct], 
-            None, 
+            &[ct],
+            None,
             gks,
             debug_sk
         );
         assert_eq!(1, result.len());
         let result = result.into_iter().next().unwrap();
         if let Some(sk) = debug_sk {
-            let C_current = Inst::mod_switch_down_C(C_master, &result.dropped_rns_factor_indices);
-            Inst::dec_println_slots(P_main, &C_current, &result.data, &Inst::mod_switch_sk(&C_current, C_master, sk), Some("./cache"));
+            if let CiphertextOrNoRelin::Relin(ct) = &result.data {
+                let C_current = Inst::mod_switch_down_C(C_master, &result.dropped_rns_factor_indices);
+                Inst::dec_println_slots(P_main, &C_current, ct, &Inst::mod_switch_sk(&C_current, C_master, sk), Some("./cache"));
+            }
         }
         return result;
     }
@@ -569,7 +595,8 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         debug_sk: Option<&SecretKey<Inst>>
     ) -> ModulusAwareCiphertext<Inst, Strategy>
         where Inst: 'a,
-            Inst::PlaintextRing: AsBGVPlaintext<Inst>
+            Inst::PlaintextRing: AsBGVPlaintext<Inst>,
+            <Inst::PlaintextZnRing as RingBase>::Element: Clone
     {
         let (C_slots_to_coeffs, ct) = self.prepare_input_for_slots_to_coefficients(ct_dropped_moduli, ct, gks[0].1.gadget_vector_digits(), debug_sk);
 
@@ -682,7 +709,9 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
                         modswitch_strategy.print_info(P[exp - self.r()], C_master, ct);
                         let Clocal = Inst::mod_switch_down_C(C_master, &ct.dropped_rns_factor_indices);
                         let sk_local = Inst::mod_switch_sk(&Clocal, C_master, sk);
-                        Inst::dec_println_slots(P[exp - self.r()], &Clocal, &ct.data, &sk_local, Some("./cache"));
+                        if let CiphertextOrNoRelin::Relin(ct) = &ct.data {
+                            Inst::dec_println_slots(P[exp - self.r()], &Clocal, ct, &sk_local, Some("./cache"));
+                        }
                         println!();
                     }
                 }
@@ -690,11 +719,12 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
             },
             |exp_old, exp_new, input| {
                 let C_current = Inst::mod_switch_down_C(C_master, &input.dropped_rns_factor_indices);
+                // digit-extraction inputs are always relinearized (circuit outputs are relinearized,
+                // and the original input is an ordinary ciphertext), so this never discards a `c2`.
                 let result = ModulusAwareCiphertext {
-                    data: Inst::change_plaintext_modulus(P[exp_new - self.r()], P[exp_old - self.r()], &C_current, input.data),
+                    data: CiphertextOrNoRelin::Relin(Inst::change_plaintext_modulus(P[exp_new - self.r()], P[exp_old - self.r()], &C_current, input.data.unwrap_relin())),
                     dropped_rns_factor_indices: input.dropped_rns_factor_indices.clone(),
-                    info: input.info,
-                    sk: input.sk
+                    info: input.info
                 };
                 return result;
             }
@@ -720,22 +750,21 @@ fn test_digit_extract_homomorphic() {
     let m = P2.int_hom().map(17 * 17 + 2 * 17 - 3);
     let ct = Pow2BGV::enc_sym(&P2, &C_master, &mut rng, &m, &sk, 3.2);
 
-    let digitextract = DigitExtract::new_digit_retain_based(&[P1.base_ring(), P2.base_ring()]);
+    let digitextract = DigitExtract::new_digit_retain_based(&[P1.base_ring(), P2.base_ring()]).embed_plaintext_ring(&[&P1, &P2]);
     let strategy = DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator);
-    let (ct_high, ct_low) = digitextract.evaluate_bgv::<_, Pow2BGV, _>(&[P1.base_ring(), P2.base_ring()], &strategy, &[&P1, &P2], &C_master, ModulusAwareCiphertext {
-        data: ct,
+    let (ct_high, ct_low) = digitextract.evaluate_bgv::<_, Pow2BGV, _>(&[&P1, &P2], &strategy, &[&P1, &P2], &C_master, ModulusAwareCiphertext {
+        data: CiphertextOrNoRelin::Relin(ct),
         dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-        info: strategy.info_for_fresh_encryption(&P2, &C_master, SecretKeyDistribution::UniformTernary),
-        sk: SecretKeyDistribution::UniformTernary
+        info: strategy.fresh_encryption(&P2, &C_master, SecretKeyDistribution::UniformTernary)
     }, &rk, &[], Some(&sk));
     let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_high.dropped_rns_factor_indices);
     let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
-    let m_high = Pow2BGV::dec(&P1, &C_result, Pow2BGV::clone_ct(&P1, &C_result, &ct_high.data), &sk_result);
+    let m_high = Pow2BGV::dec(&P1, &C_result, ct_high.data.unwrap_relin(), &sk_result);
     assert!(P1.wrt_canonical_basis(&m_high).iter().skip(1).all(|x| P1.base_ring().is_zero(&x)));
     let m_high = P1.base_ring().smallest_lift(P1.wrt_canonical_basis(&m_high).at(0));
     assert_eq!(17 + 2, m_high);
-    
-    let m_low = Pow2BGV::dec(&P2, &C_result, Pow2BGV::clone_ct(&P2, &C_result, &ct_low.data), &sk_result);
+
+    let m_low = Pow2BGV::dec(&P2, &C_result, ct_low.data.unwrap_relin(), &sk_result);
     assert!(P2.wrt_canonical_basis(&m_low).iter().skip(1).all(|x| P2.base_ring().is_zero(&x)));
     let m_low = P2.base_ring().smallest_lift(P2.wrt_canonical_basis(&m_low).at(0));
     assert_eq!(-3, m_low);
@@ -772,7 +801,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
 
-    assert_el_eq!(P, P.int_hom().map(2), Pow2BGV::dec(&P, &C_result, ct_result.data, &sk_result));
+    assert_el_eq!(P, P.int_hom().map(2), Pow2BGV::dec(&P, &C_result, ct_result.data.unwrap_relin(), &sk_result));
 }
 
 #[test]
@@ -807,7 +836,7 @@ fn test_composite_bgv_thin_bootstrapping_2_sparse_key_encapsulation() {
     let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = CompositeBGV::mod_switch_sk(&C_result, &C_master, &sk);
 
-    assert_el_eq!(P, P.int_hom().map(2), CompositeBGV::dec(&P, &C_result, ct_result.data, &sk_result));
+    assert_el_eq!(P, P.int_hom().map(2), CompositeBGV::dec(&P, &C_result, ct_result.data.unwrap_relin(), &sk_result));
 }
 
 #[ignore]
@@ -846,8 +875,9 @@ fn measure_time_single_rns_composite_bgv_thin_bootstrapping() {
     );
     let C_result = CompositeSingleRNSBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = CompositeSingleRNSBGV::mod_switch_sk(&C_result, &C_master, &sk);
-    println!("final noise budget: {}", CompositeSingleRNSBGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result));
-    let result = CompositeSingleRNSBGV::dec(&P, &C_result, ct_result.data, &sk_result);
+    let result_ct = ct_result.data.unwrap_relin();
+    println!("final noise budget: {}", CompositeSingleRNSBGV::noise_budget(&P, &C_result, &result_ct, &sk_result));
+    let result = CompositeSingleRNSBGV::dec(&P, &C_result, result_ct, &sk_result);
     assert_el_eq!(P, P.int_hom().map(2), result);
 }
 
@@ -888,8 +918,9 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     );
     let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = CompositeBGV::mod_switch_sk(&C_result, &C_master, &sk);
-    println!("final noise budget: {}", CompositeBGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result));
-    let result = CompositeBGV::dec(&P, &C_result, ct_result.data, &sk_result);
+    let result_ct = ct_result.data.unwrap_relin();
+    println!("final noise budget: {}", CompositeBGV::noise_budget(&P, &C_result, &result_ct, &sk_result));
+    let result = CompositeBGV::dec(&P, &C_result, result_ct, &sk_result);
     assert_el_eq!(P, P.int_hom().map(2), result);
 }
 
@@ -927,7 +958,8 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
     );
     let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
-    println!("final noise budget: {}", Pow2BGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result));
-    let result = Pow2BGV::dec(&P, &C_result, ct_result.data, &sk_result);
+    let result_ct = ct_result.data.unwrap_relin();
+    println!("final noise budget: {}", Pow2BGV::noise_budget(&P, &C_result, &result_ct, &sk_result));
+    let result = Pow2BGV::dec(&P, &C_result, result_ct, &sk_result);
     assert_el_eq!(P, P.int_hom().map(2), result);
 }
