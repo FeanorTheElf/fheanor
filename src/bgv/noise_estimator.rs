@@ -320,9 +320,13 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
     {
         let mut acc: Option<CiphertextDescriptor<Params, Self>> = None;
         for (m, ct) in summands {
-            // TODO: fix - implicit scale should be merged into scalars, not ciphertexts
-            let merged = self.merge_implicit_scale(P, C, ct.borrow());
-            let term = self.hom_mul_plain_scalar(P, C, m.borrow(), &merged);
+            let ct = ct.borrow();
+            // mirror the data side (`BGVInstantiation::hom_inner_product_plain_scalar`): fold the
+            // implicit scale into the scalar (free, does not increase noise), so the term has
+            // implicit scale 1; do *not* merge the implicit scale into the ciphertext.
+            let scalar = P.base_ring().mul_ref_fst(m.borrow(), P.base_ring().invert(&ct.implicit_scale).unwrap());
+            let mut term = self.hom_mul_plain_scalar(P, C, &scalar, ct);
+            term.implicit_scale = P.base_ring().one();
             acc = Some(match acc {
                 None => term,
                 Some(a) => self.hom_add(P, C, &a, &term, ImplicitScalePolicy::AssertEqual)
@@ -341,9 +345,13 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
     {
         let mut acc: Option<CiphertextDescriptor<Params, Self>> = None;
         for (m, ct) in summands {
-            // TODO: fix - implicit scale should be merged into scalars, not ciphertexts
-            let merged = self.merge_implicit_scale(P, C, ct.borrow());
-            let term = self.hom_mul_plain(P, C, m.borrow(), &merged);
+            let ct = ct.borrow();
+            // mirror the data side (`BGVInstantiation::hom_inner_product_plain`): fold the implicit
+            // scale into the plaintext (free, does not increase noise), so the term has implicit
+            // scale 1; do *not* merge the implicit scale into the ciphertext.
+            let m_merged = P.inclusion().mul_map(P.clone_el(m.borrow()), P.base_ring().invert(&ct.implicit_scale).unwrap());
+            let mut term = self.hom_mul_plain(P, C, &m_merged, ct);
+            term.implicit_scale = P.base_ring().one();
             acc = Some(match acc {
                 None => term,
                 Some(a) => self.hom_add(P, C, &a, &term, ImplicitScalePolicy::AssertEqual)
@@ -362,11 +370,21 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
     {
         let mut acc: Option<CiphertextDescriptor<Params, Self>> = None;
         for (m, ct) in summands {
-            // TODO: fix - merge implicit scale into plaintext, depending on implicit scale policy
-            let term = self.hom_mul_plain_encoded(P, C, m.borrow(), ct.borrow());
+            // mirror the data side (`BGVInstantiation::hom_inner_product_plain_encoded`): bring
+            // each summand to the policy-dictated implicit scale *first* - `Merge` rescales each
+            // summand to implicit scale 1 (which genuinely increases noise here, since an encoded
+            // plaintext cannot be merged for free), `AssertEqual` keeps the common scale - then add
+            // the (now equalized) terms directly.
+            let term = match policy {
+                ImplicitScalePolicy::Merge => {
+                    let merged = self.merge_implicit_scale(P, C, ct.borrow());
+                    self.hom_mul_plain_encoded(P, C, m.borrow(), &merged)
+                },
+                ImplicitScalePolicy::AssertEqual => self.hom_mul_plain_encoded(P, C, m.borrow(), ct.borrow())
+            };
             acc = Some(match acc {
                 None => term,
-                Some(a) => self.hom_add(P, C, &a, &term, policy)
+                Some(a) => self.hom_add(P, C, &a, &term, ImplicitScalePolicy::AssertEqual)
             });
         }
         acc.unwrap_or_else(|| self.transparent_zero(P, C))
