@@ -636,20 +636,26 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         // rescaled instead, and the result carries implicit scale `S`. With no invertible integer summand
         // (e.g. a purely encoded/plaintext-ring linear transform, where every summand has implicit scale
         // 1) we get `S = 1`, i.e. the previous merge-to-scale-1 behavior.
+        //
+        // The data is the source of truth for the implicit scale (the noise info may legitimately carry
+        // a different - e.g. not-yet-tracked - scale, as for the fresh-info input to a never-modswitch
+        // slots-to-coeffs transform), so we read `S` from the data and restamp the data and the info
+        // *independently*, each from its own scale; otherwise restamping the data with the info's scale
+        // would corrupt the actual ciphertext (an off-by-a-scalar error).
         let Zt = P.base_ring();
         let output_scale = int_switched.iter()
             .filter_map(|(c, ct)| Zt.invert(&Zt.coerce(&ZZbig, ZZbig.clone_el(c))).map(|c_inv| (
                 self.noise_estimator.estimate_log2_relative_noise_level(P, &C_target, &ct.info),
-                Zt.mul_ref_fst(&ct.info.implicit_scale, c_inv)
+                Zt.mul_ref_fst(ct.data.implicit_scale(), c_inv)
             )))
             .max_by(|(l, _), (r, _)| f64::total_cmp(l, r))
             .map(|(_, scale)| scale)
             .unwrap_or_else(|| Zt.one());
         let output_scale_inv = Zt.invert(&output_scale).unwrap();
         let restamp = |ct: &mut ModulusAwareCiphertext<Params, Self>| {
-            let new_scale = Zt.mul_ref(&ct.info.implicit_scale, &output_scale_inv);
-            ct.info.implicit_scale = Zt.clone_el(&new_scale);
-            set_data_implicit_scale::<Params>(&mut ct.data, new_scale);
+            let new_data_scale = Zt.mul_ref(ct.data.implicit_scale(), &output_scale_inv);
+            set_data_implicit_scale::<Params>(&mut ct.data, new_data_scale);
+            ct.info.implicit_scale = Zt.mul_ref(&ct.info.implicit_scale, &output_scale_inv);
         };
         for (_, ct) in int_switched.iter_mut() { restamp(ct); }
         for (_, ct) in main_switched.iter_mut() { restamp(ct); }
@@ -1110,6 +1116,46 @@ fn test_modswitch_strategy_inner_prod() {
     let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
     let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
     assert_el_eq!(&P, &P.int_hom().map(-2 + 100 - 17), Pow2BGV::dec(&P, &res_C, res.data.unwrap_relin(), &res_sk));
+}
+
+#[test]
+fn test_modswitch_strategy_inner_prod_diverged_info_scale() {
+    // Regression test: a summand may legitimately have a `data` implicit scale that differs from its
+    // `info` (noise descriptor) implicit scale - e.g. the never-modswitch slots-to-coefficients
+    // transform feeds in a mod-switched ciphertext (data scale != 1) together with a fresh-encryption
+    // info (scale 1). `inner_prod` must take the implicit scale from the *data* (the source of truth);
+    // restamping the data with the info's scale instead corrupts the ciphertext by a scalar factor.
+    feanor_tracing::DelayedLogger::init_test();
+    let mut rng = rand::rng();
+
+    let params = Pow2BGV::new(1 << 8);
+    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+    let C = params.create_ciphertext_ring(500..520);
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+
+    let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> = DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
+
+    // encrypt 2 and mod-switch it down, so that its data implicit scale is != 1
+    let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(2), &sk, 3.2);
+    let to_drop = RNSFactorIndexList::from([0, 1], C.base_ring().len());
+    let C_small = Pow2BGV::mod_switch_down_C(&C, &to_drop);
+    let ct_small = Pow2BGV::mod_switch_ct(&P, &C_small, &C, ct);
+    assert!(!P.base_ring().is_one(&ct_small.implicit_scale), "test setup should produce a non-trivial implicit scale");
+
+    // deliberately pair the mod-switched data with a *fresh* info (implicit scale 1), as the
+    // never-modswitch slots-to-coefficients transform does
+    let cts = [ModulusAwareCiphertext {
+        data: CiphertextOrNoRelin::Relin(ct_small),
+        dropped_rns_factor_indices: to_drop.clone(),
+        info: modswitch_strategy.fresh_encryption(&P, &C_small, SecretKeyDistribution::UniformTernary)
+    }];
+
+    let res = modswitch_strategy.inner_prod(&P, &C, &[
+        &Coefficient::Other(P.int_hom().map(3))
+    ], &cts.iter().collect::<Vec<_>>(), &P, None);
+    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+    assert_el_eq!(&P, &P.int_hom().map(3 * 2), Pow2BGV::dec(&P, &res_C, res.data.unwrap_relin(), &res_sk));
 }
 
 #[test]
