@@ -169,7 +169,7 @@ pub trait BGVModswitchStrategy<Params: BGVInstantiation> {
     ///
     /// In other words, this describes the output of [`BGVInstantiation::enc_sym()`].
     ///
-    fn info_for_fresh_encryption(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, sk: SecretKeyDistribution) -> Self::CiphertextInfo;
+    fn fresh_encryption(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, sk: SecretKeyDistribution) -> Self::CiphertextInfo;
 
     fn clone_info(&self, info: &Self::CiphertextInfo) -> Self::CiphertextInfo;
 
@@ -973,7 +973,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> BG
         }).collect();
     }
 
-    fn info_for_fresh_encryption(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, sk: SecretKeyDistribution) -> <Self as BGVModswitchStrategy<Params>>::CiphertextInfo {
+    fn fresh_encryption(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, sk: SecretKeyDistribution) -> <Self as BGVModswitchStrategy<Params>>::CiphertextInfo {
         self.noise_estimator.enc_sym_zero(P, C, sk)
     }
 
@@ -1011,7 +1011,7 @@ fn test_modswitch_strategy_inner_prod() {
     let mut cts = inputs.iter().map(|x| ModulusAwareCiphertext {
         data: CiphertextOrNoRelin::Relin(Pow2BGV::enc_sym(&P, &C, &mut rng, &x, &sk, 3.2)),
         dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-        info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary)
+        info: modswitch_strategy.fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary)
     }).collect::<Vec<_>>();
 
     let res = modswitch_strategy.inner_prod(&P, &C, &[
@@ -1076,7 +1076,7 @@ fn test_modswitch_strategy_mul() {
         &C,
         &[ModulusAwareCiphertext {
             dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-            info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
+            info: modswitch_strategy.fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
             data: CiphertextOrNoRelin::Relin(ct)
         }],
         Some(&rk),
@@ -1119,7 +1119,7 @@ fn test_never_modswitch_strategy_mul() {
             &C,
             &[ModulusAwareCiphertext {
                 dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-                info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
+                info: modswitch_strategy.fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
                 data: CiphertextOrNoRelin::Relin(Pow2BGV::clone_ct(&P, &C, &ctxt))
             }],
             Some(&rk),
@@ -1149,7 +1149,7 @@ fn test_never_modswitch_strategy_mul() {
             &C,
             &[ModulusAwareCiphertext {
                 dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-                info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
+                info: modswitch_strategy.fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
                 data: CiphertextOrNoRelin::Relin(Pow2BGV::clone_ct(&P, &C, &ctxt))
             }],
             Some(&rk),
@@ -1194,7 +1194,7 @@ fn test_modswitch_strategy_evaluate_circuit() {
         &C,
         &[ModulusAwareCiphertext {
             dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-            info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
+            info: modswitch_strategy.fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
             data: CiphertextOrNoRelin::Relin(Pow2BGV::clone_ct(&P, &C, &ct))
         }],
         Some(&rk),

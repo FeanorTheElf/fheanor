@@ -411,6 +411,9 @@ pub trait BGVInstantiation {
     #[instrument(skip_all)]
     fn hom_add_plain_encoded(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<CiphertextRing<Self>>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
+        // technically, the merging of the implicit scale is not completely for free, since
+        // it increases the norm of the value to add. In practice, this value will be much smaller
+        // than the critical quantity, so this is not an issue.
         let implicit_scale = C.base_ring().coerce(&ZZbig, int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(&ct.implicit_scale)), ZZbig, P.base_ring().integer_ring()));
         let result = Ciphertext {
             c0: C.add(ct.c0, C.inclusion().mul_ref_map(m, &implicit_scale)),

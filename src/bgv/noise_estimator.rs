@@ -320,8 +320,7 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
     {
         let mut acc: Option<CiphertextDescriptor<Params, Self>> = None;
         for (m, ct) in summands {
-            // mirror the data side: fold the implicit scale into the (lifted) scalar, so each
-            // term has implicit scale 1, then add directly
+            // TODO: fix - implicit scale should be merged into scalars, not ciphertexts
             let merged = self.merge_implicit_scale(P, C, ct.borrow());
             let term = self.hom_mul_plain_scalar(P, C, m.borrow(), &merged);
             acc = Some(match acc {
@@ -342,6 +341,7 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
     {
         let mut acc: Option<CiphertextDescriptor<Params, Self>> = None;
         for (m, ct) in summands {
+            // TODO: fix - implicit scale should be merged into scalars, not ciphertexts
             let merged = self.merge_implicit_scale(P, C, ct.borrow());
             let term = self.hom_mul_plain(P, C, m.borrow(), &merged);
             acc = Some(match acc {
@@ -362,6 +362,7 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
     {
         let mut acc: Option<CiphertextDescriptor<Params, Self>> = None;
         for (m, ct) in summands {
+            // TODO: fix - merge implicit scale into plaintext, depending on implicit scale policy
             let term = self.hom_mul_plain_encoded(P, C, m.borrow(), ct.borrow());
             acc = Some(match acc {
                 None => term,
