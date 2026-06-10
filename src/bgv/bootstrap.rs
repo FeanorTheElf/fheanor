@@ -341,6 +341,10 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
     pub fn p(&self) -> &El<BigIntRing> {
         self.digit_extract.p()
     }
+    
+    pub fn strategy(&self) -> &Strategy {
+        &self.modswitch_strategy
+    }
 
     ///
     /// The plaintext ring w.r.t. which the output of noisy expansion is defined.
@@ -423,12 +427,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         ct: Ciphertext<Inst>,
         gks: &[(GaloisGroupEl, KeySwitchKey<Inst>)],
         debug_sk: Option<&SecretKey<Inst>>
-    ) -> Ciphertext<Inst>
-        // required so that the concrete `never_modswitch` strategy (which uses
-        // `AlwaysZeroNoiseEstimator`) implements `BGVModswitchStrategy`; always holds in practice
-        // (the plaintext-`Zn` element type is `Copy`)
-        where <Inst::PlaintextZnRing as RingBase>::Element: Clone
-    {
+    ) -> Ciphertext<Inst> {
         let P_base = self.base_plaintext_ring();
         let C_master = self.master_ciphertext_ring();
         let dropped_rns_factors = RNSFactorIndexList::missing_from(C_input.base_ring(), C_master.base_ring());
@@ -594,9 +593,7 @@ impl<Inst, Strategy> ThinBootstrapper<Inst, Strategy>
         sk_encaps_data: Option<&SparseKeyEncapsulationKey<Inst>>,
         debug_sk: Option<&SecretKey<Inst>>
     ) -> ModulusAwareCiphertext<Inst, Strategy>
-        where Inst: 'a,
-            Inst::PlaintextRing: AsBGVPlaintext<Inst>,
-            <Inst::PlaintextZnRing as RingBase>::Element: Clone
+        where Inst: 'a
     {
         let (C_slots_to_coeffs, ct) = self.prepare_input_for_slots_to_coefficients(ct_dropped_moduli, ct, gks[0].1.gadget_vector_digits(), debug_sk);
 

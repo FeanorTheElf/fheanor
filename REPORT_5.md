@@ -145,3 +145,9 @@ transparent in practice — the same situation already noted in REPORT_4 for `cl
   `compute_optimal_special_modulus`); nothing more was needed for it here.
 </content>
 </invoke>
+
+# Review
+
+ - First of all, I have changed your handling of Clone; Implicit scale and ciphertext descriptor shouldn't have to be `Clone`, since the noise estimator/rings can clone it. No more changes from your side required here
+ - There seems to be a bug that `DefaultModswitchStrategy::inner_prod` can indirectly call `hom_inner_product_plain_encoded` with `ImplicitScalePolicy::AssertEqual` but non-equal implicit scales. Write a test that demonstrates this bug. Afterwards, find a fix. If it helps: I have the feeling like the handling of the implicit scale in `AsBGVPlaintext` is not properly specified: I would assume that `AsBGVPlaintext::hom_inner_product` would accept inputs with mixed implicit scale, but it uses `AssertEqual` internally. If this is not the behavior, write a doc comment on what it expects.
+ - You have the comment `// both parts have implicit scale 1 (merging the implicit scale into the plaintext is free), // so the addition does not increase noise; use `Merge` to be robust regardless` in `src/bgv/modswitch.rs`; that's not good style - if they have the same implicit scale, use `AssertEqual` to make sure this assumption is correct.

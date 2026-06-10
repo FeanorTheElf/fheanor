@@ -2,8 +2,6 @@ use core::f64;
 use std::cmp::min;
 use std::ops::Range;
 
-#[cfg(test)]
-use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::*;
 use feanor_math::group::*;
 use feanor_math::ring::*;
@@ -14,8 +12,6 @@ use crate::circuit::*;
 use crate::number_ring::galois::*;
 use crate::gadget_product::digits::*;
 use crate::number_ring::galois::CyclotomicGaloisGroupOps;
-#[cfg(test)]
-use crate::ZZi64;
 
 use super::eval::*;
 use super::noise_estimator::*;
@@ -166,12 +162,19 @@ pub trait BGVModswitchStrategy<Params: BGVInstantiation> {
     ///
     /// Returns the info that describes a freshly encrypted ciphertext, w.r.t. a secret
     /// key of hamming weight `sk_hwt`, or a uniformly ternary secret key if `sk_hwt = None`.
+    /// 
+    /// The ciphertext ring `C` is considered to be both the master ciphertext ring, and
+    /// the concrete ciphertext ring over which we encrypt.
     ///
     /// In other words, this describes the output of [`BGVInstantiation::enc_sym()`].
     ///
     fn fresh_encryption(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, sk: SecretKeyDistribution) -> Self::CiphertextInfo;
 
-    fn clone_info(&self, info: &Self::CiphertextInfo) -> Self::CiphertextInfo;
+    ///
+    /// As opposed to other functions, the ciphertext ring `C` here is not the master cipheretxt ring,
+    /// but the concrete ciphertext ring over which the described ciphertext is encrypted.
+    /// 
+    fn clone_info(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, info: &Self::CiphertextInfo) -> Self::CiphertextInfo;
 
     fn print_info(&self, P: &PlaintextRing<Params>, C_master: &CiphertextRing<Params>, ct: &ModulusAwareCiphertext<Params, Self>);
 
@@ -179,7 +182,7 @@ pub trait BGVModswitchStrategy<Params: BGVInstantiation> {
         let C = Params::mod_switch_down_C(C_master, &ct.dropped_rns_factor_indices);
         ModulusAwareCiphertext {
             data: ct.data.clone_ct(P, &C),
-            info: self.clone_info(&ct.info),
+            info: self.clone_info(P, &C, &ct.info),
             dropped_rns_factor_indices: ct.dropped_rns_factor_indices.clone()
         }
     }
@@ -354,11 +357,7 @@ pub fn compute_optimal_special_modulus<C: NumberRingRNSQuotient>(
     }
 }
 
-impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> DefaultModswitchStrategy<Params, N, LOG>
-    where N::CiphertextDescriptor: Clone,
-        <Params::PlaintextZnRing as RingBase>::Element: Clone
-{
-
+impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> DefaultModswitchStrategy<Params, N, LOG> {
     pub fn new(noise_estimator: N) -> Self {
         Self {
             params: PhantomData,
@@ -441,7 +440,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
     /// unchanged. The ciphertext is relinearized w.r.t. its current ciphertext modulus, choosing
     /// a special modulus among its already-dropped RNS factors (no additional modulus-switching).
     ///
-    fn relinearize_if_needed(
+    pub fn relinearize_if_needed(
         &self,
         P: &PlaintextRing<Params>,
         C_master: &CiphertextRing<Params>,
@@ -870,9 +869,7 @@ struct BGVEvaluator<'a, R, Inst, N, const LOG: bool>
 }
 
 impl<'a, 'b, R, Inst, N, const LOG: bool> CircuitEvaluator<'b, ModulusAwareCiphertext<Inst, DefaultModswitchStrategy<Inst, N, LOG>>, R> for BGVEvaluator<'a, R, Inst, N, LOG>
-    where R: ?Sized + AsBGVPlaintext<Inst>, Inst: BGVInstantiation, N: BGVNoiseEstimator<Inst>,
-        N::CiphertextDescriptor: Clone,
-        <Inst::PlaintextZnRing as RingBase>::Element: Clone
+    where R: ?Sized + AsBGVPlaintext<Inst>, Inst: BGVInstantiation, N: BGVNoiseEstimator<Inst>
 {
     fn supports_gal(&self) -> bool {
         self.gks.len() > 0
@@ -934,10 +931,7 @@ impl<'a, 'b, R, Inst, N, const LOG: bool> CircuitEvaluator<'b, ModulusAwareCiphe
     }
 }
 
-impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> BGVModswitchStrategy<Params> for DefaultModswitchStrategy<Params, N, LOG>
-    where N::CiphertextDescriptor: Clone,
-        <Params::PlaintextZnRing as RingBase>::Element: Clone
-{
+impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> BGVModswitchStrategy<Params> for DefaultModswitchStrategy<Params, N, LOG> {
 
     type CiphertextInfo = CiphertextDescriptor<Params, N>;
 
@@ -984,8 +978,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> BG
         self.noise_estimator.enc_sym_zero(P, C, sk)
     }
 
-    fn clone_info(&self, info: &Self::CiphertextInfo) -> Self::CiphertextInfo {
-        CiphertextDescriptor::new(info.noise.clone(), info.implicit_scale.clone(), info.sk)
+    fn clone_info(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, info: &Self::CiphertextInfo) -> Self::CiphertextInfo {
+        self.noise_estimator.clone_ct(P, C, info)
     }
 
     fn print_info(&self, P: &PlaintextRing<Params>, C_master: &CiphertextRing<Params>, ct: &ModulusAwareCiphertext<Params, Self>) {
@@ -1002,6 +996,10 @@ use crate::bgv::noise_estimator::NaiveBGVNoiseEstimator;
 use crate::poly_eval::digit_extract::centered_digit_retain_poly;
 #[cfg(test)]
 use crate::poly_eval::to_circuit::poly_to_circuit;
+#[cfg(test)]
+use feanor_math::homomorphism::Homomorphism;
+#[cfg(test)]
+use crate::ZZi64;
 
 #[test]
 fn test_modswitch_strategy_inner_prod() {
