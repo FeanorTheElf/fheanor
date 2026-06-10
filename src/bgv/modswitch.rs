@@ -176,6 +176,16 @@ pub trait BGVModswitchStrategy<Params: BGVInstantiation> {
     /// 
     fn clone_info(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, info: &Self::CiphertextInfo) -> Self::CiphertextInfo;
 
+    ///
+    /// Updates the info to reflect a change of the plaintext modulus (from `Pold` to `Pnew`), see
+    /// [`BGVInstantiation::change_plaintext_modulus()`]. This must be kept in sync with the data, as
+    /// the represented implicit scale changes.
+    ///
+    /// As for [`BGVModswitchStrategy::clone_info`], `C` is the concrete ciphertext ring over which
+    /// the described ciphertext is encrypted, not the master ciphertext ring.
+    ///
+    fn change_plaintext_modulus_info(&self, Pnew: &PlaintextRing<Params>, Pold: &PlaintextRing<Params>, C: &CiphertextRing<Params>, info: &Self::CiphertextInfo) -> Self::CiphertextInfo;
+
     fn print_info(&self, P: &PlaintextRing<Params>, C_master: &CiphertextRing<Params>, ct: &ModulusAwareCiphertext<Params, Self>);
 
     fn clone_ct(&self, P: &PlaintextRing<Params>, C_master: &CiphertextRing<Params>, ct: &ModulusAwareCiphertext<Params, Self>) -> ModulusAwareCiphertext<Params, Self> {
@@ -297,6 +307,18 @@ fn mod_switch_data<Params: BGVInstantiation>(P: &PlaintextRing<Params>, Cnew: &C
     match data {
         CiphertextOrNoRelin::Relin(ct) => CiphertextOrNoRelin::Relin(Params::mod_switch_ct(P, Cnew, Cold, ct)),
         CiphertextOrNoRelin::NoRelin(ct) => CiphertextOrNoRelin::NoRelin(Params::mod_switch_norelin(P, Cnew, Cold, ct))
+    }
+}
+
+///
+/// Overwrites the implicit scale of a (possibly un-relinearized) ciphertext, leaving the
+/// ciphertext components (and hence its noise) unchanged. Used to "restamp" the implicit scale
+/// when the represented value has been adjusted by a known scalar, see [`DefaultModswitchStrategy::inner_prod`].
+///
+fn set_data_implicit_scale<Params: BGVInstantiation>(data: &mut CiphertextOrNoRelin<Params>, scale: <Params::PlaintextZnRing as RingBase>::Element) {
+    match data {
+        CiphertextOrNoRelin::Relin(ct) => ct.implicit_scale = scale,
+        CiphertextOrNoRelin::NoRelin(ct) => ct.implicit_scale = scale
     }
 }
 
@@ -597,23 +619,54 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         let C_target = Params::mod_switch_down_C(C_master, &total_drop);
 
         // mod-switch (clones of) all referenced ciphertexts down to the common base
-        let int_switched: Vec<(El<BigIntRing>, ModulusAwareCiphertext<Params, Self>)> = int_part.into_iter()
+        let mut int_switched: Vec<(El<BigIntRing>, ModulusAwareCiphertext<Params, Self>)> = int_part.into_iter()
             .map(|(c, i)| (c, self.mod_switch_down_cloned(P, &C_target, C_master, &total_drop, ys[i], "HomInnerProduct", debug_sk)))
             .collect();
-        let main_switched: Vec<(El<R>, ModulusAwareCiphertext<Params, Self>)> = main_part.into_iter()
+        let mut main_switched: Vec<(El<R>, ModulusAwareCiphertext<Params, Self>)> = main_part.into_iter()
             .map(|(c, i)| (ring.clone_el(c), self.mod_switch_down_cloned(P, &C_target, C_master, &total_drop, ys[i], "HomInnerProduct", debug_sk)))
             .collect();
+
+        // Implicit-scale (noise) optimization. The inner-product primitives fold each summand's own
+        // implicit scale `s_i` into its coefficient, multiplying that summand's noise by `|c_i s_i^-1|`;
+        // naively this yields implicit scale 1 but blows up the dominant summand's (and hence the
+        // result's) noise whenever `s_i != 1`. Instead we pick an output implicit scale `S` equal to
+        // the implicit scale of the highest-noise summand that has an invertible integer coefficient,
+        // divided by that coefficient, and pre-divide every summand's implicit scale by `S`. The chosen
+        // (dominant) summand then gets multiplier exactly 1 (its noise is not amplified), the others are
+        // rescaled instead, and the result carries implicit scale `S`. With no invertible integer summand
+        // (e.g. a purely encoded/plaintext-ring linear transform, where every summand has implicit scale
+        // 1) we get `S = 1`, i.e. the previous merge-to-scale-1 behavior.
+        let Zt = P.base_ring();
+        let output_scale = int_switched.iter()
+            .filter_map(|(c, ct)| Zt.invert(&Zt.coerce(&ZZbig, ZZbig.clone_el(c))).map(|c_inv| (
+                self.noise_estimator.estimate_log2_relative_noise_level(P, &C_target, &ct.info),
+                Zt.mul_ref_fst(&ct.info.implicit_scale, c_inv)
+            )))
+            .max_by(|(l, _), (r, _)| f64::total_cmp(l, r))
+            .map(|(_, scale)| scale)
+            .unwrap_or_else(|| Zt.one());
+        let output_scale_inv = Zt.invert(&output_scale).unwrap();
+        let restamp = |ct: &mut ModulusAwareCiphertext<Params, Self>| {
+            let new_scale = Zt.mul_ref(&ct.info.implicit_scale, &output_scale_inv);
+            ct.info.implicit_scale = Zt.clone_el(&new_scale);
+            set_data_implicit_scale::<Params>(&mut ct.data, new_scale);
+        };
+        for (_, ct) in int_switched.iter_mut() { restamp(ct); }
+        for (_, ct) in main_switched.iter_mut() { restamp(ct); }
 
         // compute the noise estimate (borrowing the descriptors) before consuming the data
         let int_noise = ZZbig.get_ring().hom_inner_product_noise(&self.noise_estimator, P, &C_target, int_switched.iter().map(|(c, ct)| (c, &ct.info)));
         let main_noise = ring.get_ring().hom_inner_product_noise(&self.noise_estimator, P, &C_target, main_switched.iter().map(|(c, ct)| (c, &ct.info)));
-        // both inner products yield implicit scale 1 (`hom_inner_product` always merges the per-summand
-        // implicit scale into its contribution), so use `AssertEqual` to check that this assumption holds
-        let result_info = self.noise_estimator.hom_add(P, &C_target, &int_noise, &main_noise, ImplicitScalePolicy::AssertEqual);
+        // after the restamping above, each inner product folds the (rescaled) per-summand implicit scale
+        // into its coefficient and thus yields implicit scale 1; combine with `AssertEqual` to check that
+        // invariant, then restamp the result to the chosen output scale `S`
+        let mut result_info = self.noise_estimator.hom_add(P, &C_target, &int_noise, &main_noise, ImplicitScalePolicy::AssertEqual);
+        result_info.implicit_scale = Zt.clone_el(&output_scale);
 
         let int_data = ZZbig.get_ring().hom_inner_product(P, &C_target, int_switched.into_iter().map(|(c, ct)| (c, ct.data)));
         let main_data = ring.get_ring().hom_inner_product(P, &C_target, main_switched.into_iter().map(|(c, ct)| (c, ct.data)));
-        let result_data = add_ct::<Params>(P, &C_target, int_data, main_data, ImplicitScalePolicy::AssertEqual);
+        let mut result_data = add_ct::<Params>(P, &C_target, int_data, main_data, ImplicitScalePolicy::AssertEqual);
+        set_data_implicit_scale::<Params>(&mut result_data, Zt.clone_el(&output_scale));
 
         return ModulusAwareCiphertext {
             data: result_data,
@@ -980,6 +1033,10 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> BG
 
     fn clone_info(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, info: &Self::CiphertextInfo) -> Self::CiphertextInfo {
         self.noise_estimator.clone_ct(P, C, info)
+    }
+
+    fn change_plaintext_modulus_info(&self, Pnew: &PlaintextRing<Params>, Pold: &PlaintextRing<Params>, C: &CiphertextRing<Params>, info: &Self::CiphertextInfo) -> Self::CiphertextInfo {
+        self.noise_estimator.change_plaintext_modulus(Pnew, Pold, C, info)
     }
 
     fn print_info(&self, P: &PlaintextRing<Params>, C_master: &CiphertextRing<Params>, ct: &ModulusAwareCiphertext<Params, Self>) {
