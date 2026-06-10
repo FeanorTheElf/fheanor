@@ -143,11 +143,51 @@ transparent in practice — the same situation already noted in REPORT_4 for `cl
   above) are unchanged.
 - The `bfv::bootstrap` module had already been re-enabled in Step 4 (it only depended on
   `compute_optimal_special_modulus`); nothing more was needed for it here.
-</content>
-</invoke>
 
 # Review
 
  - First of all, I have changed your handling of Clone; Implicit scale and ciphertext descriptor shouldn't have to be `Clone`, since the noise estimator/rings can clone it. No more changes from your side required here
  - There seems to be a bug that `DefaultModswitchStrategy::inner_prod` can indirectly call `hom_inner_product_plain_encoded` with `ImplicitScalePolicy::AssertEqual` but non-equal implicit scales. Write a test that demonstrates this bug. Afterwards, find a fix. If it helps: I have the feeling like the handling of the implicit scale in `AsBGVPlaintext` is not properly specified: I would assume that `AsBGVPlaintext::hom_inner_product` would accept inputs with mixed implicit scale, but it uses `AssertEqual` internally. If this is not the behavior, write a doc comment on what it expects.
  - You have the comment `// both parts have implicit scale 1 (merging the implicit scale into the plaintext is free), // so the addition does not increase noise; use `Merge` to be robust regardless` in `src/bgv/modswitch.rs`; that's not good style - if they have the same implicit scale, use `AssertEqual` to make sure this assumption is correct.
+# Review response
+
+All three points addressed.
+
+## 1. Clone handling
+
+Picked up your change (no `Clone` bounds on the implicit scale / `CiphertextDescriptor`; `clone_info`
+delegates to `noise_estimator.clone_ct`). The `where ...: Clone` bounds I had added to
+`perform_slots_to_coefficients` / `bootstrap_thin` are gone accordingly. Nothing further from my side.
+
+## 2. `inner_prod` → `hom_inner_product_plain_encoded` with mixed implicit scales
+
+**Bug confirmed and reproduced.** New regression test
+`bgv::modswitch::test_modswitch_strategy_inner_prod_encoded_mixed_scale`: it builds an
+`EncodedBGVPlaintextRingBase` constant ring, encrypts three values, modulus-switches one of them
+down (so that after `inner_prod` brings everything to the common base the summands have *different*
+implicit scales), and computes an inner product with `Coefficient::Other` (encoded) coefficients.
+Before the fix this panics with *"ImplicitScalePolicy::AssertEqual requires all summands to have the
+same implicit scale"* (verified by temporarily reverting the fix); after the fix it decrypts to the
+correct value.
+
+**Fix.** As you suspected, the intended contract is that `AsBGVPlaintext::hom_inner_product` accepts
+mixed implicit scales — the plaintext-ring and integer impls already do (their
+`hom_inner_product_plain` / `_plain_scalar` fold each summand's scale into the coefficient for free).
+Only the encoded impl used `AssertEqual`. It now uses `ImplicitScalePolicy::Merge` (data side:
+`hom_inner_product`'s relin and norelin branches; noise side: `hom_inner_product_noise`), which
+folds each summand's scale in via `merge_implicit_scale` (one scalar multiplication per ciphertext)
+and yields a result with implicit scale `1`. I also documented this on the trait method
+`AsBGVPlaintext::hom_inner_product`: it accepts arbitrary/mixed implicit scales and always returns
+scale `1`.
+
+## 3. `Merge`-"to be robust" comment in `inner_prod`
+
+Replaced with `AssertEqual`, as requested. Both the integer part and the encoded/plaintext "main"
+part now always produce implicit scale `1` (every `hom_inner_product` merges per summand), so
+combining them with `AssertEqual` actively checks that invariant instead of silently papering over a
+mismatch. Comment updated to state the invariant rather than the old hand-wave.
+
+## Status
+
+`cargo test --lib`: **176 passed, 0 failed, 18 ignored** (the 175 from before plus the new
+regression test). `cargo build --lib --tests --examples` clean, no new warnings.

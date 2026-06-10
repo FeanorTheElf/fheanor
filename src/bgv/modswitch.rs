@@ -607,13 +607,13 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         // compute the noise estimate (borrowing the descriptors) before consuming the data
         let int_noise = ZZbig.get_ring().hom_inner_product_noise(&self.noise_estimator, P, &C_target, int_switched.iter().map(|(c, ct)| (c, &ct.info)));
         let main_noise = ring.get_ring().hom_inner_product_noise(&self.noise_estimator, P, &C_target, main_switched.iter().map(|(c, ct)| (c, &ct.info)));
-        // both parts have implicit scale 1 (merging the implicit scale into the plaintext is free),
-        // so the addition does not increase noise; use `Merge` to be robust regardless
-        let result_info = self.noise_estimator.hom_add(P, &C_target, &int_noise, &main_noise, ImplicitScalePolicy::Merge);
+        // both inner products yield implicit scale 1 (`hom_inner_product` always merges the per-summand
+        // implicit scale into its contribution), so use `AssertEqual` to check that this assumption holds
+        let result_info = self.noise_estimator.hom_add(P, &C_target, &int_noise, &main_noise, ImplicitScalePolicy::AssertEqual);
 
         let int_data = ZZbig.get_ring().hom_inner_product(P, &C_target, int_switched.into_iter().map(|(c, ct)| (c, ct.data)));
         let main_data = ring.get_ring().hom_inner_product(P, &C_target, main_switched.into_iter().map(|(c, ct)| (c, ct.data)));
-        let result_data = add_ct::<Params>(P, &C_target, int_data, main_data, ImplicitScalePolicy::Merge);
+        let result_data = add_ct::<Params>(P, &C_target, int_data, main_data, ImplicitScalePolicy::AssertEqual);
 
         return ModulusAwareCiphertext {
             data: result_data,
@@ -1053,6 +1053,53 @@ fn test_modswitch_strategy_inner_prod() {
     let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
     let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
     assert_el_eq!(&P, &P.int_hom().map(-2 + 100 - 17), Pow2BGV::dec(&P, &res_C, res.data.unwrap_relin(), &res_sk));
+}
+
+#[test]
+fn test_modswitch_strategy_inner_prod_encoded_mixed_scale() {
+    // Regression test: `inner_prod` routes `Coefficient::Other` summands into its "main part",
+    // which calls `AsBGVPlaintext::hom_inner_product`. When the constant ring is an
+    // `EncodedBGVPlaintextRingBase`, this used to call `hom_inner_product_plain_encoded` with
+    // `ImplicitScalePolicy::AssertEqual`. But the summands are first modulus-switched to a common
+    // base, and a ciphertext modulus-switched from a smaller source modulus ends up with a different
+    // implicit scale than one switched from a larger (or unchanged) source modulus - so the assert
+    // would (incorrectly) fire. `hom_inner_product` must accept mixed implicit scales.
+    feanor_tracing::DelayedLogger::init_test();
+    let mut rng = rand::rng();
+
+    let params = Pow2BGV::new(1 << 8);
+    let P = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
+    let C = params.create_ciphertext_ring(500..520);
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+
+    let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> = DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
+    // the same plaintext/ciphertext ring, but with "encoded" (prepared) constants
+    let encoded_ring = EncodedBGVPlaintextRingBase::new(P.clone(), C.clone());
+
+    let inputs = [P.int_hom().map(2), P.int_hom().map(100), P.int_hom().map(-1)];
+    let mut cts = inputs.iter().map(|x| ModulusAwareCiphertext {
+        data: CiphertextOrNoRelin::Relin(Pow2BGV::enc_sym(&P, &C, &mut rng, &x, &sk, 3.2)),
+        dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+        info: modswitch_strategy.fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary)
+    }).collect::<Vec<_>>();
+
+    // modulus-switch the first input down, so that after `inner_prod` brings everything to the common
+    // base the summands no longer share a common implicit scale
+    let to_drop = RNSFactorIndexList::from([0], C.base_ring().len());
+    let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
+    cts[0] = modswitch_strategy.mod_switch_down(&P, &C_new, &C, &to_drop, modswitch_strategy.clone_ct(&P, &C, &cts[0]), "", None);
+
+    // all coefficients are `Coefficient::Other` over the encoded ring, so they all land in the
+    // (encoded) main part: 3 * 2 + 1 * 100 + 17 * (-1) = 89
+    let coeffs = [
+        Coefficient::Other(encoded_ring.int_hom().map(3)),
+        Coefficient::Other(encoded_ring.int_hom().map(1)),
+        Coefficient::Other(encoded_ring.int_hom().map(17))
+    ];
+    let res = modswitch_strategy.inner_prod(&P, &C, &coeffs.iter().collect::<Vec<_>>(), &cts.iter().collect::<Vec<_>>(), &encoded_ring, None);
+    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+    assert_el_eq!(&P, &P.int_hom().map(3 * 2 + 100 - 17), Pow2BGV::dec(&P, &res_C, res.data.unwrap_relin(), &res_sk));
 }
 
 #[test]

@@ -149,6 +149,14 @@ pub trait AsBGVPlaintext<Params: BGVInstantiation>: RingBase {
     ///
     /// The result is un-relinearized as soon as any of the summands is un-relinearized.
     ///
+    /// # Implicit scale
+    ///
+    /// This accepts summands with arbitrary (and possibly mixed) implicit scales, merging each
+    /// summand's implicit scale into its contribution; the returned ciphertext always has implicit
+    /// scale `1`. In particular, the caller does not have to equalize the implicit scales of the
+    /// `ct_i` beforehand (which is relevant since, e.g., modulus-switching the `ct_i` from different
+    /// source moduli to a common one generally leaves them with different implicit scales).
+    ///
     fn hom_inner_product<I>(
         &self,
         P: &PlaintextRing<Params>,
@@ -561,13 +569,17 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for EncodedBGVPlaintextRin
         // has no such variant, so we go through it without prepared operands; it still uses the
         // ciphertext ring's accelerated `ComputeInnerProduct`. This is a deliberate scope choice
         // for this refactor and could be revisited (e.g. via a prepared inner product) later.
+        // Use `Merge`, not `AssertEqual`: an encoded inner product may legitimately be given summands
+        // with different implicit scales (e.g. after modulus-switching them to a common base from
+        // different source moduli). `Merge` folds each summand's implicit scale into its contribution
+        // (at the cost of one scalar multiplication per ciphertext) and yields a result with scale `1`.
         let summands = summands.into_iter().map(|(m, ct)| (self.encoded_for(C, &m), ct)).collect::<Vec<_>>();
         if summands.iter().any(|(_, ct)| ct.is_norelin()) {
             let summands = summands.into_iter().map(|(m, ct)| (m, ct.into_norelin(C))).collect::<Vec<_>>();
-            CiphertextOrNoRelin::NoRelin(Params::hom_inner_product_plain_encoded_norelin(P, C, summands.iter().map(|(m, ct)| (m, ct)), ImplicitScalePolicy::AssertEqual))
+            CiphertextOrNoRelin::NoRelin(Params::hom_inner_product_plain_encoded_norelin(P, C, summands.iter().map(|(m, ct)| (m, ct)), ImplicitScalePolicy::Merge))
         } else {
             let summands = summands.into_iter().map(|(m, ct)| (m, ct.unwrap_relin())).collect::<Vec<_>>();
-            CiphertextOrNoRelin::Relin(Params::hom_inner_product_plain_encoded(P, C, summands.iter().map(|(m, ct)| (m, ct)), ImplicitScalePolicy::AssertEqual))
+            CiphertextOrNoRelin::Relin(Params::hom_inner_product_plain_encoded(P, C, summands.iter().map(|(m, ct)| (m, ct)), ImplicitScalePolicy::Merge))
         }
     }
 
@@ -605,8 +617,10 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for EncodedBGVPlaintextRin
             R: Borrow<CiphertextDescriptor<Params, N>>,
             I: IntoIterator<Item = (L, R)>
     {
+        // mirror the data-side policy in `hom_inner_product` (see the comment there): merge implicit
+        // scales rather than asserting they are equal
         let summands = summands.into_iter().map(|(m, ct)| (self.encoded_for(C, m.borrow()), ct)).collect::<Vec<_>>();
-        estimator.hom_inner_product_plain_encoded(P, C, summands.iter().map(|(m, ct)| (m, ct.borrow())), ImplicitScalePolicy::AssertEqual)
+        estimator.hom_inner_product_plain_encoded(P, C, summands.iter().map(|(m, ct)| (m, ct.borrow())), ImplicitScalePolicy::Merge)
     }
 }
 
