@@ -797,8 +797,15 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         where R: RingStore + Copy,
             R::Type: AsBGVPlaintext<Params>
     {
-        // a Galois automorphism operates on a relinearized ciphertext; relinearize first if needed
-        let x = self.relinearize_if_needed(P, C_master, x, rk.expect("relinearizing before a Galois automorphism requires a relinearization key"), debug_sk);
+        // a Galois automorphism operates on a relinearized ciphertext; relinearize first if needed.
+        // The relinearization key is only required on the un-relinearized path (which can only arise
+        // from a preceding multiplication, and hence only when a key was provided anyway); an
+        // already-relinearized input (e.g. in a purely linear transform) needs no key.
+        let x = if x.data.is_norelin() {
+            self.relinearize_if_needed(P, C_master, x, rk.expect("relinearizing before a Galois automorphism requires a relinearization key"), debug_sk)
+        } else {
+            x
+        };
         let used_sk = x.info.sk;
         assert!(x.dropped_rns_factor_indices.len() < C_master.base_ring().len());
 

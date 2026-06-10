@@ -79,7 +79,7 @@ pub mod modswitch;
 ///
 /// Contains the implementation of BGV thin bootstrapping.
 ///
-// pub mod bootstrap;
+pub mod bootstrap;
 
 ///
 /// When choosing primes for an RNS base, we restrict to primes of this bitlength.
