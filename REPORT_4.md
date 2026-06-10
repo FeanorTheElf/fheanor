@@ -187,3 +187,5 @@ three impls):
 - **Re-enabling `bfv::bootstrap`** now (rather than in Step 5), since its only `bgv` dependency
   (`compute_optimal_special_modulus`) is available again and this cleanly removes the Step-1
   workaround. Flag if you'd rather keep it disabled until Step 5.
+
+# Human approved
