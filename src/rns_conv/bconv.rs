@@ -12,6 +12,8 @@ use tracing::instrument;
 use std::alloc::Allocator;
 use std::alloc::Global;
 use std::array::from_fn;
+use std::hint::assert_unchecked;
+use std::slice::from_ref;
 
 use crate::{ZZbig, ZZi64, ZZi128};
 use super::RNSOperation;
@@ -33,11 +35,21 @@ use super::RNSOperation;
 /// 
 /// [`RNSBaseConversion`]: crate::rns_conv::lift::RNSBaseConversion
 /// 
-pub struct RNSMatrixBaseConversion<A = Global>
-    where A: Allocator + Clone
+pub struct RNSBaseConversion<A = Global>(RNSMatrixBaseConversionEnum<A>)
+    where A: Allocator;
+
+enum RNSMatrixBaseConversionEnum<A>
+    where A: Allocator
 {
-    from_summands: Vec<Zn>,
-    to_summands: Vec<Zn>,
+    General(GeneralRNSMatrixBaseConversion<A>),
+    SingleIn(SingleInRNSMatrixBaseConversion<A>)
+}
+
+struct GeneralRNSMatrixBaseConversion<A = Global>
+    where A: Allocator
+{
+    from_moduli: Vec<Zn>,
+    to_moduli: Vec<Zn>,
     /// the values `q/Q mod q` for each RNS factor q dividing Q (ordered as `from_summands`)
     q_over_Q: Vec<ZnEl>,
     /// shortest lifts of the values `Q/q mod q'` for each RNS factor q dividing Q (ordered 
@@ -50,6 +62,14 @@ pub struct RNSMatrixBaseConversion<A = Global>
     gamma: i128,
     /// `Q mod q'` for every RNS factor q' of Q' (ordered as `to_summands`)
     Q_mod_q: Vec<ZnEl>,
+    allocator: A
+}
+
+struct SingleInRNSMatrixBaseConversion<A>
+    where A: Allocator
+{
+    from_modulus: Zn,
+    to_moduli: Vec<Zn>,
     allocator: A
 }
 
@@ -111,7 +131,7 @@ fn pad_to_block(len: usize) -> usize {
     }
 }
 
-impl RNSMatrixBaseConversion {
+impl RNSBaseConversion {
 
     ///
     /// Creates a new [`RNSMatrixBaseConversion`] from `q` to `q'`.
@@ -121,14 +141,36 @@ impl RNSMatrixBaseConversion {
     }
 }
 
-impl<A> RNSMatrixBaseConversion<A> 
-    where A: Allocator + Clone
+impl<A> RNSBaseConversion<A> 
+    where A: Allocator
+{
+    ///
+    /// Creates a new [`RNSMatrixBaseConversion`] from `q` to `q'`.
+    /// 
+    pub fn new_with_alloc(in_rings: Vec<Zn>, out_rings: Vec<Zn>, allocator: A) -> Self {
+        if in_rings.len() == 1 {
+            Self(RNSMatrixBaseConversionEnum::SingleIn(SingleInRNSMatrixBaseConversion { from_modulus: in_rings[0], to_moduli: out_rings, allocator: allocator }))
+        } else {
+            Self(RNSMatrixBaseConversionEnum::General(GeneralRNSMatrixBaseConversion::new_with_alloc(in_rings, out_rings, allocator)))
+        }
+    }
+
+    pub fn allocator(&self) -> &A {
+        match &self.0 {
+            RNSMatrixBaseConversionEnum::General(rns_conv) => &rns_conv.allocator,
+            RNSMatrixBaseConversionEnum::SingleIn(rns_conv) => &rns_conv.allocator
+        }
+    }
+}
+
+impl<A> GeneralRNSMatrixBaseConversion<A> 
+    where A: Allocator
 {
     ///
     /// Creates a new [`RNSMatrixBaseConversion`] from `q` to `q'`.
     /// 
     #[instrument(skip_all)]
-    pub fn new_with_alloc(in_rings: Vec<Zn>, out_rings: Vec<Zn>, allocator: A) -> Self {
+    fn new_with_alloc(in_rings: Vec<Zn>, out_rings: Vec<Zn>, allocator: A) -> Self {
         
         let Q = ZZbig.prod((0..in_rings.len()).map(|i| int_cast(*in_rings.at(i).modulus(), ZZbig, ZZi64)));
 
@@ -173,26 +215,10 @@ impl<A> RNSMatrixBaseConversion<A>
             q_over_Q: q_over_Q,
             Q_mod_q: (0..out_rings.len()).map(|i| out_rings.at(i).coerce(&ZZbig, ZZbig.clone_el(&Q))).collect(),
             gamma: ZZi128.power_of_two(gamma_log2),
-            allocator: allocator.clone(),
-            from_summands: in_rings,
-            to_summands: out_rings
+            allocator: allocator,
+            from_moduli: in_rings,
+            to_moduli: out_rings
         }
-    }
-}
-
-impl<A> RNSOperation for RNSMatrixBaseConversion<A> 
-    where A: Allocator + Clone
-{
-    type Ring = Zn;
-
-    type RingType = ZnBase;
-
-    fn input_rings<'a>(&'a self) -> &'a [Zn] {
-        &self.from_summands
-    }
-
-    fn output_rings<'a>(&'a self) -> &'a [Zn] {
-        &self.to_summands
     }
 
     ///
@@ -206,67 +232,131 @@ impl<A> RNSOperation for RNSMatrixBaseConversion<A>
     /// then the result is guaranteed to be exact.
     /// 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, mut output: SubmatrixMut<V2, El<Self::Ring>>)
+    fn convert_base<V1, V2>(&self, input: Submatrix<V1, El<Zn>>, mut output: SubmatrixMut<V2, El<Zn>>)
+        where V1: AsPointerToSlice<El<Zn>>,
+            V2: AsPointerToSlice<El<Zn>>
+    {
+        assert_eq!(input.row_count(), self.from_moduli.len());
+        assert_eq!(output.row_count(), self.to_moduli.len());
+        assert_eq!(input.col_count(), output.col_count());
+
+        let in_len = input.row_count();
+        let out_len = output.row_count();
+        let col_count = input.col_count();
+        let int_to_homs = (0..self.to_moduli.len()).map(|k| self.to_moduli.at(k).can_hom(&ZZi128).unwrap()).collect::<Vec<_>>();
+        let mut lifts = OwnedMatrix::from_fn_in(pad_to_block(in_len), pad_to_block(col_count), |_, _| 0, &self.allocator);
+        let mut lifts = lifts.data_mut();
+        for i in 0..in_len {
+            for j in 0..col_count {
+                *lifts.at_mut(i, j) = self.from_moduli[i].any_lift(self.from_moduli[i].mul_ref(input.at(i, j), self.q_over_Q.at(i)));
+                debug_assert!(*lifts.at(i, 0) >= 0 && *lifts.at(i, 0) as i128 <= ZN_ANY_LIFT_FACTOR as i128 * *self.from_moduli[i].modulus() as i128);
+            }
+        }
+
+        let mut output_unreduced = OwnedMatrix::zero(pad_to_block(out_len), pad_to_block(col_count), ZZi128);
+        assert_eq!(0, self.Q_over_q_mod.row_count() % BLOCK_SIZE);
+        assert_eq!(0, self.Q_over_q_mod.col_count() % BLOCK_SIZE);
+        assert_eq!(0, output_unreduced.row_count() % BLOCK_SIZE);
+        assert_eq!(0, lifts.row_count() % BLOCK_SIZE);
+        for (lhs_blocks, mut res_block) in self.Q_over_q_mod.data().row_iter().array_chunks::<BLOCK_SIZE>().zip(
+            output_unreduced.data_mut().row_iter().array_chunks::<BLOCK_SIZE>()
+        ) {
+            for (j, rhs_block) in lifts.as_const().row_iter().array_chunks::<BLOCK_SIZE>().enumerate() {
+                matmul_4x4_i64_to_i128(
+                    from_fn(|i| &lhs_blocks[i].as_chunks::<BLOCK_SIZE>().0[j]), 
+                    rhs_block, 
+                    &mut res_block);
+            }
+        }
+
+        let mut output_correction: Vec<i128> = (0..pad_to_block(col_count)).map(|_| 0).collect();
+        assert_eq!(0, self.Q_over_q_downscaled.len() % BLOCK_SIZE);
+        for (lhs_block, rhs_block) in self.Q_over_q_downscaled.iter().copied().array_chunks::<BLOCK_SIZE>().zip(
+            lifts.as_const().row_iter().array_chunks::<BLOCK_SIZE>()
+        ) {
+            vecmatmul_4_i128_to_i128(lhs_block, rhs_block, &mut output_correction);
+        }
+
+        for j in 0..col_count {
+            let mut correction = *output_correction.at(j);
+            correction = ZZi128.rounded_div(correction, &self.gamma);
+            for i in 0..out_len {
+                *output.at_mut(i, j) = self.to_moduli[i].sub(
+                    int_to_homs.at(i).map_ref(output_unreduced.at(i, j)), 
+                    self.to_moduli[i].mul_ref_snd(int_to_homs[i].map(correction), &self.Q_mod_q[i])
+                );
+            }
+        }
+    }
+}
+
+impl<A> SingleInRNSMatrixBaseConversion<A>
+    where A: Allocator
+{
+    #[instrument(skip_all)]
+    fn convert_base<V1, V2>(&self, input: Submatrix<V1, El<Zn>>, mut output: SubmatrixMut<V2, El<Zn>>)
+        where V1: AsPointerToSlice<El<Zn>>,
+            V2: AsPointerToSlice<El<Zn>>
+    {
+        assert_eq!(input.row_count(), 1);
+        assert_eq!(output.row_count(), self.to_moduli.len());
+        assert_eq!(input.col_count(), output.col_count());
+
+        let mut lifts = Vec::with_capacity_in(output.col_count(), &self.allocator);
+        lifts.extend(input.row_at(0).iter().map(|x| self.from_modulus.smallest_lift(*x)));
+
+        for i in 0..output.row_count() {
+            let Zp = &self.to_moduli[i];
+            if self.from_modulus.modulus() <= Zp.modulus() {
+                let from_modulus = *self.from_modulus.modulus();
+                let neg_from_modulus_Zp = Zp.coerce(&ZZi64, -from_modulus);
+                for j in 0..output.col_count() {
+                    let val = lifts[j];
+                    *output.at_mut(i, j) = if val < 0 {
+                        Zp.add(Zp.get_ring().from_int_promise_reduced(val + from_modulus), neg_from_modulus_Zp)
+                    } else {
+                        Zp.get_ring().from_int_promise_reduced(val)
+                    }
+                }
+            } else {
+                let mod_p = Zp.can_hom(&ZZi64).unwrap();
+                for j in 0..output.col_count() {
+                    let val = lifts[j];
+                    *output.at_mut(i, j) = mod_p.map(val);
+                }
+            }
+        }
+    }
+}
+
+impl<A> RNSOperation for RNSBaseConversion<A> 
+    where A: Allocator
+{
+    type Ring = Zn;
+
+    type RingType = ZnBase;
+
+    fn input_rings<'a>(&'a self) -> &'a [Zn] {
+        match &self.0 {
+            RNSMatrixBaseConversionEnum::General(rns_conv) => &rns_conv.from_moduli,
+            RNSMatrixBaseConversionEnum::SingleIn(rns_conv) => from_ref(&rns_conv.from_modulus)
+        }
+    }
+
+    fn output_rings<'a>(&'a self) -> &'a [Zn] {
+        match &self.0 {
+            RNSMatrixBaseConversionEnum::General(rns_conv) => &rns_conv.to_moduli,
+            RNSMatrixBaseConversionEnum::SingleIn(rns_conv) => &rns_conv.to_moduli
+        }
+    }
+
+    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<V2, El<Self::Ring>>)
         where V1: AsPointerToSlice<El<Self::Ring>>,
             V2: AsPointerToSlice<El<Self::Ring>>
     {
-        {
-            assert_eq!(input.row_count(), self.input_rings().len());
-            assert_eq!(output.row_count(), self.output_rings().len());
-            assert_eq!(input.col_count(), output.col_count());
-
-            let in_len = input.row_count();
-            let out_len = output.row_count();
-            let col_count = input.col_count();
-
-            let int_to_homs = (0..self.output_rings().len()).map(|k| self.output_rings().at(k).can_hom(&ZZi128).unwrap()).collect::<Vec<_>>();
-
-            let mut lifts = OwnedMatrix::from_fn_in(pad_to_block(in_len), pad_to_block(col_count), |_, _| 0, self.allocator.clone());
-            let mut lifts = lifts.data_mut();
-
-            for i in 0..in_len {
-                for j in 0..col_count {
-                    *lifts.at_mut(i, j) = self.from_summands[i].any_lift(self.from_summands[i].mul_ref(input.at(i, j), self.q_over_Q.at(i)));
-                    debug_assert!(*lifts.at(i, 0) >= 0 && *lifts.at(i, 0) as i128 <= ZN_ANY_LIFT_FACTOR as i128 * *self.from_summands[i].modulus() as i128);
-                }
-            }
-
-            let mut output_unreduced = OwnedMatrix::zero(pad_to_block(out_len), pad_to_block(col_count), ZZi128);
-
-            assert_eq!(0, self.Q_over_q_mod.row_count() % BLOCK_SIZE);
-            assert_eq!(0, self.Q_over_q_mod.col_count() % BLOCK_SIZE);
-            assert_eq!(0, output_unreduced.row_count() % BLOCK_SIZE);
-            assert_eq!(0, lifts.row_count() % BLOCK_SIZE);
-            for (lhs_blocks, mut res_block) in self.Q_over_q_mod.data().row_iter().array_chunks::<BLOCK_SIZE>().zip(
-                output_unreduced.data_mut().row_iter().array_chunks::<BLOCK_SIZE>()
-            ) {
-                for (j, rhs_block) in lifts.as_const().row_iter().array_chunks::<BLOCK_SIZE>().enumerate() {
-                    matmul_4x4_i64_to_i128(
-                        from_fn(|i| &lhs_blocks[i].as_chunks::<BLOCK_SIZE>().0[j]), 
-                        rhs_block, 
-                        &mut res_block);
-                }
-            }
-
-            let mut output_correction: Vec<i128> = (0..pad_to_block(col_count)).map(|_| 0).collect();
-            assert_eq!(0, self.Q_over_q_downscaled.len() % BLOCK_SIZE);
-            for (lhs_block, rhs_block) in self.Q_over_q_downscaled.iter().copied().array_chunks::<BLOCK_SIZE>().zip(
-                lifts.as_const().row_iter().array_chunks::<BLOCK_SIZE>()
-            ) {
-                vecmatmul_4_i128_to_i128(lhs_block, rhs_block, &mut output_correction);
-            }
-
-            for j in 0..col_count {
-                let mut correction = *output_correction.at(j);
-                correction = ZZi128.rounded_div(correction, &self.gamma);
-
-                for i in 0..out_len {
-                    *output.at_mut(i, j) = self.to_summands[i].sub(
-                        int_to_homs.at(i).map_ref(output_unreduced.at(i, j)), 
-                        self.to_summands[i].mul_ref_snd(int_to_homs[i].map(correction), &self.Q_mod_q[i])
-                    );
-                }
-            }
+        match &self.0 {
+            RNSMatrixBaseConversionEnum::General(rns_conv) => rns_conv.convert_base(input, output),
+            RNSMatrixBaseConversionEnum::SingleIn(rns_conv) => rns_conv.convert_base(input, output),
         }
     }
 }
@@ -324,7 +414,7 @@ fn test_empty_rns_base_conversion() {
     let from = vec![];
     let to = vec![Zn::new(17), Zn::new(257)];
 
-    let table = RNSMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
+    let table = RNSBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     let mut actual = to.iter().map(|Zn| Zn.one()).collect::<Vec<_>>();
     table.apply(Submatrix::from_1d(&[], from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
@@ -335,7 +425,7 @@ fn test_empty_rns_base_conversion() {
     let from = vec![Zn::new(17), Zn::new(257)];
     let to = vec![];
 
-    let table = RNSMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
+    let table = RNSBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     let input = from.iter().map(|Zn| Zn.one()).collect::<Vec<_>>();
     table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut [], to.len(), 1));
@@ -348,7 +438,7 @@ fn test_rns_base_conversion() {
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
     let q = 17 * 97;
 
-    let table = RNSMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
+    let table = RNSBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     for k in (-q/2)..=(q/2) {
         let input = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
@@ -379,7 +469,7 @@ fn test_rns_base_conversion_both_unordered() {
     let from = vec![Zn::new(31), Zn::new(29)];
     let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
     let q = 31 * 29;
-    let table = RNSMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
+    let table = RNSBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     for k in -(q/2)..=(q/2) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
@@ -399,7 +489,7 @@ fn test_rns_base_conversion_small() {
     let to = vec![Zn::new(17)];
     let q = 3 * 97;
 
-    let table = RNSMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
+    let table = RNSBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
     
     for k in -(q/2)..=(q/2) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
@@ -419,7 +509,7 @@ fn test_rns_base_conversion_not_coprime() {
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
     let q = 17 * 97 * 113;
 
-    let table = RNSMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
+    let table = RNSBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     for k in -(q/4)..=(q/4) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
@@ -441,7 +531,7 @@ fn test_rns_base_conversion_not_coprime_from_unordered() {
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
     let q = 113 * 17 * 97;
 
-    let table = RNSMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
+    let table = RNSBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     for k in -(q/4)..=(q/4) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
@@ -463,7 +553,7 @@ fn test_rns_base_conversion_coprime() {
     let to = vec![Zn::new(19), Zn::new(23), Zn::new(257)];
     let q = 113 * 17 * 97;
 
-    let table = RNSMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
+    let table = RNSBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     for k in -(q/4)..=(q/4) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
@@ -487,7 +577,7 @@ fn bench_rns_base_conversion(bencher: &mut Bencher) {
     let mut primes = ((1 << 30)..).map(|k| (1 << 10) * k + 1).filter(|p| is_prime(&StaticRing::<i64>::RING, p, 10)).map(|p| Zn::new(p as u64));
     let in_moduli = primes.by_ref().take(in_moduli_count).collect::<Vec<_>>();
     let out_moduli = primes.take(out_moduli_count).collect::<Vec<_>>();
-    let conv = RNSMatrixBaseConversion::new_with_alloc(in_moduli.clone(), out_moduli.clone(), Global);
+    let conv = RNSBaseConversion::new_with_alloc(in_moduli.clone(), out_moduli.clone(), Global);
     
     let mut rng = oorandom::Rand64::new(1);
     let mut in_data = (0..(in_moduli_count * cols)).map(|idx| in_moduli[idx / cols].zero()).collect::<Vec<_>>();
@@ -558,7 +648,7 @@ fn test_base_conversion_large() {
     
     let from = from.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
     let to = to.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
-    let conversion = RNSMatrixBaseConversion::new_with_alloc(from, to.clone(), Global);
+    let conversion = RNSBaseConversion::new_with_alloc(from, to.clone(), Global);
 
     let input = (0..in_len).map(|i| conversion.input_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();
     let expected = (0..(primes.len() - in_len)).map(|i| conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();

@@ -3,13 +3,6 @@ use feanor_math::rings::zn::{ZnRing, ZnRingStore};
 use feanor_math::matrix::*;
 
 ///
-/// Contains the basic "lift-and-reduce" RNS base conversion, which
-/// can be used to change the RNS modulus without "changing" the representative
-/// of elements.
-/// 
-pub mod lift;
-
-///
 /// Contains the implementation of the rounded rescaling operations used
 /// during BFV multiplication and modulus-switching.
 /// 
@@ -30,7 +23,7 @@ pub mod shared_lift;
 /// (as in [`lift`]), which explicitly considers the conversion as matrix
 /// multiplication.
 /// 
-pub mod matrix_lift;
+pub mod bconv;
 
 ///
 /// Trait for any map `Zq -> Zq'` for (usually composite) `q, q'`.
@@ -74,23 +67,4 @@ pub trait RNSOperation {
             V2: AsPointerToSlice<El<Self::Ring>>;
 }
 
-pub(crate) type UsedBaseConversion<A> = matrix_lift::RNSMatrixBaseConversion<A>;
-
-///
-/// Returns `(data_sorted, perm)` such that `data_sorted` is an (ascending)
-/// unstable sorting of `data`, and `data[i] = data_sorted[perm[i]]`.
-/// 
-fn sort_unstable_permutation<T, F>(data: Vec<T>, mut sort_by: F) -> (Vec<T>, Vec<usize>)
-    where F: FnMut(&T, &T) -> std::cmp::Ordering
-{
-    let len = data.len();
-    let mut enumerated = data.into_iter().enumerate().collect::<Vec<_>>();
-    enumerated.sort_unstable_by(|(_, x), (_, y)| sort_by(x, y));
-    let mut perm = (0..len).map(|_| 0).collect::<Vec<_>>();
-    let mut data_sorted = Vec::with_capacity(len);
-    for (j, (i, x)) in enumerated.into_iter().enumerate() {
-        data_sorted.push(x);
-        perm[i] = j;
-    }
-    return (data_sorted, perm);
-}
+pub(crate) type UsedBaseConversion<A> = bconv::RNSBaseConversion<A>;
