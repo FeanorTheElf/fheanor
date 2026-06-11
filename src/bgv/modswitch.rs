@@ -556,8 +556,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         let int_products: Vec<(El<BigIntRing>, ModulusAwareCiphertext<Params, Self>)> = int_products.into_iter().map(|(lhs, rhs)| {
             let lhs = int_cast(Zt.smallest_lift(Zt.mul(Zt.coerce(&ZZbig, lhs), Zt.checked_div(&output_implicit_scale, &rhs.data.implicit_scale).unwrap())), ZZbig, ZZ);
             let mut rhs = rhs.to_owned(|ct| self.clone_ct(P, C_master, ct));
-            rhs.data.implicit_scale = Zt.clone_el(&output_implicit_scale);
-            rhs.info.implicit_scale = Zt.clone_el(&output_implicit_scale);
+            rhs.data.implicit_scale = Zt.one();
+            rhs.info.implicit_scale = Zt.one();
             return (lhs, rhs);
         }).collect();
 
@@ -565,8 +565,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         let main_products: Vec<(Boo<El<R>>, ModulusAwareCiphertext<Params, Self>)> = main_products.into_iter().map(|(lhs, rhs)| {
             let factor = Zt.smallest_lift(Zt.checked_div(&output_implicit_scale, &rhs.data.implicit_scale).unwrap());
             let mut rhs = rhs.to_owned(|ct| self.clone_ct(P, C_master, ct));
-            rhs.data.implicit_scale = Zt.clone_el(&output_implicit_scale);
-            rhs.info.implicit_scale = Zt.clone_el(&output_implicit_scale);
+            rhs.data.implicit_scale = Zt.one();
+            rhs.info.implicit_scale = Zt.one();
             if !ZZ.is_one(&factor) {
                 let mut lhs = ring.clone_el(lhs);
                 ZZbig_to_ring.mul_assign_map(&mut lhs, int_cast(factor, ZZbig, ZZ));
@@ -586,8 +586,12 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         let main_product_part = ring.get_ring().hom_inner_product(P, &C_target, main_products.into_iter().map(|(lhs, rhs)| (lhs, Boo::Owned(rhs.data))));
 
         // ignore the last plaintext addition for noise analysis, it's gonna be fine
-        let product_info = self.noise_estimator.hom_add(P, &C_target, &int_product_noise, &main_product_noise, ImplicitScalePolicy::AssertEqual);
-        let product_data = Params::hom_add(P, &C_target, int_product_part, main_product_part, ImplicitScalePolicy::AssertEqual);
+        let mut product_info = self.noise_estimator.hom_add(P, &C_target, &int_product_noise, &main_product_noise, ImplicitScalePolicy::AssertEqual);
+        product_info.implicit_scale = Zt.clone_el(&output_implicit_scale);
+        let mut product_data = Params::hom_add(P, &C_target, int_product_part, main_product_part, ImplicitScalePolicy::AssertEqual);
+        product_data.implicit_scale = Zt.clone_el(&output_implicit_scale);
+
+        assert!(P.base_ring().eq_el(&output_implicit_scale, &product_data.implicit_scale));
         return ModulusAwareCiphertext {
             data: product_data,
             info: product_info,

@@ -607,12 +607,8 @@ pub trait BGVInstantiation {
 
     ///
     /// Computes `sum_i m_i * ct_i`, where each `m_i` is a scalar from `Z/tZ` and each
-    /// `ct_i` is a ciphertext.
-    ///
-    /// Since the implicit scale of each `ct_i` is folded into its (plaintext) scalar
-    /// multiplicand, which is essentially free and does not increase noise, this
-    /// function does not take an [`ImplicitScalePolicy`]; the result always has implicit
-    /// scale `1`.
+    /// `ct_i` is a ciphertext. The `policy` controls how the implicit scales of the summands
+    /// are combined, see [`ImplicitScalePolicy`].
     ///
     #[instrument(skip_all)]
     fn hom_inner_product_plain_scalar<'a, I>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, summands: I) -> Ciphertext<Self>
@@ -625,9 +621,7 @@ pub trait BGVInstantiation {
         let to_Cbase = C.base_ring().can_hom(&ZZbig).unwrap();
         let mut c0 = C.zero();
         let mut c1 = C.zero();
-        let mut empty = true;
         for (m, ct) in summands {
-            empty = false;
             assert!(P.base_ring().is_unit(&ct.implicit_scale));
             // fold the implicit scale into the scalar (free), bringing the result to implicit scale 1
             let scalar = P.base_ring().mul(m, P.base_ring().invert(&ct.implicit_scale).unwrap());
@@ -635,19 +629,13 @@ pub trait BGVInstantiation {
             c0 = incl.fma_map(&ct.c0, &scalar, c0);
             c1 = incl.fma_map(&ct.c1, &scalar, c1);
         }
-        if empty {
-            return Self::transparent_zero(P, C);
-        }
         return Ciphertext { c0, c1, implicit_scale: P.base_ring().one() };
     }
 
     ///
     /// Computes `sum_i m_i * ct_i`, where each `m_i` is a plaintext from `R/tR` and each
-    /// `ct_i` is a ciphertext.
-    ///
-    /// Since the implicit scale of each `ct_i` is folded into its (plaintext) multiplicand,
-    /// which is essentially free and does not increase noise, this function does not take
-    /// an [`ImplicitScalePolicy`]; the result always has implicit scale `1`.
+    /// `ct_i` is a ciphertext. The `policy` controls how the implicit scales of the summands
+    /// are combined, see [`ImplicitScalePolicy`].
     ///
     #[instrument(skip_all)]
     fn hom_inner_product_plain<'a, 'b, I>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, summands: I) -> Ciphertext<Self>
