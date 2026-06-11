@@ -23,7 +23,7 @@ use fheanor::rns_conv::RNSOperation;
 use fheanor::number_ring::quotient_by_int::NumberRingQuotientByInt;
 use fheanor::number_ring::pow2_cyclotomic::*;
 use fheanor::ciphertext_ring::double_rns_ring::*;
-use fheanor::rns_conv::matrix_lift::RNSMatrixBaseConversion;
+use fheanor::rns_conv::bconv::RNSBaseConversion;
 
 type NumberRing = Pow2CyclotomicNumberRing;
 type PlaintextRing = NumberRingQuotientByInt<NumberRing, zn_64::Zn>;
@@ -146,7 +146,7 @@ fn hom_mul_three_component(
     let (c0, c1) = (&lhs.0, &lhs.1);
     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
 
-    let lift_to_multiplication_ring_rnsconv = RNSMatrixBaseConversion::new(
+    let lift_to_multiplication_ring_rnsconv = RNSBaseConversion::new(
         ciphertext_ring.base_ring().as_iter().cloned().collect(), 
         multiplication_ring.base_ring().as_iter().cloned().collect()
     );
