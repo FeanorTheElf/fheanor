@@ -12,7 +12,6 @@ use tracing::instrument;
 use std::alloc::Allocator;
 use std::alloc::Global;
 use std::array::from_fn;
-use std::hint::assert_unchecked;
 use std::slice::from_ref;
 
 use crate::{ZZbig, ZZi64, ZZi128};

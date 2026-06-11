@@ -1,6 +1,5 @@
 use std::alloc::Allocator;
 use std::alloc::Global;
-use std::hint::assert_unchecked;
 
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::homomorphism::*;
