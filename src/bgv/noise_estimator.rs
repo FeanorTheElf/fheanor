@@ -155,6 +155,11 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
     fn mod_switch_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self>;
 
     ///
+    /// Noise equivalent of [`BGVInstantiation::fake_mod_switch_down_ct()`].
+    ///
+    fn fake_mod_switch_down_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self>;
+
+    ///
     /// Noise equivalent of [`BGVInstantiation::change_plaintext_modulus()`].
     ///
     fn change_plaintext_modulus(&self, Pnew: &PlaintextRing<Params>, Pold: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self>;
@@ -494,6 +499,11 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         Self::descriptor::<Params>(result, mod_switch_scale::<Params>(P, Cnew, Cold, &ct.implicit_scale), ct.sk)
     }
 
+    fn fake_mod_switch_down_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
+        let result = ct.noise.log2_relative_critical_quantity + ZZbig.abs_log2_ceil(Cold.base_ring().modulus()).unwrap() as f64 - ZZbig.abs_log2_floor(Cnew.base_ring().modulus()).unwrap() as f64;
+        Self::descriptor(result, P.base_ring().clone_el(&ct.implicit_scale), ct.sk)
+    }
+
     fn change_plaintext_modulus(&self, Pnew: &PlaintextRing<Params>, Pold: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
         Self::descriptor::<Params>(ct.noise.log2_relative_critical_quantity, change_plaintext_modulus_scale::<Params>(Pnew, Pold, &ct.implicit_scale), ct.sk)
     }
@@ -558,6 +568,10 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for AlwaysZeroNoiseEsti
 
     fn mod_switch_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
         CiphertextDescriptor::new((), mod_switch_scale::<Params>(P, Cnew, Cold, &ct.implicit_scale), ct.sk)
+    }
+
+    fn fake_mod_switch_down_ct(&self, P: &PlaintextRing<Params>, _Cnew: &CiphertextRing<Params>, _Cold: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
+        CiphertextDescriptor::new((), P.base_ring().clone_el(&ct.implicit_scale), ct.sk)
     }
 
     fn change_plaintext_modulus(&self, Pnew: &PlaintextRing<Params>, Pold: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {

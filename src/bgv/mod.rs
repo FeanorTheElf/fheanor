@@ -927,77 +927,6 @@ pub trait BGVInstantiation {
     }
 
     ///
-    /// Given `R/qR` this creates the ciphertext ring `R/q'R`, where the RNS base for `q'`
-    /// is derived from the RNS base of `q` by removing the RNS factors whose indices are mentioned
-    /// in `drop_moduli`.
-    /// 
-    /// Note that for the implementation in Fheanor at least, the underlying rings will share
-    /// most of their data, which means that this function is actually very cheap, in particular
-    /// much cheaper than creating a new ciphertext ring (e.g. using [`BGVInstantiation::create_ciphertext_ring()`]).
-    /// 
-    #[instrument(skip_all)]
-    fn mod_switch_down_C(C: &CiphertextRing<Self>, drop_moduli: &RNSFactorIndexList) -> CiphertextRing<Self> {
-        RingValue::from(C.get_ring().drop_rns_factor(&drop_moduli))
-    }
-
-    ///
-    /// Modulus-switches a secret key in a way compatible with modulus-switching ciphertexts.
-    ///  
-    /// More concretely, this function computes the smallest lift of the given secret key
-    /// to the number ring, reduced modulo the modulus of `Cnew`. This secret key can successfully
-    /// decrypt ciphertexts obtained via [`BGVInstantiation::mod_switch_ct()`].
-    /// 
-    #[instrument(skip_all)]
-    fn mod_switch_sk(Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, sk: &SecretKey<Self>) -> SecretKey<Self> {
-        if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
-            return Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
-        } else {
-            let mod_switch = UsedBaseConversion::new_with_alloc(
-                Cold.base_ring().as_iter().cloned().collect(),
-                Cnew.base_ring().as_iter().cloned().collect(),
-                Global
-            );
-            assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
-            assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
-            return perform_rns_op(Cnew.get_ring(), Cold.get_ring(), sk, &mod_switch);
-        }
-    }
-
-    ///
-    /// Modulus-switches a relinearization key in a way compatible with modulus-switching ciphertexts.
-    /// 
-    /// This is equivalent to creating a new relinearization key (using [`BGVInstantiation::gen_rk()`])
-    /// over `Cnew` for the secret key `mod_switch_sk(Cnew, Cold, drop_moduli, sk)`, but does not require
-    /// access to `sk`. Currently, this function only supports decreasing the ciphertext modulus, by dropping
-    /// RNS factors.
-    /// 
-    #[instrument(skip_all)]
-    fn mod_switch_down_rk(Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, rk: &RelinKey<Self>) -> RelinKey<Self> {
-        let drop_moduli = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()).unwrap();
-        if drop_moduli.len() == 0 {
-            KeySwitchKey::new(rk.k0().clone(Cnew.get_ring()), rk.k1().clone(Cnew.get_ring()))
-        } else {
-            KeySwitchKey::new(
-                rk.k0().modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()),
-                rk.k1().modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring())
-            )
-        }
-    }
-
-    ///
-    /// Modulus-switches a Galois key in a way compatible with modulus-switching ciphertexts.
-    /// 
-    /// This is equivalent to creating a new Galois key (using [`BGVInstantiation::gen_gk()`])
-    /// over `Cnew` for the secret key `mod_switch_down_sk(Cnew, Cold, drop_moduli, sk)`, but does not require
-    /// access to `sk`. Currently, this function only supports decreasing the ciphertext modulus, by dropping
-    /// RNS factors.
-    /// 
-    #[instrument(skip_all)]
-    fn mod_switch_down_gk(Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, gk: &KeySwitchKey<Self>) -> KeySwitchKey<Self> {
-        Self::mod_switch_down_rk(Cnew, Cold, gk)
-    }
-
-    ///
     /// Internal function to compute how the implicit scale of a ciphertext changes
     /// once we modulus-switch it.
     /// 
@@ -1092,6 +1021,98 @@ pub trait BGVInstantiation {
         };
         assert!(P.base_ring().is_unit(&result.implicit_scale));
         return result;
+    }
+
+    ///
+    /// Performs a "fake modulus switch", which is just a reduction modulo `q' | q`.
+    /// 
+    /// This can sometimes be used in place of [`BGVInstantiation::mod_switch_ct`], and
+    /// is cheaper to compute, but causes significantly higher noise growth.
+    /// 
+    #[instrument(skip_all)]
+    fn fake_mod_switch_down_ct(P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: &Ciphertext<Self>) -> Ciphertext<Self> {
+        assert!(P.base_ring().is_unit(&ct.implicit_scale));
+        let drop_moduli = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()).unwrap();
+        if drop_moduli.len() == 0 {
+            Self::clone_ct(P, Cnew, ct)
+        } else {
+            Ciphertext {
+                implicit_scale: P.base_ring().clone_el(&ct.implicit_scale),
+                c0: Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &drop_moduli, &ct.c0),
+                c1: Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &drop_moduli, &ct.c1),
+            }
+        }
+    }
+
+    ///
+    /// Given `R/qR` this creates the ciphertext ring `R/q'R`, where the RNS base for `q'`
+    /// is derived from the RNS base of `q` by removing the RNS factors whose indices are mentioned
+    /// in `drop_moduli`.
+    /// 
+    /// Note that for the implementation in Fheanor at least, the underlying rings will share
+    /// most of their data, which means that this function is actually very cheap, in particular
+    /// much cheaper than creating a new ciphertext ring (e.g. using [`BGVInstantiation::create_ciphertext_ring()`]).
+    /// 
+    #[instrument(skip_all)]
+    fn mod_switch_down_C(C: &CiphertextRing<Self>, drop_moduli: &RNSFactorIndexList) -> CiphertextRing<Self> {
+        RingValue::from(C.get_ring().drop_rns_factor(&drop_moduli))
+    }
+
+    ///
+    /// Modulus-switches a secret key in a way compatible with modulus-switching ciphertexts.
+    ///  
+    /// More concretely, this function computes the smallest lift of the given secret key
+    /// to the number ring, reduced modulo the modulus of `Cnew`. This secret key can successfully
+    /// decrypt ciphertexts obtained via [`BGVInstantiation::mod_switch_ct()`].
+    /// 
+    #[instrument(skip_all)]
+    fn mod_switch_sk(Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, sk: &SecretKey<Self>) -> SecretKey<Self> {
+        if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
+            return Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
+        } else {
+            let mod_switch = UsedBaseConversion::new_with_alloc(
+                Cold.base_ring().as_iter().cloned().collect(),
+                Cnew.base_ring().as_iter().cloned().collect(),
+                Global
+            );
+            assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
+            assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
+            return perform_rns_op(Cnew.get_ring(), Cold.get_ring(), sk, &mod_switch);
+        }
+    }
+
+    ///
+    /// Modulus-switches a relinearization key in a way compatible with modulus-switching ciphertexts.
+    /// 
+    /// This is equivalent to creating a new relinearization key (using [`BGVInstantiation::gen_rk()`])
+    /// over `Cnew` for the secret key `mod_switch_sk(Cnew, Cold, drop_moduli, sk)`, but does not require
+    /// access to `sk`. Currently, this function only supports decreasing the ciphertext modulus, by dropping
+    /// RNS factors.
+    /// 
+    #[instrument(skip_all)]
+    fn mod_switch_down_rk(Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, rk: &RelinKey<Self>) -> RelinKey<Self> {
+        let drop_moduli = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()).unwrap();
+        if drop_moduli.len() == 0 {
+            KeySwitchKey::new(rk.k0().clone(Cnew.get_ring()), rk.k1().clone(Cnew.get_ring()))
+        } else {
+            KeySwitchKey::new(
+                rk.k0().modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()),
+                rk.k1().modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring())
+            )
+        }
+    }
+
+    ///
+    /// Modulus-switches a Galois key in a way compatible with modulus-switching ciphertexts.
+    /// 
+    /// This is equivalent to creating a new Galois key (using [`BGVInstantiation::gen_gk()`])
+    /// over `Cnew` for the secret key `mod_switch_down_sk(Cnew, Cold, drop_moduli, sk)`, but does not require
+    /// access to `sk`. Currently, this function only supports decreasing the ciphertext modulus, by dropping
+    /// RNS factors.
+    /// 
+    #[instrument(skip_all)]
+    fn mod_switch_down_gk(Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, gk: &KeySwitchKey<Self>) -> KeySwitchKey<Self> {
+        Self::mod_switch_down_rk(Cnew, Cold, gk)
     }
 
     ///

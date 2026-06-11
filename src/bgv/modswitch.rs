@@ -410,6 +410,47 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
     }
 
     ///
+    /// Transforms `x` into a ciphertext defined w.r.t. `C_target`, encrypting the same message.
+    /// 
+    /// This uses either modulus-switching, or just reduces `x` modulo `C_target.modulus()`.
+    /// The latter is cheaper computationally, but causes much higher noise. Therefore, it
+    /// is only performed if the expected noise after the reduction is still lower than
+    /// `summand_log_relative_noise`, which means that a later homomorphic addition with
+    /// a ciphertext with noise `summand_log_relative_noise` will dominate the reduction-noise
+    /// anyway.
+    ///  
+    fn bring_to_modulus<'a>(
+        &self,
+        P: &PlaintextRing<Params>, 
+        C_target: &CiphertextRing<Params>, 
+        C_master: &CiphertextRing<Params>, 
+        dropped_factors_target: &RNSFactorIndexList, 
+        x: &'a ModulusAwareCiphertext<Params, Self>,
+        summand_log_relative_noise: f64,
+        context: &str,
+        debug_sk: Option<&SecretKey<Params>>
+    ) -> Boo<'a, ModulusAwareCiphertext<Params, Self>> {
+        let Cx = Params::mod_switch_down_C(C_master, &x.dropped_rns_factor_indices);
+        let drop_x = dropped_factors_target.pushforward(&x.dropped_rns_factor_indices);
+        if drop_x.len() == 0 {
+            return Boo::Borrowed(x);
+        }
+        let fake_modswitch_info = self.noise_estimator.fake_mod_switch_down_ct(P, C_target, &Cx, &x.info);
+        let reduction_noise = self.noise_estimator.estimate_log2_relative_noise_level(P, &C_target, &fake_modswitch_info);
+        let new_summand_noise = reduction_noise + P.base_ring().integer_ring().abs_log2_ceil(P.base_ring().modulus()).unwrap() as f64;
+        println!("fake mod-switch noise: {}; summand_noise: {}", new_summand_noise, summand_log_relative_noise);
+        if new_summand_noise <= summand_log_relative_noise {
+            Boo::Owned(ModulusAwareCiphertext {
+                dropped_rns_factor_indices: dropped_factors_target.to_owned(),
+                info: fake_modswitch_info,
+                data: Params::fake_mod_switch_down_ct(P, C_target, &Cx, &x.data)
+            })
+        } else {
+            self.mod_switch_down_ref(P, C_target, C_master, dropped_factors_target, x, context, debug_sk)
+        }
+    }
+
+    ///
     /// Computes the RNS base we should switch to before multiplication to
     /// minimize the result noise. The result is returned as the list of RNS
     /// factors of `C_master` that we want to drop. This list corresponds to
@@ -531,17 +572,21 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         }
         assert!(min_dropped_len <= total_drop.len());
 
+        let max_input_noise = int_products.iter().map(|(_, ct)| ct).chain(main_products.iter().map(|(_, ct)| ct))
+            .map(|ct| self.noise_estimator.estimate_log2_relative_noise_level(P, &Params::mod_switch_down_C(C_master, &ct.dropped_rns_factor_indices), &ct.info))
+            .max_by(f64::total_cmp).unwrap();
+
         let C_target = Params::mod_switch_down_C(C_master, &total_drop);
 
         // now perform modulus-switches when necessary
         let int_products: Vec<(El<BigIntRing>, Boo<ModulusAwareCiphertext<Params, Self>>)> = int_products.iter().map(|(lhs, rhs)| (
             ZZbig.clone_el(lhs),
-            self.mod_switch_down_ref(P, &C_target, C_master, &total_drop, rhs, "HomInnerProduct", debug_sk)
+            self.bring_to_modulus(P, &C_target, C_master, &total_drop, rhs, max_input_noise, "HomInnerProduct", debug_sk)
         )).collect();
 
         let main_products: Vec<(&El<R>, Boo<ModulusAwareCiphertext<Params, Self>>)> = main_products.iter().map(|(lhs, rhs)| (
             *lhs,
-            self.mod_switch_down_ref(P, &C_target, C_master, &total_drop, rhs, "HomInnerProduct", debug_sk)
+            self.bring_to_modulus(P, &C_target, C_master, &total_drop, rhs, max_input_noise, "HomInnerProduct", debug_sk)
         )).collect();
 
         // finally, we do another noise optimization technique: the implicit scale of the output is
