@@ -411,20 +411,33 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
 
     ///
     /// Transforms `x` into a ciphertext defined w.r.t. `C_target`, encrypting the same message.
-    /// 
-    /// This uses either modulus-switching, or just reduces `x` modulo `C_target.modulus()`.
-    /// The latter is cheaper computationally, but causes much higher noise. Therefore, it
-    /// is only performed if the expected noise after the reduction is still lower than
-    /// `summand_log_relative_noise`, which means that a later homomorphic addition with
-    /// a ciphertext with noise `summand_log_relative_noise` will dominate the reduction-noise
-    /// anyway.
-    ///  
+    ///
+    /// To drop the required RNS factors, we can use two different mechanisms:
+    ///  - a real modulus-switch, which is computationally expensive but barely increases the
+    ///    (relative) noise of the ciphertext;
+    ///  - a "fake modulus-switch" (just a reduction modulo the smaller modulus), which is
+    ///    computationally cheap, but increases the relative noise by the bit size of the dropped
+    ///    RNS factors.
+    ///
+    /// Since this ciphertext will end up as a summand of an inner product whose result noise is
+    /// dominated by `summand_log_relative_noise` anyway, it does not hurt to increase this
+    /// summand's noise up to `summand_log_relative_noise` via the cheap fake modulus-switch. Hence,
+    /// the strategy is as follows:
+    ///  - first, determine the maximal number of RNS factors that we can drop via a fake
+    ///    modulus-switch without raising this summand's noise above `summand_log_relative_noise`.
+    ///    In most cases, this will be a proper, nontrivial subset of all the RNS factors we have to
+    ///    drop;
+    ///  - then, drop the remaining RNS factors via a (real) modulus-switch.
+    ///
+    /// Note that performing the fake modulus-switch first also makes the subsequent real
+    /// modulus-switch cheaper, since it then operates on fewer RNS factors.
+    ///
     fn bring_to_modulus<'a>(
         &self,
-        P: &PlaintextRing<Params>, 
-        C_target: &CiphertextRing<Params>, 
-        C_master: &CiphertextRing<Params>, 
-        dropped_factors_target: &RNSFactorIndexList, 
+        P: &PlaintextRing<Params>,
+        C_target: &CiphertextRing<Params>,
+        C_master: &CiphertextRing<Params>,
+        dropped_factors_target: &RNSFactorIndexList,
         x: &'a ModulusAwareCiphertext<Params, Self>,
         summand_log_relative_noise: f64,
         context: &str,
@@ -435,19 +448,71 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         if drop_x.len() == 0 {
             return Boo::Borrowed(x);
         }
-        let fake_modswitch_info = self.noise_estimator.fake_mod_switch_down_ct(P, C_target, &Cx, &x.info);
-        let reduction_noise = self.noise_estimator.estimate_log2_relative_noise_level(P, &C_target, &fake_modswitch_info);
-        let new_summand_noise = reduction_noise + P.base_ring().integer_ring().abs_log2_ceil(P.base_ring().modulus()).unwrap() as f64;
-        println!("fake mod-switch noise: {}; summand_noise: {}", new_summand_noise, summand_log_relative_noise);
-        if new_summand_noise <= summand_log_relative_noise {
-            Boo::Owned(ModulusAwareCiphertext {
-                dropped_rns_factor_indices: dropped_factors_target.to_owned(),
-                info: fake_modswitch_info,
-                data: Params::fake_mod_switch_down_ct(P, C_target, &Cx, &x.data)
-            })
-        } else {
-            self.mod_switch_down_ref(P, C_target, C_master, dropped_factors_target, x, context, debug_sk)
+
+        // the RNS factors we have to drop to reach `C_target`, expressed in the master index space;
+        // since `x` was obtained by dropping a subset of `dropped_factors_target`, these are exactly
+        // those factors of `dropped_factors_target` that are still present in `x`
+        let factors_to_drop = dropped_factors_target.subtract(&x.dropped_rns_factor_indices);
+        debug_assert_eq!(factors_to_drop.len(), drop_x.len());
+
+        let t_log2 = P.base_ring().integer_ring().abs_log2_ceil(P.base_ring().modulus()).unwrap() as f64;
+
+        // a fake modulus-switch increases the relative noise by the bit size of the dropped factors,
+        // so to maximize the number of factors we may fake-drop, we fake-drop the smallest ones first
+        let mut sorted_factors = factors_to_drop.iter().copied().collect::<Vec<_>>();
+        sorted_factors.sort_by(|&l, &r| f64::total_cmp(
+            &(*C_master.base_ring().at(l).modulus() as f64),
+            &(*C_master.base_ring().at(r).modulus() as f64)
+        ));
+
+        // the master-relative set of dropped factors after fake-dropping the `k` smallest factors
+        let dropped_after_fake = |k: usize| RNSFactorIndexList::from(
+            x.dropped_rns_factor_indices.iter().copied().chain(sorted_factors[..k].iter().copied()).collect::<Vec<_>>(),
+            C_master.base_ring().len()
+        );
+
+        // search for the maximal number of factors we can fake-drop without pushing this summand's
+        // noise above the noise of the eventual sum
+        let mut num_fake = 0;
+        for k in 1..=drop_x.len() {
+            let C_inter = Params::mod_switch_down_C(C_master, &dropped_after_fake(k));
+            let fake_info = self.noise_estimator.fake_mod_switch_down_ct(P, &C_inter, &Cx, &x.info);
+            let reduction_noise = self.noise_estimator.estimate_log2_relative_noise_level(P, &C_inter, &fake_info);
+            let new_summand_noise = reduction_noise + t_log2;
+            if new_summand_noise <= summand_log_relative_noise {
+                num_fake = k;
+            }
         }
+
+        if LOG {
+            println!(
+                "{}: dropping {} RNS factors of operand, {} via fake modulus-switch and {} via real modulus-switch (summand noise threshold {})",
+                context, drop_x.len(), num_fake, drop_x.len() - num_fake, summand_log_relative_noise
+            );
+        }
+
+        if num_fake == 0 {
+            // not even a single factor can be fake-dropped for free; fall back to a full real modulus-switch
+            return self.mod_switch_down_ref(P, C_target, C_master, dropped_factors_target, x, context, debug_sk);
+        }
+
+        // fake-drop the `num_fake` smallest factors
+        let dropped_inter = dropped_after_fake(num_fake);
+        let C_inter = Params::mod_switch_down_C(C_master, &dropped_inter);
+        let fake_ct = ModulusAwareCiphertext {
+            info: self.noise_estimator.fake_mod_switch_down_ct(P, &C_inter, &Cx, &x.info),
+            data: Params::fake_mod_switch_down_ct(P, &C_inter, &Cx, &x.data),
+            dropped_rns_factor_indices: dropped_inter,
+        };
+
+        if num_fake == drop_x.len() {
+            // all factors were dropped via the fake modulus-switch, no real modulus-switch is needed
+            debug_assert_eq!(&*fake_ct.dropped_rns_factor_indices, dropped_factors_target);
+            return Boo::Owned(fake_ct);
+        }
+
+        // drop the remaining factors via a real modulus-switch
+        return Boo::Owned(self.mod_switch_down(P, C_target, C_master, dropped_factors_target, fake_ct, context, debug_sk));
     }
 
     ///
@@ -1033,6 +1098,62 @@ fn test_modswitch_strategy_inner_prod() {
     let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
     let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
     assert_el_eq!(&P, &P.int_hom().map(-2 + 100 - 17), Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
+}
+
+///
+/// Exercises the partial-fake-then-real path of `bring_to_modulus()`.
+///
+/// We bring one ciphertext to a much lower modulus (via a real modulus-switch, which keeps its
+/// relative noise low but at a level corresponding to the lower modulus). When this ciphertext is
+/// used in an inner product, it sets a comparatively high noise threshold for the sum, so the other
+/// (fresh, full-modulus) ciphertexts have "room" to drop a number of their RNS factors via a cheap
+/// fake modulus-switch before the remaining factors are dropped via a real modulus-switch. With the
+/// chosen parameters, this triggers a nontrivial split (some factors fake-dropped, some real-dropped),
+/// which can be inspected in the `LOG` output ("... via fake modulus-switch and ... via real modulus-switch").
+///
+#[test]
+fn test_modswitch_strategy_inner_prod_partial_fake_modswitch() {
+    feanor_tracing::DelayedLogger::init_test();
+    let mut rng = rand::rng();
+
+    let params = Pow2BGV::new(1 << 8);
+    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+    let C = params.create_ciphertext_ring(500..520);
+    let rns_len = C.base_ring().len();
+    assert!(rns_len >= 5, "test requires enough RNS factors to drop a nontrivial subset");
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+
+    let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> = DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
+    let raw_inputs = [10, 4, 5];
+    let mut cts = raw_inputs.iter().map(|x| ModulusAwareCiphertext {
+        data: Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(*x), &sk, 3.2),
+        dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+        info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
+    }).collect::<Vec<_>>();
+
+    // bring the first ciphertext down to a much lower modulus via a real modulus-switch; this raises
+    // the relative-noise threshold of the eventual inner product, leaving room for a partial fake
+    // modulus-switch of the other operands. We leave 3 RNS factors, so the other operands have to
+    // drop `rns_len - 3` factors, most of which can be dropped via a fake modulus-switch.
+    let to_drop = RNSFactorIndexList::from(0..(rns_len - 3), rns_len);
+    let C_low = Pow2BGV::mod_switch_down_C(&C, &to_drop);
+    cts[0] = modswitch_strategy.mod_switch_down(&P, &C_low, &C, &to_drop, modswitch_strategy.clone_ct(&P, &C, &cts[0]), "setup", None);
+
+    // a - b + 17 * c, with a, b, c at different moduli, forcing the fresh operands to drop 12 factors
+    let res = modswitch_strategy.inner_prod(&P, &C, &[
+        &Coefficient::One,
+        &Coefficient::NegOne,
+        &Coefficient::Other(P.int_hom().map(17))
+    ], &cts.iter().collect::<Vec<_>>(), &P, Some(&sk));
+    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+
+    // the result should be defined modulo (at most) the modulus of the most-reduced operand
+    assert!(res.dropped_rns_factor_indices.len() >= to_drop.len());
+    let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
+    println!("Actual output noise budget is {}", res_noise);
+    assert!(res_noise > 0, "result must still be decryptable");
+    assert_el_eq!(&P, &P.int_hom().map(10 - 4 + 17 * 5), Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
 }
 
 #[test]
