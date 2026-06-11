@@ -661,16 +661,15 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
             return (lhs, rhs);
         }).collect();
 
-        let ZZbig_to_ring = ring.can_hom(&ZZbig).unwrap();
         let main_products: Vec<(Boo<El<R>>, ModulusAwareCiphertext<Params, Self>)> = main_products.into_iter().map(|(lhs, rhs)| {
-            let factor = Zt.smallest_lift(Zt.checked_div(&output_implicit_scale, &rhs.data.implicit_scale).unwrap());
+            let factor = Zt.checked_div(&output_implicit_scale, &rhs.data.implicit_scale).unwrap();
             let mut rhs = rhs.to_owned(|ct| self.clone_ct(P, C_master, ct));
             rhs.data.implicit_scale = Zt.one();
             rhs.info.implicit_scale = Zt.one();
-            if !ZZ.is_one(&factor) {
-                let mut lhs = ring.clone_el(lhs);
-                ZZbig_to_ring.mul_assign_map(&mut lhs, int_cast(factor, ZZbig, ZZ));
-                return (Boo::Owned(lhs), rhs);
+            if !Zt.is_one(&factor) {
+                rhs.data.implicit_scale = factor;
+                rhs.data = Params::merge_implicit_scale(P, &C_target, rhs.data);
+                return (Boo::Borrowed(lhs), rhs);
             } else {
                 return (Boo::Borrowed(lhs), rhs);
             }
