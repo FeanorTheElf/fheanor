@@ -568,6 +568,9 @@ pub trait BGVInstantiation {
     ///
     /// Returns an encryption of the product of the encrypted input and the given plaintext.
     /// 
+    /// This function does not try to do anything clever with the implicit scale, and instead
+    /// just multiplies the given scalar to the ciphertext, leaving the implicit scale as-is.
+    /// 
     #[instrument(skip_all)]
     fn hom_mul_plain_scalar(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &<Self::PlaintextZnRing as RingBase>::Element, mut ct: Ciphertext<Self>) -> Ciphertext<Self> {
         let factor = C.base_ring().coerce(&ZZbig, int_cast(P.base_ring().smallest_lift(P.base_ring().clone_el(m)), ZZbig, P.base_ring().integer_ring()));

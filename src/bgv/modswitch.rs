@@ -667,8 +667,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
             rhs.data.implicit_scale = Zt.one();
             rhs.info.implicit_scale = Zt.one();
             if !Zt.is_one(&factor) {
-                rhs.data.implicit_scale = factor;
-                rhs.data = Params::merge_implicit_scale(P, &C_target, rhs.data);
+                rhs.data = Params::hom_mul_plain_scalar(P, &C_target, &factor, rhs.data);
+                rhs.info = self.noise_estimator.hom_mul_plain_scalar(&P, &C_target, &factor, &rhs.info);
                 return (Boo::Borrowed(lhs), rhs);
             } else {
                 return (Boo::Borrowed(lhs), rhs);
