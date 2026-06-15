@@ -83,7 +83,7 @@ fn compute_circuit_from_irreducible_poly<P, R, F>(
     assert_eq!(1, FqX.degree(&roots[0].0).unwrap());
     assert!(Fq.is_one(FqX.lc(&roots[0].0).unwrap()));
     let root = Fq.negate(Fq.clone_el(FqX.coefficient_at(&roots[0].0, 0)));
-
+    
     let mut root_in_S = S.from_canonical_basis(Fq.wrt_canonical_basis(&root).iter().map(|x| Sbase_to_Fp.smallest_lift(x)));
     let irred_poly_derivate = derive_poly(&ZpeX, &irred_poly);
     for _ in 0..ZZi64.abs_log2_ceil(&e.try_into().unwrap()).unwrap() {

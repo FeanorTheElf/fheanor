@@ -2,7 +2,6 @@ use core::f64;
 use std::cmp::min;
 use std::ops::Range;
 
-use feanor_math::homomorphism::Homomorphism;
 use feanor_math::group::*;
 use feanor_math::ring::*;
 
