@@ -324,7 +324,7 @@ While we could do it in the same way as before, i.e. take the shortest lift of e
 Instead we use a technique that was propsed by <https://ia.cr/2016/510>.
 More concretely, they show how to implement the necessary operations as "RNS conversions", which directly operate on the RNS values, and don't involve big integers.
 The details are not overly complicated, but would go beyond the scope of this introduction, so we just describe how to use the RNS conversion implementations that are implemented in Fheanor.
-In particular, we are interested in [`RNSMatrixBaseConversion`] (which replaces the now deprecated [`RNSBaseConversion`]) and [`RNSRescalingConversion`], since they implement the two operations that we require for BFV multiplication.
+In particular, we are interested in [`RNSBaseConversion`] (which replaces the now deprecated [`RNSBaseConversion`]) and [`RNSRescalingConversion`], since they implement the two operations that we require for BFV multiplication.
 The first one takes care of the conversion `Z/(q) -> Z/(qq')`, and the second one does the downscaling at the end, which scales elements of `Z/(qq')` by `t/q` and maps them back to `Z/(q)`.
 All implemented RNS conversions take the input in the form of the following matrix:
 ```text
@@ -366,7 +366,7 @@ This leaves us to implement BFV multiplication as follows.
 # use fheanor::ciphertext_ring::NumberRingRNSQuotient;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;
-# use fheanor::rns_conv::matrix_lift::RNSMatrixBaseConversion;
+# use fheanor::rns_conv::bconv::RNSBaseConversion;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotientByInt<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -396,7 +396,7 @@ fn hom_mul_three_component(
     let (c0, c1) = (&lhs.0, &lhs.1);
     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
     
-    let lift_to_multiplication_ring_rnsconv = RNSMatrixBaseConversion::new(
+    let lift_to_multiplication_ring_rnsconv = RNSBaseConversion::new(
         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>()
     );
@@ -540,7 +540,7 @@ Finally, let's test this implementation again!
 # use fheanor::number_ring::pow2_cyclotomic::*;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;
-# use fheanor::rns_conv::matrix_lift::RNSMatrixBaseConversion;
+# use fheanor::rns_conv::bconv::RNSBaseConversion;
 # type NumberRing = Pow2CyclotomicNumberRing;
 # type PlaintextRing = NumberRingQuotientByInt<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
@@ -648,7 +648,7 @@ Finally, let's test this implementation again!
 # ) -> (SmallBasisEl<Pow2CyclotomicNumberRing>, SmallBasisEl<Pow2CyclotomicNumberRing>, SmallBasisEl<Pow2CyclotomicNumberRing>) {
 #     let (c0, c1) = (&lhs.0, &lhs.1);
 #     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
-#     let lift_to_multiplication_ring_rnsconv = RNSMatrixBaseConversion::new(
+#     let lift_to_multiplication_ring_rnsconv = RNSBaseConversion::new(
 #         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
 #         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>()
 #     );
@@ -751,16 +751,16 @@ Nevertheless, there does remain some optimization potential:
    You can use the HEXL library (using the `feanor-math-hexl` library), which will give you an even faster NTT!
  - Apart from multiplication, decryption can also profit from a careful use of RNS conversions.
  - When doing the first RNS conversion `q -> qq'` during multiplication, note that the `mod q` part of the result is the same as the input.
-   Hence, one can replace [`RNSMatrixBaseConversion`] with [`RNSSharedBaseConversion`] which avoids recomputing these values and thus is slightly faster.
+   Hence, one can replace [`RNSBaseConversion`] with [`RNSSharedBaseConversion`] which avoids recomputing these values and thus is slightly faster.
 
 Implementing these points is left as an exercise.
 
-[`RNSMatrixBaseConversion`]: crate::rns_conv::matrix_lift::RNSMatrixBaseConversion
+[`RNSBaseConversion`]: crate::rns_conv::bconv::RNSBaseConversion
 [`RNSSharedBaseConversion`]: crate::rns_conv::shared_lift::RNSSharedBaseConversion
 [`zn_rns::Zn`]: feanor_math::rings::zn::zn_rns::Zn
 [`extend_sampled_primes()`]: crate::number_ring::extend_sampled_primes()
 [`sample_primes()`]: crate::number_ring::sample_primes()
-[`RNSMatrixBaseConversion`]: crate::rns_conv::matrix_lift::RNSMatrixBaseConversion
+[`RNSBaseConversion`]: crate::rns_conv::bconv::RNSBaseConversion
 [`RNSBaseConversion`]: crate::rns_conv::lift::RNSBaseConversion
 [`RNSRescalingConversion`]: crate::rns_conv::bfv_rescale::RNSRescalingConversion
 [`DoubleRNSRingBase`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase

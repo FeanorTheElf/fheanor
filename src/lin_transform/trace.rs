@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::iter::repeat;
 
 use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::algorithms::sqr_mul::generic_pow_shortest_chain_table;
@@ -11,7 +12,7 @@ use feanor_math::primitive_int::StaticRing;
 use feanor_math::ring::*;
 use feanor_math::algorithms::linsolve::LinSolveRingStore;
 
-use crate::circuit::PlaintextCircuit;
+use crate::circuit::*;
 use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::SlotRingOver;
 use crate::{NiceZn, ZZbig, ZZi64};
@@ -19,6 +20,7 @@ use crate::{NiceZn, ZZbig, ZZi64};
 fn cyclic_trace_norm_circuit<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>, generator: &GaloisGroupEl, l: usize, combiner: PlaintextCircuit<R::Type>) -> PlaintextCircuit<R::Type>
     where R: RingStore + Copy
 {
+    assert!(l >= 1);
     let mut circuit = PlaintextCircuit::identity(1, ring);
     let extend_circuit = RefCell::new(|l_idx: usize, r_idx: usize, l_num: i64| {
         take_mut::take(&mut circuit, |circuit| PlaintextCircuit::identity(circuit.output_count(), ring).tensor(combiner.clone(ring).compose(
@@ -60,6 +62,84 @@ fn cyclic_trace_norm_circuit<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloi
     return PlaintextCircuit::select(circuit.output_count(), &[result_idx], ring).compose(circuit, ring);
 }
 
+fn cyclic_trace_circuit_window<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>, generator: &GaloisGroupEl, l: usize, window_size: usize) -> PlaintextCircuit<R::Type>
+    where R: RingStore + Copy
+{
+    assert!(l >= 1);
+    assert!(window_size >= 2);
+    if l == 1 {
+        return PlaintextCircuit::identity(1, ring);
+    }
+
+    let mut circuit = PlaintextCircuit::gal_many(
+        &(0..window_size)
+            .map(|i| galois_group.pow(generator, &int_cast(i as i64, ZZbig, ZZi64)))
+            .collect::<Vec<_>>(), 
+        galois_group, 
+        ring
+    );
+    let l_decomp = repeat(()).scan(l, |current, ()| {
+        if *current == 0 {
+            return None;
+        }
+        let (quo, rem) = (*current / window_size, *current % window_size);
+        *current = quo;
+        return Some(rem);
+    }).collect::<Vec<_>>();
+    let mut l_decomp_it = l_decomp.iter().rev();
+
+    let mut current_step = 1;
+    let start = *l_decomp_it.next().unwrap();
+    debug_assert!(start != 0);
+    if start == 1 {
+        let next = *l_decomp_it.next().unwrap();
+        let g = galois_group.pow(generator, &int_cast(next as i64, ZZbig, ZZi64));
+        let multiplied = PlaintextCircuit::gal(g, galois_group, ring).compose(
+            PlaintextCircuit::linear_transform(&(0..window_size).map(|_| Coefficient::One).collect::<Vec<_>>(), ring), 
+            ring
+        );
+        circuit = PlaintextCircuit::add(ring).compose(
+            PlaintextCircuit::linear_transform(
+                &(0..window_size).map(|i| if i < next { Coefficient::One } else { Coefficient::Zero }).collect::<Vec<_>>(), 
+                ring
+            ).tensor(multiplied, ring),
+            ring
+        ).tensor(
+            PlaintextCircuit::identity(window_size, ring), 
+            ring
+        ).compose(circuit.output_times(3, ring), ring);
+        current_step = window_size + next;
+    } else {
+        circuit = PlaintextCircuit::linear_transform(
+            &(0..window_size).map(|i| if i < start { Coefficient::One } else { Coefficient::Zero }).collect::<Vec<_>>(), 
+            ring
+        ).tensor(PlaintextCircuit::identity(window_size, ring), ring).compose(circuit.output_twice(ring), ring);
+    }
+    for digit in l_decomp_it {
+        let gs = (0..window_size).map(|i| galois_group.pow(generator, &int_cast((i * current_step + digit) as i64, ZZbig, ZZi64))).collect::<Vec<_>>();
+        let multiplied = PlaintextCircuit::linear_transform(
+            &(0..window_size).map(|_| Coefficient::One).collect::<Vec<_>>(), 
+            ring
+        ).compose(
+            PlaintextCircuit::gal_many(&gs, galois_group, ring), 
+            ring
+        );
+        let additional = PlaintextCircuit::linear_transform(
+            &(0..window_size).map(|i| if i < *digit { Coefficient::One } else { Coefficient::Zero }).collect::<Vec<_>>(), 
+            ring
+        );
+        circuit = PlaintextCircuit::add(ring).compose(
+            multiplied.tensor(additional, ring), 
+            ring
+        ).tensor(
+            PlaintextCircuit::select(window_size + 1, &(1..=window_size).collect::<Vec<_>>(), ring), 
+            ring
+        ).compose(circuit.output_twice(ring), ring);
+        current_step = current_step * window_size + digit;
+    }
+    return PlaintextCircuit::select(window_size + 1, &[0], ring).compose(circuit, ring);
+}
+
 ///
 /// Generates a circuit that computes a relative field trace between two rings
 /// with the given relative galois group.
@@ -70,11 +150,23 @@ fn cyclic_trace_norm_circuit<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloi
 /// ```
 /// where `σ` ranges through `relative_galois_group`.
 /// 
-pub fn trace_circuit<R>(ring: R, relative_galois_group: &Subgroup<CyclotomicGaloisGroup>) -> PlaintextCircuit<R::Type>
+pub fn trace_circuit<R>(ring: R, relative_galois_group: &Subgroup<CyclotomicGaloisGroup>, cost_model: &CircuitEvaluatorCosts) -> PlaintextCircuit<R::Type>
     where R: RingStore + Copy
 {
+    let cyclic_trace_circuit = |(g, l)| {
+        if l == 1 {
+            return PlaintextCircuit::identity(1, ring);
+        }
+        let (window_size, cost) = (2..=l).map(|w| (w, (cost_model.cost_setup_hoisted_gal + cost_model.cost_hoisted_gal * w as f64) / (w as f64).log2()))
+            .min_by(|(_, lc), (_, rc)| f64::total_cmp(lc, rc)).unwrap();
+        if cost <= cost_model.cost_single_gal * 2. {
+            cyclic_trace_circuit_window(ring, relative_galois_group, &g, l, window_size)
+        } else {
+            cyclic_trace_norm_circuit(ring, &relative_galois_group, &g, l, PlaintextCircuit::add(ring))
+        }
+    };
     relative_galois_group.get_group().rectangular_form().into_iter()
-        .map(|(g, l)| cyclic_trace_norm_circuit(ring, &relative_galois_group, &g, l, PlaintextCircuit::add(ring)))
+        .map(cyclic_trace_circuit)
         .fold(PlaintextCircuit::identity(1, ring), |current, next| current.compose(next, ring))
 }
 
@@ -161,6 +253,8 @@ use crate::number_ring::*;
 use std::sync::Arc;
 #[cfg(test)]
 use std::alloc::Global;
+#[cfg(test)]
+use fhe_ir::Program;
 
 #[test]
 fn test_extract_coefficient_map() {
@@ -191,14 +285,15 @@ fn test_trace_circuit() {
     let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(3));
     let full_galois_group = ring.number_ring().galois_group();
     let relative_galois_group = full_galois_group.get_group().clone().subgroup([full_galois_group.from_representative(3)]);
-    let trace = trace_circuit(&ring, &relative_galois_group);
+    let trace = trace_circuit(&ring, &relative_galois_group, &DEFAULT_EVALUATOR_COSTS);
+    println!("{:?}", trace.to_ir(&ring, Some(&relative_galois_group)));
     for x in ring.elements() {
         let actual = trace.evaluate(std::slice::from_ref(&x), ring.identity()).pop().unwrap();
         assert_el_eq!(&ring, ring.inclusion().map(ring.trace(x)), actual);
     }
 
     let relative_galois_group = full_galois_group.get_group().clone().subgroup([full_galois_group.from_representative(2)]);
-    let relative_trace = trace_circuit(&ring, &relative_galois_group);
+    let relative_trace = trace_circuit(&ring, &relative_galois_group, &DEFAULT_EVALUATOR_COSTS);
     assert_eq!(1, relative_trace.output_count());
     let input = ring.canonical_gen();
     let actual = relative_trace.evaluate(std::slice::from_ref(&input), ring.identity()).pop().unwrap();
@@ -207,9 +302,86 @@ fn test_trace_circuit() {
 
     let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 7), Zn::new(65537));
     let full_galois_group = ring.number_ring().galois_group();
-    let trace = trace_circuit(&ring, &full_galois_group.get_group().clone().full_subgroup());
+    let trace = trace_circuit(&ring, &full_galois_group.get_group().clone().full_subgroup(), &DEFAULT_EVALUATOR_COSTS);
     for i in 0..24 {
         let actual = trace.evaluate(&[ring.pow(ring.canonical_gen(), i)], ring.identity()).pop().unwrap();
         assert_el_eq!(&ring, ring.inclusion().map(ring.trace(ring.pow(ring.canonical_gen(), i))), actual);
     }
+}
+
+#[test]
+fn test_cyclic_trace_circuit_window() {
+    feanor_tracing::DelayedLogger::init_test();
+    let galois_group = CyclotomicGaloisGroupBase::new(1 << 6).into().full_subgroup();
+    let generator = galois_group.parent().from_representative(5);
+    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 16, 4);
+    let expected: Program<i64> = Program::parse_check(r#"
+        func(%in) {
+            %x1, %x2, %x3 = galois %in, exponents = [5, 25, 61]
+            %s1 = inner_prod %in, %x1, %x2, %x3, coefficients = [@1, @1, @1, @1]
+            %x1, %x2, %x3 = galois %s1, exponents = [49, 33, 17]
+            %s2 = inner_prod %s1, %x1, %x2, %x3, coefficients = [@1, @1, @1, @1]
+            return %s2
+        }
+        @1: 1
+    "#.as_bytes()).unwrap();
+    assert!(circuit.eq(&PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected), ZZi64, Some(&galois_group)));
+
+    let galois_group = CyclotomicGaloisGroupBase::new(1 << 6).into().full_subgroup();
+    let generator = galois_group.parent().from_representative(5);
+    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 16, 3);
+    let expected: Program<i64> = Program::parse_check(r#"
+        func(%in) {
+            %x1, %x2 = galois %in, exponents = [5, 25]
+            %s1 = inner_prod %in, %x1, %x2, coefficients = [@1, @1, @1]
+            %c1 = galois %s1, exponents = [25]
+            %s2 = inner_prod %in, %x1, %c1, coefficients = [@1, @1, @1]
+            %x1, %x2, %x3 = galois %s2, exponents = [5, 9, 29]
+            %s3 = inner_prod %in, %x1, %x2, %x3, coefficients = [@1, @1, @1, @1]
+            return %s3
+        }
+        @1: 1
+    "#.as_bytes()).unwrap();
+    assert!(circuit.eq(&PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected), ZZi64, Some(&galois_group)));
+
+    let galois_group = CyclotomicGaloisGroupBase::new(1 << 6).into().full_subgroup();
+    let generator = galois_group.parent().from_representative(5);
+    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 16, 16);
+    let expected: Program<i64> = Program::parse_check(r#"
+        func(%in) {
+            %x1, %x2, %x3, %x4, %x5, %x6, %x7, %x8, %x9, %x10, %x11, %x12, %x13, %x14, %x15 = galois %in, exponents = [5, 25, 61, 49, 53, 9, 45, 33, 37, 57, 29, 17, 21, 41, 13]
+            %s1 = inner_prod %in, %x1, %x2, %x3, %x4, %x5, %x6, %x7, %x8, %x9, %x10, %x11, %x12, %x13, %x14, %x15, coefficients = [@1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1]
+            return %s1
+        }
+        @1: 1
+    "#.as_bytes()).unwrap();
+    assert!(circuit.eq(&PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected), ZZi64, Some(&galois_group)));
+
+    let galois_group = CyclotomicGaloisGroupBase::new(7).into().full_subgroup();
+    let generator = galois_group.parent().from_representative(3);
+    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 6, 5);
+    let expected: Program<i64> = Program::parse_check(r#"
+        func(%in) {
+            %x1, %x2, %x3, %x4 = galois %in, exponents = [3, 2, 6, 4]
+            %s1 = inner_prod %in, %x1, %x2, %x3, %x4, coefficients = [@1, @1, @1, @1, @1]
+            %c1 = galois %s1, exponents = [3]
+            %s2 = inner_prod %in, %c1, coefficients = [@1, @1]
+            return %s2
+        }
+        @1: 1
+    "#.as_bytes()).unwrap();
+    assert!(circuit.eq(&PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected), ZZi64, Some(&galois_group)));
+
+    let galois_group = CyclotomicGaloisGroupBase::new(7).into().full_subgroup();
+    let generator = galois_group.parent().from_representative(2);
+    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 3, 3);
+    let expected: Program<i64> = Program::parse_check(r#"
+        func(%in) {
+            %x1, %x2 = galois %in, exponents = [2, 4]
+            %s1 = inner_prod %in, %x1, %x2, coefficients = [@1, @1, @1]
+            return %s1
+        }
+        @1: 1
+    "#.as_bytes()).unwrap();
+    assert!(circuit.eq(&PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected), ZZi64, Some(&galois_group)));
 }

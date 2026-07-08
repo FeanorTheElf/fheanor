@@ -379,21 +379,20 @@ For example, we could implement the above evaluation instead as follows:
 # ));
 let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk, 3.2);
 
-let square_circuit = PlaintextCircuit::mul(StaticRing::<i64>::RING).compose(PlaintextCircuit::select(1, &[0, 0], StaticRing::<i64>::RING), StaticRing::<i64>::RING);
-let pow4_circuit = square_circuit.clone(StaticRing::<i64>::RING).compose(square_circuit, StaticRing::<i64>::RING);
+let square_circuit = PlaintextCircuit::mul(BigIntRing::RING).compose(PlaintextCircuit::select(1, &[0, 0], BigIntRing::RING), BigIntRing::RING);
+let pow4_circuit = square_circuit.clone(BigIntRing::RING).compose(square_circuit, BigIntRing::RING);
 
 let modswitch_strategy = DefaultModswitchStrategy::<_, _, /* debug output = */ false>::new(NaiveBGVNoiseEstimator);
 
 let enc_x_pow4 = modswitch_strategy.evaluate_circuit(
     &pow4_circuit,
-    StaticRing::<i64>::RING,
+    BigIntRing::RING,
     &P,
     &C_initial,
     &[ModulusAwareCiphertext {
         info: modswitch_strategy.info_for_fresh_encryption(&P, &C_initial, SecretKeyDistribution::UniformTernary),
         dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-        data: enc_x,
-        sk: SecretKeyDistribution::UniformTernary
+        data: enc_x
     }],
     Some(&rk),
     &[],

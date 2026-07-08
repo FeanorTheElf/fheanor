@@ -638,7 +638,7 @@ pub fn coeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>, max_levels: usize, c
 
     let frobenius_subgroup = H.galois_group().parent().get_group().clone().subgroup([H.hypercube().frobenius(1)]);
     debug_assert_eq!(frobenius_subgroup.group_order(), H.slot_ring().rank());
-    let trace_circuit = trace_circuit(H.ring(), &frobenius_subgroup);
+    let trace_circuit = trace_circuit(H.ring(), &frobenius_subgroup, cost_model);
     let result_circuit = MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), result, max_levels, cost_model);
     return trace_circuit.compose(result_circuit, H.ring());
 }
