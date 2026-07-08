@@ -1,5 +1,7 @@
 
 use feanor_math::algorithms::linsolve::LinSolveRingStore;
+use feanor_math::divisibility::DivisibilityRingStore;
+use feanor_math::group::AbelianGroupStore;
 use feanor_math::homomorphism::*;
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ring::*;
@@ -11,6 +13,7 @@ use tracing::instrument;
 
 use crate::circuit::CircuitEvaluatorCosts;
 use crate::circuit::PlaintextCircuit;
+use crate::lin_transform::trace::trace_circuit;
 use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::hypercube::isomorphism::*;
@@ -114,11 +117,12 @@ fn dwt1d_inv<'a, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertab
 }
 
 /// 
-/// Computes the first step in the <https://ia.cr/2014/873>-style linear transform for fat bootstrapping with composite moduli.
+/// Computes the first step in the <https://ia.cr/2014/873>-style Slots-to-PowCoeffs
+/// transform for fat bootstrapping with composite moduli.
 /// 
 /// In this step, for each hypercolumn along the first hypercube dimension, the coefficients of each slot of
 /// (w.r.t. the power-of-`𝝵` basis of each slot) are moved to the coefficients of a `d l_1 = phi(m_1)` degree
-/// polynomial, stored w.r.t. "along" the hypercolumn.
+/// polynomial, stored "along" the hypercolumn.
 /// Formally, this is the map
 /// ```text
 ///   𝝵^j e_(i_1, ..., i_r)  ->  X1^(j * l_1 + i_1) e_(*, i_2, ..., i_r)
@@ -288,6 +292,55 @@ fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTra
     return result;
 }
 
+/// 
+/// Computes the last step in the <https://ia.cr/2014/873>-style PowCoeffs-to-Slots
+/// transform for thin bootstrapping with composite moduli.
+/// 
+/// In general, we could use the inverse of [`slots_to_powcoeffs_fat_fst_step()`], and
+/// then extract the constant coefficient of every slot. However, since we are in the thin
+/// case, we can do better.
+/// 
+/// The map that we want to compute is
+/// ```text
+///   (\sum_(i = 0)^(p - 2) a_i 𝝵_p^(ig_k))_k -> (a_k)_k
+/// ```
+/// where `0 <= k < (p - 1)/f`.
+/// 
+/// We can implement this map by first performing a matmul with the matrix `C = (c_(kj))`,
+/// `c_(kj) = (𝝵_p^(-kg^j) - 𝝵_p^(g^j))/p`, and then take the slotwise trace. This avoids the
+/// blockmatmul that would be required when inverting [`slots_to_powcoeffs_fat_fst_step()`].
+/// 
+#[instrument(skip_all)]
+fn powcoeffs_to_slots_thin_last_step<R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOf<R>>) -> OwnedMatrix<El<SlotRingOf<R>>>
+    where R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn
+{
+    assert_hypercube_supported(H.hypercube());
+    assert_eq!(0, dim_index);
+
+    let Gal = H.galois_group();
+    let ZZ_to_Zn = Gal.underlying_ring().can_hom(&StaticRing::<i64>::RING).unwrap();
+    let slot_ring = H.slot_ring();
+    let scale = slot_ring.base_ring().invert(&slot_ring.base_ring().coerce(&StaticRing::<i64>::RING, H.hypercube().factor_of_m(dim_index).unwrap())).unwrap();
+
+    OwnedMatrix::from_fn(H.hypercube().dim_length(dim_index), H.hypercube().dim_length(dim_index), |k, j| {
+        let exponent1 = Gal.underlying_ring().prod([
+            *Gal.as_ring_el(&H.hypercube().map_1d(dim_index, -(j as i64))),
+            ZZ_to_Zn.map(-(k as i64)),
+            ZZ_to_Zn.map(H.galois_group().m() as i64 / H.hypercube().factor_of_m(dim_index).unwrap())
+        ]);
+        let exponent2 = Gal.underlying_ring().prod([
+            *Gal.as_ring_el(&H.hypercube().map_1d(dim_index, -(j as i64))),
+            ZZ_to_Zn.map(H.galois_group().m() as i64 / H.hypercube().factor_of_m(dim_index).unwrap())
+        ]);
+        return slot_ring.inclusion().mul_ref_map(&slot_ring.sub_ref(
+            &*zeta_powertable.get_power(Gal.underlying_ring().smallest_lift(exponent1)),
+            &*zeta_powertable.get_power(Gal.underlying_ring().smallest_lift(exponent2))
+        ), &scale);
+    })
+}
+
 ///
 /// Conceptually, this is the inverse of [`slots_to_powcoeffs_thin()`].
 /// 
@@ -302,10 +355,16 @@ pub fn powcoeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>, max_levels: usize
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_thin_impl(H), max_levels, cost_model)
+    let frobenius_subgroup = H.galois_group().parent().get_group().clone().subgroup([H.hypercube().frobenius(1)]);
+    debug_assert_eq!(frobenius_subgroup.group_order(), H.slot_ring().rank());
+    let trace_circuit = trace_circuit(H.ring(), &frobenius_subgroup);
+    trace_circuit.compose(MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_thin_base(H), max_levels, cost_model), H.ring())
 }
 
-fn powcoeffs_to_slots_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
+///
+/// The PowCoeffs-to-Slots transform for thin bootstrapping, without the final trace.
+/// 
+fn powcoeffs_to_slots_thin_base<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
@@ -319,23 +378,11 @@ fn powcoeffs_to_slots_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTra
         result.extend(dwt1d_inv(H, i, &zeta_powertable));
     }
 
-    let mut A = slots_to_powcoeffs_fat_fst_step(H, 0, &zeta_powertable);
-    let mut rhs = OwnedMatrix::identity(H.hypercube().dim_length(0) * H.slot_ring().rank(), H.hypercube().dim_length(0) * H.slot_ring().rank(), H.slot_ring().base_ring());
-    let mut sol = OwnedMatrix::zero(H.hypercube().dim_length(0) * H.slot_ring().rank(), H.hypercube().dim_length(0) * H.slot_ring().rank(), H.slot_ring().base_ring());
-    <_ as LinSolveRingStore>::solve_right(H.slot_ring().base_ring(), A.data_mut(), rhs.data_mut(), sol.data_mut()).assert_solved();
-
-    for row_idx in 0..sol.row_count() {
-        if row_idx % H.slot_ring().rank() != 0 {
-            for col_idx in 0..sol.col_count() {
-                *sol.at_mut(row_idx, col_idx) = H.slot_ring().base_ring().zero();
-            }
-        }
-    }
-
-    result.push(MatmulTransform::blockmatmul1d(
+    let last_step_matrix = powcoeffs_to_slots_thin_last_step(H, 0, &zeta_powertable);
+    result.push(MatmulTransform::matmul1d(
         H,
         0,
-        |(i, k), (j, l), _idxs| H.slot_ring().base_ring().clone_el(sol.at(i * H.slot_ring().rank() + k, j * H.slot_ring().rank() + l))
+        |i, j, _| H.slot_ring().clone_el(last_step_matrix.at(i, j))
     ));
 
     return result;
@@ -418,23 +465,26 @@ fn test_powcoeffs_to_slots_thin() {
     let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 7), Zn::new(11));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(11, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
+    let trace = MatmulTransform::linear_combine_shifts_with_frobenius(&H, (0..H.slot_ring().rank()).map(|i| (vec![i as i64, 0, 0], H.ring().one())));
     assert_eq!(7, H.hypercube().factor_of_m(0).unwrap());
     assert_eq!(2, H.hypercube().dim_length(0));
     assert_eq!(5, H.hypercube().factor_of_m(1).unwrap());
     assert_eq!(4, H.hypercube().dim_length(1));
 
     let mut current = ring_literal(&ring, &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    for transform in powcoeffs_to_slots_thin_impl(&H) {
+    for transform in powcoeffs_to_slots_thin_base(&H) {
         current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
+    current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &trace);
     let expected = H.from_slot_values([H.slot_ring().one()].into_iter().chain((2..9).map(|_| H.slot_ring().zero())));
     assert_el_eq!(ring, expected, current);
     
     let ring_ref = &ring;
     let mut current = ring.sum((0..6).flat_map(|i| (0..4).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), i * 5 + j * 7), ring_ref.int_hom().map((1 + j + i * 4) as i32)))));
-    for transform in powcoeffs_to_slots_thin_impl(&H) {
+    for transform in powcoeffs_to_slots_thin_base(&H) {
         current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
+    current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &trace);
     let expected = H.from_slot_values([1, 2, 3, 4, 5, 6, 7, 8].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     assert_el_eq!(ring, expected, current);
 
@@ -442,12 +492,14 @@ fn test_powcoeffs_to_slots_thin() {
     let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 7), Zn::new(71));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(71, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
+    let trace = MatmulTransform::linear_combine_shifts_with_frobenius(&H, (0..H.slot_ring().rank()).map(|i| (vec![i as i64, 0, 0], H.ring().one())));
 
     let ring_ref = &ring;
     let mut current = ring.sum((0..4).flat_map(|i| (0..6).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), i * 7 + j * 5), ring_ref.int_hom().map((1 + j + i * 6) as i32)))));
-    for transform in powcoeffs_to_slots_thin_impl(&H) {
+    for transform in powcoeffs_to_slots_thin_base(&H) {
         current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
+    current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &trace);
     let expected = H.from_slot_values((1..25).map(|i| H.slot_ring().int_hom().map(i)));
     assert_el_eq!(ring, expected, current);
 }
@@ -543,7 +595,7 @@ fn test_powcoeffs_to_slots_thin_large() {
     assert_eq!(127, H.hypercube().factor_of_m(1).unwrap());
     assert_eq!(126, H.hypercube().dim_length(1));
 
-    let transform = powcoeffs_to_slots_thin_impl(&H);
+    let transform = powcoeffs_to_slots_thin_base(&H);
 
     println!("{}", transform.len());
     println!("{}", transform.last().unwrap().automorphism_count());
