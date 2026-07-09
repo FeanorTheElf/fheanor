@@ -88,7 +88,7 @@ fn cyclic_trace_circuit_window<R>(ring: R, galois_group: &Subgroup<CyclotomicGal
     }).collect::<Vec<_>>();
     let mut l_decomp_it = l_decomp.iter().rev();
 
-    let mut current_step = 1;
+    let mut current_step;
     let start = *l_decomp_it.next().unwrap();
     debug_assert!(start != 0);
     if start == 1 {
@@ -114,6 +114,7 @@ fn cyclic_trace_circuit_window<R>(ring: R, galois_group: &Subgroup<CyclotomicGal
             &(0..window_size).map(|i| if i < start { Coefficient::One } else { Coefficient::Zero }).collect::<Vec<_>>(), 
             ring
         ).tensor(PlaintextCircuit::identity(window_size, ring), ring).compose(circuit.output_twice(ring), ring);
+        current_step = start;
     }
     for digit in l_decomp_it {
         let gs = (0..window_size).map(|i| galois_group.pow(generator, &int_cast((i * current_step + digit) as i64, ZZbig, ZZi64))).collect::<Vec<_>>();
@@ -286,7 +287,6 @@ fn test_trace_circuit() {
     let full_galois_group = ring.number_ring().galois_group();
     let relative_galois_group = full_galois_group.get_group().clone().subgroup([full_galois_group.from_representative(3)]);
     let trace = trace_circuit(&ring, &relative_galois_group, &DEFAULT_EVALUATOR_COSTS);
-    println!("{:?}", trace.to_ir(&ring, Some(&relative_galois_group)));
     for x in ring.elements() {
         let actual = trace.evaluate(std::slice::from_ref(&x), ring.identity()).pop().unwrap();
         assert_el_eq!(&ring, ring.inclusion().map(ring.trace(x)), actual);
@@ -383,5 +383,21 @@ fn test_cyclic_trace_circuit_window() {
         }
         @1: 1
     "#.as_bytes()).unwrap();
+    assert!(circuit.eq(&PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected), ZZi64, Some(&galois_group)));
+    
+    let galois_group = CyclotomicGaloisGroupBase::new(29).into().full_subgroup();
+    let generator = galois_group.parent().from_representative(16);
+    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 7, 3);
+    let expected: Program<i64> = Program::parse_check(r#"
+        func(%in) {
+            %1, %2 = galois %in, exponents = [-13, -5]
+            %3 = inner_prod %in, %1, coefficients = [@1, @1]
+            %4, %5, %6 = galois %3, exponents = [-13, 7, -6]
+            %7 = inner_prod %in, %4, %5, %6, coefficients = [@1, @1, @1, @1]
+            return %7
+        }
+        @1: 1
+    "#.as_bytes()).unwrap();
+    println!("{:?}", circuit.to_ir(ZZi64, Some(&galois_group)));
     assert!(circuit.eq(&PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected), ZZi64, Some(&galois_group)));
 }
