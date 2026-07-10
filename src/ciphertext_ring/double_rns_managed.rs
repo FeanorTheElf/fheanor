@@ -1,4 +1,5 @@
 use std::alloc::{Allocator, Global};
+use std::ops::Range;
 use std::sync::*;
 
 use feanor_math::algorithms::convolution::*;
@@ -10,6 +11,7 @@ use feanor_math::matrix::*;
 use feanor_math::ring::*;
 use feanor_math::rings::extension::*;
 use feanor_math::rings::finite::FiniteRing;
+use feanor_math::rings::zn::zn_64::{Zn, ZnBase};
 use feanor_math::rings::zn::*;
 use feanor_math::seq::VectorView;
 use feanor_math::serialization::*;
@@ -19,10 +21,11 @@ use serde::{Deserialize, Serialize};
 use serde::de::DeserializeSeed;
 use tracing::instrument;
 
+use crate::ZZbig;
 use crate::boo::{Boo, MappedRwLockReadGuardType};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::RNSFactorCongruence;
-use crate::number_ring::galois::*;
+use crate::number_ring::{extend_sampled_primes, galois::*, largest_prime_leq_congruent_to_one};
 use crate::number_ring::{NumberRingDescriptor, NumberRingQuotient};
 
 use super::double_rns_ring::*;
@@ -41,7 +44,7 @@ use super::PreparedMultiplicationRing;
 /// Note that this includes the option of storing the element in both representations
 /// simultaneously. When a multiplication is performed, elements are automatically converted
 /// to [`DoubleRNSEl`] representation. When a small-basis representation is required (e.g. via 
-/// [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`]), the element is
+/// [`NumberRingRNSQuotient::as_representation_wrt_small_generating_set()`]), the element is
 /// automatically converted to [`SmallBasisEl`] representation. These conversions can also be
 /// manually triggered using [`ManagedDoubleRNSRingBase::to_small_basis()`] and
 /// [`ManagedDoubleRNSRingBase::to_doublerns()`].
@@ -93,8 +96,12 @@ pub type ManagedDoubleRNSRing<NumberRing, A = Global> = RingValue<ManagedDoubleR
 impl<NumberRing> ManagedDoubleRNSRingBase<NumberRing, Global> 
     where NumberRing: NumberRingDescriptor,
 {
-    pub fn new(number_ring: NumberRing, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>) -> RingValue<Self> {
+    pub fn new(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> RingValue<Self> {
         Self::new_with_alloc(number_ring, rns_base, Global)
+    }
+
+    pub fn new_with_modulus_size(number_ring: NumberRing, first_primes: Option<&zn_rns::Zn<Zn, BigIntRing>>, log2_modulus: Range<usize>) -> RingValue<Self> {
+        Self::new_with_modulus_size_alloc(number_ring, first_primes, log2_modulus, Global)
     }
 }
 
@@ -237,10 +244,30 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
-    pub fn new_with_alloc(number_ring: NumberRing, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>, allocator: A) -> RingValue<ManagedDoubleRNSRingBase<NumberRing, A>> {
+    #[instrument(skip_all)]
+    pub fn new_with_alloc(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>, allocator: A) -> RingValue<ManagedDoubleRNSRingBase<NumberRing, A>> {
         let result = DoubleRNSRingBase::new_with_alloc(number_ring, rns_base, allocator);
         let zero = result.get_ring().zero_non_fft();
         ManagedDoubleRNSRing::from(ManagedDoubleRNSRingBase { base: result.into(), zero: zero })
+    }
+
+    #[instrument(skip_all)]
+    pub fn new_with_modulus_size_alloc(number_ring: NumberRing, first_primes: Option<&zn_rns::Zn<Zn, BigIntRing>>, log2_modulus: Range<usize>, allocator: A) -> RingValue<Self> {
+        let required_root_of_unity_order = number_ring.mod_p_required_root_of_unity() as i64;
+        let begin_with = if let Some(first_primes) = first_primes {
+            first_primes.as_iter().map(|Zp| *Zp.modulus()).collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let modulus = extend_sampled_primes(
+            &begin_with, 
+            log2_modulus.start, 
+            log2_modulus.end, 
+            57, 
+            |bound| largest_prime_leq_congruent_to_one(bound, required_root_of_unity_order)
+        ).unwrap();
+        let rns_base = zn_rns::Zn::new(modulus.iter().map(|p| Zn::new(*p as u64)).collect(), ZZbig);
+        return Self::new_with_alloc(number_ring, rns_base, allocator);
     }
 
     ///
@@ -460,7 +487,7 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
         )
     }
 
-    fn mul_base_internal(&self, lhs: Arc<DoubleRNSElInternal<NumberRing, A>>, rhs: &El<zn_rns::Zn<zn_64::Zn, BigIntRing>>) -> Arc<DoubleRNSElInternal<NumberRing, A>> {
+    fn mul_base_internal(&self, lhs: Arc<DoubleRNSElInternal<NumberRing, A>>, rhs: &El<zn_rns::Zn<Zn, BigIntRing>>) -> Arc<DoubleRNSElInternal<NumberRing, A>> {
         self.apply_linear_operation(
             self.zero().internal, 
             lhs,
@@ -724,15 +751,15 @@ impl<NumberRing, A> NumberRingRNSQuotient for ManagedDoubleRNSRingBase<NumberRin
     }
 
     #[instrument(skip_all)]
-    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, zn_64::ZnEl>)
-        where V: AsPointerToSlice<zn_64::ZnEl>
+    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, El<Zn>>)
+        where V: AsPointerToSlice<El<Zn>>
     {
         self.base.as_representation_wrt_small_generating_set_non_fft(self.to_small_basis(x).unwrap_or(&self.zero), output);
     }
 
     #[instrument(skip_all)]
-    fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, zn_64::ZnEl>) -> Self::Element
-        where V: AsPointerToSlice<zn_64::ZnEl>
+    fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, El<Zn>>) -> Self::Element
+        where V: AsPointerToSlice<El<Zn>>
     {
         self.from_small_basis(self.base.from_representation_wrt_small_generating_set_non_fft(data))
     }
@@ -1235,7 +1262,7 @@ impl<NumberRing, A> CanHomFrom<BigIntRingBase> for ManagedDoubleRNSRingBase<Numb
     where NumberRing: NumberRingDescriptor,
         A: Allocator + Clone
 {
-    type Homomorphism = <zn_rns::ZnBase<zn_64::Zn, BigIntRing> as CanHomFrom<BigIntRingBase>>::Homomorphism;
+    type Homomorphism = <zn_rns::ZnBase<Zn, BigIntRing> as CanHomFrom<BigIntRingBase>>::Homomorphism;
 
     fn has_canonical_hom(&self, from: &BigIntRingBase) -> Option<Self::Homomorphism> {
         self.base.base_ring().get_ring().has_canonical_hom(from)
@@ -1258,7 +1285,7 @@ impl<NumberRing, A1, A2, C> CanHomFrom<SingleRNSRingBase<NumberRing, A1, C>> for
     where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
-        C: ConvolutionAlgorithm<zn_64::ZnBase>
+        C: ConvolutionAlgorithm<ZnBase>
 {
     type Homomorphism = <DoubleRNSRingBase<NumberRing, A2> as CanHomFrom<SingleRNSRingBase<NumberRing, A1, C>>>::Homomorphism;
 
@@ -1321,7 +1348,7 @@ impl<NumberRing, A1, A2, C> CanIsoFromTo<SingleRNSRingBase<NumberRing, A1, C>> f
     where NumberRing: NumberRingDescriptor,
         A1: Allocator + Clone,
         A2: Allocator + Clone,
-        C: ConvolutionAlgorithm<zn_64::ZnBase>
+        C: ConvolutionAlgorithm<ZnBase>
 {
     type Isomorphism = <DoubleRNSRingBase<NumberRing, A2> as CanIsoFromTo<SingleRNSRingBase<NumberRing, A1, C>>>::Isomorphism;
 
@@ -1383,7 +1410,7 @@ use crate::DefaultConvolution;
 
 #[cfg(test)]
 fn ring_and_elements() -> (ManagedDoubleRNSRing<Pow2CyclotomicNumberRing>, Vec<El<ManagedDoubleRNSRing<Pow2CyclotomicNumberRing>>>) {
-    let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
+    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
     let ring = ManagedDoubleRNSRingBase::new(Pow2CyclotomicNumberRing::new(16), rns_base);
     
     let elements = vec![
@@ -1424,7 +1451,7 @@ fn test_inner_product() {
 fn test_thread_safe() {
     feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
+    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
     let ring = Arc::new(ManagedDoubleRNSRingBase::new(number_ring, rns_base));
 
     let test_element = Arc::new(ring.get_ring().from_sum(
@@ -1452,7 +1479,7 @@ fn test_thread_safe() {
 fn test_canonical_hom_from_doublerns() {
     feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
+    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
     let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
 
     let doublerns_ring = RingRef::new(&ring.get_ring().base);
@@ -1476,7 +1503,7 @@ fn test_canonical_hom_from_doublerns() {
 fn test_canonical_hom_from_singlerns() {
     feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(97), zn_64::Zn::new(193)], BigIntRing::RING);
+    let rns_base = zn_rns::Zn::new(vec![Zn::new(97), Zn::new(193)], BigIntRing::RING);
     let ring = ManagedDoubleRNSRingBase::new(number_ring.clone(), rns_base.clone());
     let singlerns_ring = SingleRNSRingBase::<_, _, DefaultConvolution>::new(number_ring, rns_base);
     let elements = vec![
@@ -1499,7 +1526,7 @@ fn test_canonical_hom_from_singlerns() {
 fn test_add_result_independent_of_repr() {
     feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
-    let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
+    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
     let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
     let base = &ring.get_ring().base;
     let reprs_of_11: [Box<dyn Fn() -> ManagedDoubleRNSEl<_, _>>; 4] = [
@@ -1609,7 +1636,7 @@ fn test_serialization() {
 fn test_deadlock() {
     feanor_tracing::DelayedLogger::init_test();
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
-    let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
+    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
     let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
     let rns_base = ring.base_ring();
 

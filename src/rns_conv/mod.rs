@@ -14,14 +14,12 @@ pub mod bfv_rescale;
 pub mod bgv_rescale;
 ///
 /// Contains a convenience-wrapper around the basic RNS conversion from
-/// [`lift`], which preserves some of the RNS factors without recomputing
+/// [`bconv`], which preserves some of the RNS factors without recomputing
 /// them. 
 /// 
 pub mod shared_lift;
 ///
-/// Contains another implementation of the basic RNS base conversion
-/// (as in [`lift`]), which explicitly considers the conversion as matrix
-/// multiplication.
+/// Contains the main implementation of the RNS base conversion.
 /// 
 pub mod bconv;
 

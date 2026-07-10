@@ -415,5 +415,6 @@ assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);
 [`BGVInstantiation`]: crate::bgv::BGVInstantiation
 [`BGVInstantiation::mod_switch_ct()`]: crate::bgv::BGVInstantiation::mod_switch_ct()
 [`BGVInstantiation::hom_mul()`]: crate::bgv::BGVInstantiation::hom_mul()
+[`BGVInstantiation::hom_square()`]: crate::bgv::BGVInstantiation::hom_square()
 [`BGVInstantiation::enc_sym()`]: crate::bgv::BGVInstantiation::enc_sym()
 [`NaiveBGVNoiseEstimator`]: crate::bgv::noise_estimator::NaiveBGVNoiseEstimator

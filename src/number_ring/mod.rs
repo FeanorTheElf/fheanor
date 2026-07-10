@@ -11,8 +11,10 @@ use feanor_math::rings::extension::FreeAlgebra;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::poly::PolyRing;
 use feanor_math::rings::zn::zn_64;
+use feanor_math::integer::int_cast;
 use feanor_math::seq::*;
 
+use crate::ZZi64;
 use crate::number_ring::galois::*;
 
 pub mod galois;
@@ -254,8 +256,8 @@ pub fn largest_prime_leq_congruent_to_one(leq_than: i64, congruent_to_one_mod: i
 /// where `min_bits` and `max_bits` are very small or very close together, even if a result theoretically
 /// exists. It is, however, quite reliable in most situations.
 /// 
-pub fn sample_primes<F>(min_bits: usize, max_bits: usize, max_bits_each_modulus: usize, largest_prime_leq: F) -> Option<Vec<El<BigIntRing>>>
-    where F: FnMut(El<BigIntRing>) -> Option<El<BigIntRing>>
+pub fn sample_primes<F>(min_bits: usize, max_bits: usize, max_bits_each_modulus: usize, largest_prime_leq: F) -> Option<Vec<i64>>
+    where F: FnMut(i64) -> Option<i64>
 {
     extend_sampled_primes(&[], min_bits, max_bits, max_bits_each_modulus, largest_prime_leq)
 }
@@ -274,73 +276,68 @@ pub fn sample_primes<F>(min_bits: usize, max_bits: usize, max_bits_each_modulus:
 /// where `min_bits` and `max_bits` are very small or very close together, even if a result theoretically
 /// exists. It is, however, quite reliable in most situations.
 /// 
-pub fn extend_sampled_primes<F>(begin_with: &[El<BigIntRing>], min_bits: usize, max_bits: usize, max_bits_each_modulus: usize, mut largest_prime_leq: F) -> Option<Vec<El<BigIntRing>>>
-    where F: FnMut(El<BigIntRing>) -> Option<El<BigIntRing>>
+pub fn extend_sampled_primes<F>(begin_with: &[i64], min_bits: usize, max_bits: usize, max_bits_each_modulus: usize, mut largest_prime_leq: F) -> Option<Vec<i64>>
+    where F: FnMut(i64) -> Option<i64>
 {
     let ZZbig = BigIntRing::RING;
     assert!(max_bits > min_bits);
 
-    let mut result = begin_with.iter().map(|p| ZZbig.clone_el(p)).collect::<Vec<_>>();
-    let mut current_bits = result.iter().map(|i| ZZbig.to_float_approx(i).log2()).sum::<f64>();
+    let mut result = begin_with.to_vec();
+    let mut current_bits = result.iter().map(|p| (*p as f64).log2()).sum::<f64>();
     assert!((current_bits.floor() as usize) < max_bits);
-    let mut current_upper_bound = ZZbig.power_of_two(max_bits_each_modulus);
-
-    let min = |x, y| if ZZbig.is_gt(&x, &y) { y } else { x };
+    let mut current_upper_bound = 1 << max_bits_each_modulus;
 
     while current_bits < min_bits as f64 {
 
         if min_bits as f64 - current_bits < max_bits_each_modulus as f64 {  
-            current_upper_bound = min(current_upper_bound, ZZbig.power_of_two(f64::min(max_bits as f64 - current_bits, max_bits_each_modulus as f64).floor() as usize));
+            current_upper_bound = i64::min(current_upper_bound, 1 << (f64::min(max_bits as f64 - current_bits, max_bits_each_modulus as f64).floor() as usize));
         } else {
             let required_number_of_primes = ((min_bits as f64 - current_bits) / max_bits_each_modulus as f64).ceil() as usize;
-            current_upper_bound = min(current_upper_bound, ZZbig.power_of_two(f64::min((max_bits as f64 - current_bits) / required_number_of_primes as f64, max_bits_each_modulus as f64).floor() as usize));
+            current_upper_bound = i64::min(current_upper_bound, 1 << (f64::min((max_bits as f64 - current_bits) / required_number_of_primes as f64, max_bits_each_modulus as f64).floor() as usize));
         }
 
-        let mut prime = largest_prime_leq(ZZbig.clone_el(&current_upper_bound))?;
-        current_upper_bound = ZZbig.sub_ref_fst(&prime, ZZbig.one());
-        while begin_with.iter().any(|p| ZZbig.eq_el(p, &prime)) {
-            prime = largest_prime_leq(ZZbig.clone_el(&current_upper_bound))?;
-            current_upper_bound = ZZbig.sub_ref_fst(&prime, ZZbig.one());
+        let mut prime = largest_prime_leq(current_upper_bound)?;
+        current_upper_bound = prime - 1;
+        while begin_with.iter().any(|p| *p == prime) {
+            prime = largest_prime_leq(current_upper_bound)?;
+            current_upper_bound = prime - 1
         }
-        let bits = ZZbig.to_float_approx(&prime).log2();
+        let bits = (prime as f64).log2();
         current_bits += bits;
-        result.push(ZZbig.clone_el(&prime));
+        result.push(prime);
     }
-    debug_assert!(ZZbig.is_geq(&ZZbig.prod(result.iter().map(|i| ZZbig.clone_el(i))), &ZZbig.power_of_two(min_bits)));
-    debug_assert!(ZZbig.is_lt(&ZZbig.prod(result.iter().map(|i| ZZbig.clone_el(i))), &ZZbig.power_of_two(max_bits)));
+    debug_assert!(ZZbig.is_geq(&ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64))), &ZZbig.power_of_two(min_bits)));
+    debug_assert!(ZZbig.is_lt(&ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64))), &ZZbig.power_of_two(max_bits)));
     return Some(result);
 }
 
-#[cfg(test)]
-use feanor_math::integer::int_cast;
 #[cfg(test)]
 use feanor_math::pid::EuclideanRingStore;
 
 #[test]
 fn test_sample_primes() {
     feanor_tracing::DelayedLogger::init_test();
-    let ZZi64 = StaticRing::<i64>::RING;
     let ZZbig = BigIntRing::RING;
-    let result = sample_primes(60, 62, 58, |b| largest_prime_leq_congruent_to_one(int_cast(b, ZZi64, ZZbig), 422144).map(|x| int_cast(x, ZZbig, ZZi64))).unwrap();
+    let result = sample_primes(60, 62, 58, |b| largest_prime_leq_congruent_to_one(b, 422144)).unwrap();
     assert_eq!(result.len(), 2);
-    let prod = ZZbig.prod(result.iter().map(|i| ZZbig.clone_el(i)));
+    let prod = ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64)));
     assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 60);
     assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 62);
-    assert!(result.iter().all(|i| ZZbig.is_one(&ZZbig.euclidean_rem(ZZbig.clone_el(i), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
+    assert!(result.iter().all(|p| ZZbig.is_one(&ZZbig.euclidean_rem(int_cast(*p, ZZbig, ZZi64), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
 
     let ZZbig = BigIntRing::RING;
-    let result = sample_primes(135, 138, 58, |b| largest_prime_leq_congruent_to_one(int_cast(b, ZZi64, ZZbig), 422144).map(|x| int_cast(x, ZZbig, ZZi64))).unwrap();
+    let result = sample_primes(135, 138, 58, |b| largest_prime_leq_congruent_to_one(b, 422144)).unwrap();
     assert_eq!(result.len(), 3);
-    let prod = ZZbig.prod(result.iter().map(|i| ZZbig.clone_el(i)));
+    let prod = ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64)));
     assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 135);
     assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 138);
-    assert!(result.iter().all(|i| ZZbig.is_one(&ZZbig.euclidean_rem(ZZbig.clone_el(i), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
+    assert!(result.iter().all(|p| ZZbig.is_one(&ZZbig.euclidean_rem(int_cast(*p, ZZbig, ZZi64), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
 
     let ZZbig = BigIntRing::RING;
-    let result = sample_primes(115, 118, 58, |b| largest_prime_leq_congruent_to_one(int_cast(b, ZZi64, ZZbig), 422144).map(|x| int_cast(x, ZZbig, ZZi64))).unwrap();
+    let result = sample_primes(115, 118, 58, |b| largest_prime_leq_congruent_to_one(b, 422144)).unwrap();
     assert_eq!(result.len(), 2);
-    let prod = ZZbig.prod(result.iter().map(|i| ZZbig.clone_el(i)));
+    let prod = ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64)));
     assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 115);
     assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 118);
-    assert!(result.iter().all(|i| ZZbig.is_one(&ZZbig.euclidean_rem(ZZbig.clone_el(i), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
+    assert!(result.iter().all(|p| ZZbig.is_one(&ZZbig.euclidean_rem(int_cast(*p, ZZbig, ZZi64), &int_cast(422144, ZZbig, StaticRing::<i64>::RING)))));
 }

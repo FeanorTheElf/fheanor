@@ -20,10 +20,10 @@ use super::RNSOperation;
 /// lift of the input is bounded by `aq/4`, in which case the result
 /// is always correct.
 /// 
-/// The functionality is exactly as for [`RNSMatrixBaseConversion`],
+/// The functionality is exactly as for [`RNSBaseConversion`],
 /// except that it might be faster by reusing the shared factor `a`.
 /// 
-/// [`RNSMatrixBaseConversion`]: crate::rns_conv::matrix_lift::RNSMatrixBaseConversion
+/// [`RNSBaseConversion`]: crate::rns_conv::bconv::RNSBaseConversion
 /// 
 pub struct RNSSharedBaseConversion<A = Global>
     where A: Allocator + Clone

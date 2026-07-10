@@ -1291,10 +1291,10 @@ impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow
             log2_q.start, 
             log2_q.end, 
             SAMPLE_PRIMES_SIZE, 
-            |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))
+            |bound| largest_prime_leq_congruent_to_one(bound, required_root_of_unity)
         ).unwrap();
-        rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
+        rns_base.sort_unstable();
+        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(p as u64)).collect(), ZZbig);
     }
 
     #[instrument(skip_all)]
@@ -1388,10 +1388,10 @@ impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
             log2_q.start, 
             log2_q.end, 
             SAMPLE_PRIMES_SIZE, 
-            |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))
+            |bound| largest_prime_leq_congruent_to_one(bound, required_root_of_unity)
         ).unwrap();
-        rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
+        rns_base.sort_unstable();
+        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(p as u64)).collect(), ZZbig);
     }
 
     #[instrument(skip_all)]
@@ -1479,10 +1479,10 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BGVInstantiation for Comp
             log2_q.start, 
             log2_q.end, 
             SAMPLE_PRIMES_SIZE, 
-            |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))
+            |bound| largest_prime_leq_congruent_to_one(bound, required_root_of_unity)
         ).unwrap();
-        rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
+        rns_base.sort_unstable();
+        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(p as u64)).collect(), ZZbig);
     }
 
     #[instrument(skip_all)]
@@ -1492,8 +1492,8 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BGVInstantiation for Comp
         return SingleRNSRingBase::new_with_alloc(
             self.number_ring().clone(),
             rns_base,
+            convolutions,
             self.ciphertext_allocator.clone(),
-            convolutions
         );
     }
 

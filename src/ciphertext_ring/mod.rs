@@ -95,7 +95,7 @@ pub trait NumberRingRNSQuotient: NumberRingQuotient + PreparedMultiplicationRing
             Self: 'a;
 
     ///
-    /// As [`BGFVCiphertextRing::collect_rns_factors()`] but for [`PreparedMultiplicationRing::PreparedMultiplicant`]s.
+    /// As [`NumberRingRNSQuotient::collect_rns_factors()`] but for [`PreparedMultiplicationRing::PreparedMultiplicant`]s.
     /// 
     fn collect_rns_factors_prepared<'a, I>(&self, congruences: I) -> Self::PreparedMultiplicant
         where I: Iterator<Item = RNSFactorCongruence<'a, Self, Self::PreparedMultiplicant>>,
@@ -123,7 +123,7 @@ pub trait NumberRingRNSQuotient: NumberRingQuotient + PreparedMultiplicationRing
     }
 
     ///
-    /// As [`BGFVCiphertextRing::drop_rns_factor_element()`] but for [`PreparedMultiplicationRing::PreparedMultiplicant`]s.
+    /// As [`NumberRingRNSQuotient::drop_rns_factor_element()`] but for [`PreparedMultiplicationRing::PreparedMultiplicant`]s.
     /// 
     fn drop_rns_factor_prepared_element(&self, from: &Self, dropped_rns_factors: &RNSFactorIndexList, value: &Self::PreparedMultiplicant) -> Self::PreparedMultiplicant {
         assert_eq!(from.base_ring().len(), self.base_ring().len() + dropped_rns_factors.len());
@@ -147,15 +147,15 @@ pub trait NumberRingRNSQuotient: NumberRingQuotient + PreparedMultiplicationRing
     }
 
     ///
-    /// Returns the length of the small generating set used for [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`]
-    /// and [`BGFVCiphertextRing::from_representation_wrt_small_generating_set()`].
+    /// Returns the length of the small generating set used for [`NumberRingRNSQuotient::as_representation_wrt_small_generating_set()`]
+    /// and [`NumberRingRNSQuotient::from_representation_wrt_small_generating_set()`].
     /// 
     fn small_generating_set_len(&self) -> usize;
 
     ///
     /// Returns a view on the underlying representation of `x`. 
     /// 
-    /// This is the counterpart of [`BGFVCiphertextRing::from_representation_wrt_small_generating_set()`].
+    /// This is the counterpart of [`NumberRingRNSQuotient::from_representation_wrt_small_generating_set()`].
     /// 
     /// More concretely, for some `Zq`-linear generating set `{ a_i | i }` consisting
     /// of ring elements of small canonical norm, each column of the returned matrix contains
@@ -193,7 +193,7 @@ pub trait NumberRingRNSQuotient: NumberRingQuotient + PreparedMultiplicationRing
     ///
     /// Creates a ring element from its underlying representation.
     /// 
-    /// This is the counterpart of [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`],
+    /// This is the counterpart of [`NumberRingRNSQuotient::as_representation_wrt_small_generating_set()`],
     /// which contains a more detailed documentation.
     /// 
     /// This function is a compromise between encapsulating the storage of ring elements
@@ -228,9 +228,9 @@ pub trait NumberRingRNSQuotient: NumberRingQuotient + PreparedMultiplicationRing
 ///
 /// Maps an element from a ring `from` to a quotient of the same number ring `to` (but with
 /// a different modulus). This is done by applying the given RNS conversion to each coefficient
-/// in the representation given by [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`].
+/// in the representation given by [`NumberRingRNSQuotient::as_representation_wrt_small_generating_set()`].
 /// 
-/// Note that [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`] might not behave
+/// Note that [`NumberRingRNSQuotient::as_representation_wrt_small_generating_set()`] might not behave
 /// exactly as expected, due to the need for a very performant implementation. See its doc for details.
 /// 
 #[instrument(skip_all)]

@@ -148,9 +148,7 @@ pub type DecoratedBaseRingBase<R> = AsLocalPIRBase<RingValue<BaseRing<R>>>;
 ///    (if the latter is serializable) using the implementation of [`serde::Serialize`] and
 ///    [`serde::Deserialize`]
 ///  - alternatively, you can serialize the isomorphism without the ring implementation
-///    using [`SerializableHypercubeIsomorphismWithoutRing`] and 
-///    [`DeserializeSeedHypercubeIsomorphismWithoutRing`]; 
-///    this of course requires that the ring is provided at deserialization time
+///    using [`SerializeDeserializeWith`]
 /// 
 pub struct HypercubeIsomorphism<R>
     where R: RingStore,

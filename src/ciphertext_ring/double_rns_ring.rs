@@ -1,5 +1,6 @@
 use std::alloc::Allocator;
 use std::alloc::Global;
+use std::ops::Range;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -42,6 +43,8 @@ use super::serialization::serialize_rns_data;
 use super::single_rns_ring::*;
 use super::NumberRingRNSQuotient;
 use super::PreparedMultiplicationRing;
+
+use crate::ZZbig;
 
 ///
 /// Implementation of the ring `Z[𝝵_m]/(q)`, where `q = p1 ... pr` is a product of "RNS factors".
@@ -117,9 +120,12 @@ impl<NumberRing> DoubleRNSRingBase<NumberRing>
     /// Each RNS factor `Z/(pi)` in `rns_base` must have suitable roots of unity,
     /// as specified by [`NumberRingDescriptor::mod_p_required_root_of_unity()`].
     /// 
-    #[instrument(skip_all)]
     pub fn new(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> RingValue<Self> {
         Self::new_with_alloc(number_ring, rns_base, Global)
+    }
+
+    pub fn new_with_modulus_size(number_ring: NumberRing, first_primes: Option<&zn_rns::Zn<Zn, BigIntRing>>, log2_modulus: Range<usize>) -> RingValue<Self> {
+        Self::new_with_modulus_size_alloc(number_ring, first_primes, log2_modulus, Global)
     }
 }
 
@@ -158,6 +164,25 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
             rns_base: rns_base,
             allocator: allocator,
         })
+    }
+
+    #[instrument(skip_all)]
+    pub fn new_with_modulus_size_alloc(number_ring: NumberRing, first_primes: Option<&zn_rns::Zn<Zn, BigIntRing>>, log2_modulus: Range<usize>, allocator: A) -> RingValue<Self> {
+        let required_root_of_unity_order = number_ring.mod_p_required_root_of_unity() as i64;
+        let begin_with = if let Some(first_primes) = first_primes {
+            first_primes.as_iter().map(|Zp| *Zp.modulus()).collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let modulus = extend_sampled_primes(
+            &begin_with, 
+            log2_modulus.start, 
+            log2_modulus.end, 
+            57, 
+            |bound| largest_prime_leq_congruent_to_one(bound, required_root_of_unity_order)
+        ).unwrap();
+        let rns_base = zn_rns::Zn::new(modulus.iter().map(|p| Zn::new(*p as u64)).collect(), ZZbig);
+        return Self::new_with_alloc(number_ring, rns_base, allocator);
     }
 
     ///
@@ -1355,8 +1380,6 @@ impl<NumberRing, A1, A2> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A2>> for Dou
     }
 }
 
-#[cfg(test)]
-use crate::ZZbig;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]

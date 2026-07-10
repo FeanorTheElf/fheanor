@@ -121,7 +121,7 @@ fn create_plaintext_ring(ring_degree: usize, t: u64) -> PlaintextRing {
 #     ); 
 }
 ```
-Note that Fheanor provides the convenience function [`sample_primes()`] and [`extend_sampled_primes()`] to simplify this:
+However, this can be simplified by using [`DoubleRNSRingBase::new_with_modulus_size()`], which automatically samples suitable primes:
 ```rust
 # use feanor_math::algorithms::miller_rabin::*;
 # use feanor_math::ring::*;
@@ -138,15 +138,10 @@ Note that Fheanor provides the convenience function [`sample_primes()`] and [`ex
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
 fn create_ciphertext_ring(ring_degree: usize, bitlength_of_q: usize) -> CiphertextRing {
     let number_ring = Pow2CyclotomicNumberRing::new((ring_degree * 2) as u64);
-    let mut rns_factors = sample_primes(
-        bitlength_of_q - 10, 
-        bitlength_of_q, 
-        57, 
-        |bound| largest_prime_leq_congruent_to_one(int_cast(bound, StaticRing::<i64>::RING, BigIntRing::RING), number_ring. mod_p_required_root_of_unity() as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::<i64>::RING))
-    ).unwrap();
-    return <CiphertextRing as RingStore>::Type::new(
+    return <CiphertextRing as RingStore>::Type::new_with_modulus_size(
         number_ring,
-        zn_rns::Zn::new(rns_factors.into_iter().map(|p| zn_64::Zn::new(int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING) as u64)). collect(), BigIntRing::RING)
+        None,
+        (bitlength_of_q - 10)..bitlength_of_q
     );
 }
 
@@ -184,16 +179,10 @@ Instead, we will use similar (but more impactful) techniques when implementing h
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
 # fn create_ciphertext_ring(ring_degree: usize, bitlength_of_q: usize) -> CiphertextRing {
 #     let number_ring = Pow2CyclotomicNumberRing::new((ring_degree * 2) as u64);
-#     let mut rns_factors = sample_primes(
-#         bitlength_of_q - 10, 
-#         bitlength_of_q, 
-#         56, 
-#         |bound| largest_prime_leq_congruent_to_one(int_cast(bound, StaticRing::<i64>::RING, BigIntRing::RING), number_ring. mod_p_required_root_of_unity() as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::<i64>::RING))
-#     ).unwrap();
-#     rns_factors.sort_unstable_by(|l, r| BigIntRing::RING.cmp(l, r));
-#     return <CiphertextRing as RingStore>::Type::new(
+#     return <CiphertextRing as RingStore>::Type::new_with_modulus_size(
 #         number_ring,
-#         zn_rns::Zn::new(rns_factors.into_iter().map(|p| zn_64::Zn::new(int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING) as u64)). collect(), BigIntRing::RING)
+#         None,
+#         (bitlength_of_q - 10)..bitlength_of_q
 #     );
 # }
 # fn create_plaintext_ring(ring_degree: usize, t: u64) -> PlaintextRing {
@@ -303,18 +292,11 @@ Since creating a double-RNS ring is somewhat expensive, we do this once and reus
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
 fn create_multiplication_ring(ciphertext_ring: &CiphertextRing) -> CiphertextRing {
     let number_ring = ciphertext_ring.get_ring().number_ring().clone();
-    let rns_factors = extend_sampled_primes(
-        &ciphertext_ring.base_ring().as_iter().map(|RNS_factor| int_cast(*RNS_factor.modulus(), BigIntRing::RING, StaticRing::<i64>::RING)).collect::<Vec<_>>(),
-        BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 10, 
-        BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 67, 
-        57, 
-        |bound| largest_prime_leq_congruent_to_one(int_cast(bound, StaticRing::<i64>::RING, BigIntRing::RING), number_ring.mod_p_required_root_of_unity() as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::<i64>::RING))
-    ).unwrap().into_iter().map(|p| 
-        int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING)
-    ).collect::<Vec<_>>();
-    return <CiphertextRing as RingStore>::Type::new(
+    let min_bits = BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 10;
+    return <CiphertextRing as RingStore>::Type::new_with_modulus_size(
         number_ring,
-        zn_rns::Zn::new(rns_factors.into_iter().map(|p| zn_64::Zn::new(p as u64)).collect(), BigIntRing::RING)
+        Some(ciphertext_ring.base_ring()),
+        min_bits..(min_bits + 57)
     );
 }
 ```
@@ -372,18 +354,11 @@ This leaves us to implement BFV multiplication as follows.
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
 # fn create_multiplication_ring(ciphertext_ring: &CiphertextRing) -> CiphertextRing {
 #     let number_ring = ciphertext_ring.get_ring().number_ring().clone();
-#     let rns_factors = extend_sampled_primes(
-#         &ciphertext_ring.base_ring().as_iter().map(|RNS_factor| int_cast(*RNS_factor.modulus(), BigIntRing::RING, StaticRing::<i64>::RING)).collect::<Vec<_>>(),
-#         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 10, 
-#         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 67, 
-#         57, 
-#         |bound| largest_prime_leq_congruent_to_one(int_cast(bound, StaticRing::<i64>::RING, BigIntRing::RING), number_ring.mod_p_required_root_of_unity() as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::<i64>::RING))
-#     ).unwrap().into_iter().map(|p| 
-#         int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING)
-#     ).collect::<Vec<_>>();
-#     return <CiphertextRing as RingStore>::Type::new(
+#     let min_bits = BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 10;
+#     return <CiphertextRing as RingStore>::Type::new_with_modulus_size(
 #         number_ring,
-#         zn_rns::Zn::new(rns_factors.into_iter().map(|p| zn_64::Zn::new(p as u64)).collect(), BigIntRing::RING)
+#         Some(ciphertext_ring.base_ring()),
+#         min_bits..(min_bits + 57)
 #     );
 # }
 fn hom_mul_three_component(
@@ -547,15 +522,10 @@ Finally, let's test this implementation again!
 # type RelinKey = (RNSGadgetProductRhsOperand<<CiphertextRing as RingStore>::Type>, RNSGadgetProductRhsOperand<<CiphertextRing as RingStore>::Type>);
 # fn create_ciphertext_ring(ring_degree: usize, bitlength_of_q: usize) -> CiphertextRing {
 #     let number_ring = Pow2CyclotomicNumberRing::new((ring_degree * 2) as u64);
-#     let mut rns_factors = sample_primes(
-#         bitlength_of_q - 10, 
-#         bitlength_of_q, 
-#         57, 
-#         |bound| largest_prime_leq_congruent_to_one(int_cast(bound, StaticRing::<i64>::RING, BigIntRing::RING), number_ring. mod_p_required_root_of_unity() as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::<i64>::RING))
-#     ).unwrap();
-#     return <CiphertextRing as RingStore>::Type::new(
+#     return <CiphertextRing as RingStore>::Type::new_with_modulus_size(
 #         number_ring,
-#         zn_rns::Zn::new(rns_factors.into_iter().map(|p| zn_64::Zn::new(int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING) as u64)). collect(), BigIntRing::RING)
+#         None,
+#         (bitlength_of_q - 10)..bitlength_of_q
 #     );
 # }
 # fn create_plaintext_ring(ring_degree: usize, t: u64) -> PlaintextRing {
@@ -625,18 +595,11 @@ Finally, let's test this implementation again!
 # }
 # fn create_multiplication_ring(ciphertext_ring: &CiphertextRing) -> CiphertextRing {
 #     let number_ring = ciphertext_ring.get_ring().number_ring().clone();
-#     let rns_factors = extend_sampled_primes(
-#         &ciphertext_ring.base_ring().as_iter().map(|RNS_factor| int_cast(*RNS_factor.modulus(), BigIntRing::RING, StaticRing::<i64>::RING)).collect::<Vec<_>>(),
-#         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 10, 
-#         BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 67, 
-#         57, 
-#         |bound| largest_prime_leq_congruent_to_one(int_cast(bound, StaticRing::<i64>::RING, BigIntRing::RING), number_ring.mod_p_required_root_of_unity() as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::<i64>::RING))
-#     ).unwrap().into_iter().map(|p| 
-#         int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING)
-#     ).collect::<Vec<_>>();
-#     return <CiphertextRing as RingStore>::Type::new(
+#     let min_bits = BigIntRing::RING.abs_log2_ceil(ciphertext_ring.base_ring().modulus()).unwrap() * 2 + StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.rank() as i64)).unwrap() + 10;
+#     return <CiphertextRing as RingStore>::Type::new_with_modulus_size(
 #         number_ring,
-#         zn_rns::Zn::new(rns_factors.into_iter().map(|p| zn_64::Zn::new(p as u64)).collect(), BigIntRing::RING)
+#         Some(ciphertext_ring.base_ring()),
+#         min_bits..(min_bits + 57)
 #     );
 # }
 # fn hom_mul_three_component(
@@ -765,6 +728,7 @@ Implementing these points is left as an exercise.
 [`RNSRescalingConversion`]: crate::rns_conv::bfv_rescale::RNSRescalingConversion
 [`DoubleRNSRingBase`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase
 [`DoubleRNSRingBase::as_matrix_wrt_small_basis()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::as_matrix_wrt_small_basis()
+[`DoubleRNSRingBase::new_with_modulus_size()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::new_with_modulus_size()
 [`DoubleRNSRingBase::undo_fft()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::undo_fft()
 [`SmallBasisEl`]: crate::ciphertext_ring::double_rns_ring::SmallBasisEl
 [`RNSGadgetProductRhsOperand`]: crate::gadget_product::RNSGadgetProductRhsOperand

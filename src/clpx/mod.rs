@@ -23,7 +23,6 @@ use tracing::instrument;
 
 use crate::bfv::default_impl_lift_to_Cmul;
 use crate::bfv::force_double_rns_repr;
-use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::NumberRingRNSQuotient;
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::gadget_product::*;
@@ -609,24 +608,19 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> CLPXInstantiation for P
     #[instrument(skip_all)]
     fn create_ciphertext_rings(&self, log2_q: Range<usize>, log2_t_coeff_inf_norm: usize) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
         let number_ring = self.number_ring();
-        let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
-        let next_prime = |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64));
-        let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
-        let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
-
-        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + 2 * number_ring.small_basis_product_expansion_factor().log2().ceil() as usize + log2_t_coeff_inf_norm + 3;
-        let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
-        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
-
-        let C_mul = ManagedDoubleRNSRingBase::new_with_alloc(
-            number_ring.clone(),
-            Cmul_rns_base,
+        let C = ManagedDoubleRNSRingBase::new_with_modulus_size_alloc(
+            number_ring.clone(), 
+            None, 
+            log2_q, 
             self.ciphertext_allocator().clone()
         );
 
-        let dropped_indices = RNSFactorIndexList::from((0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())), C_mul.base_ring().len());
-        let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
-        assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap() + 2 * number_ring.small_basis_product_expansion_factor().log2().ceil() as usize + log2_t_coeff_inf_norm + 3;
+        let C_mul = ManagedDoubleRNSRingBase::new_with_modulus_size_alloc(
+            number_ring.clone(), Some(C.base_ring()), 
+            (Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET)..(Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET), 
+            self.ciphertext_allocator().clone()
+        );
         return (C, C_mul);
     }
 
@@ -648,24 +642,19 @@ impl<A: Allocator + Clone > CLPXInstantiation for CompositeCLPX<A> {
     #[instrument(skip_all)]
     fn create_ciphertext_rings(&self, log2_q: Range<usize>, log2_t_coeff_inf_norm: usize) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
         let number_ring = self.number_ring();
-        let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
-        let next_prime = |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64));
-        let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
-        let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
-
-        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + 2 * number_ring.small_basis_product_expansion_factor().log2().ceil() as usize + log2_t_coeff_inf_norm + 3;
-        let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
-        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
-
-        let C_mul = ManagedDoubleRNSRingBase::new_with_alloc(
-            number_ring.clone(),
-            Cmul_rns_base,
+        let C = ManagedDoubleRNSRingBase::new_with_modulus_size_alloc(
+            number_ring.clone(), 
+            None, 
+            log2_q, 
             self.ciphertext_allocator().clone()
         );
 
-        let dropped_indices = RNSFactorIndexList::from((0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())), C_mul.base_ring().len());
-        let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
-        assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap() + 2 * number_ring.small_basis_product_expansion_factor().log2().ceil() as usize + log2_t_coeff_inf_norm + 3;
+        let C_mul = ManagedDoubleRNSRingBase::new_with_modulus_size_alloc(
+            number_ring.clone(), Some(C.base_ring()), 
+            (Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET)..(Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET), 
+            self.ciphertext_allocator().clone()
+        );
         return (C, C_mul);
     }
 

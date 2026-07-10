@@ -1,6 +1,6 @@
 use std::alloc::{Allocator, Global};
 use std::marker::PhantomData;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 use std::sync::Arc;
 
 use feanor_math::algorithms::convolution::*;
@@ -37,6 +37,7 @@ use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::DefaultConvolution;
 use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ntt::FheanorConvolution;
+use crate::ZZbig;
 
 use super::serialization::{deserialize_rns_data, serialize_rns_data};
 use super::NumberRingRNSQuotient;
@@ -47,7 +48,7 @@ use super::NumberRingRNSQuotient;
 /// 
 /// As opposed to [`DoubleRNSRing`], this means repeated multiplications are more 
 /// expensive, but non-arithmetic operations like [`FreeAlgebra::wrt_canonical_basis()`] 
-/// or [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`] are faster. Note 
+/// or [`NumberRingRNSQuotient::as_representation_wrt_small_generating_set()`] are faster. Note 
 /// that repeated multiplications with a fixed element will get significantly faster when using 
 /// [`PreparedMultiplicationRing::prepare_multiplicant()`] and [`PreparedMultiplicationRing::mul_prepared()`].
 ///  
@@ -130,7 +131,39 @@ impl<NumberRing, C> SingleRNSRingBase<NumberRing, Global, C>
     pub fn new(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> RingValue<Self> {
         let max_log2_len = StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.galois_group().m() as i64 * 2)).unwrap();
         let convolutions = rns_base.as_iter().map(|Zp| Arc::new(C::new(Zp.clone(), max_log2_len))).collect();
-        Self::new_with_alloc(number_ring, rns_base, Global, convolutions)
+        Self::new_with_alloc(number_ring, rns_base, convolutions, Global)
+    }
+
+    #[instrument(skip_all)]
+    pub fn new_with_modulus_size(number_ring: NumberRing, first_primes: Option<&zn_rns::Zn<Zn, BigIntRing>>, log2_modulus: Range<usize>) -> RingValue<Self> {
+        Self::new_with_modulus_size_alloc(number_ring, first_primes, log2_modulus, Global)
+    }
+}
+
+impl<NumberRing, C, A> SingleRNSRingBase<NumberRing, A, C> 
+    where NumberRing: NumberRingDescriptor,
+        C: FheanorConvolution<Zn>,
+        A: Allocator + Clone
+{
+    #[instrument(skip_all)]
+    pub fn new_with_modulus_size_alloc(number_ring: NumberRing, first_primes: Option<&zn_rns::Zn<Zn, BigIntRing>>, log2_modulus: Range<usize>, allocator: A) -> RingValue<Self> {
+        let max_log2_len = StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.galois_group().m() as i64 * 4)).unwrap();
+        let required_root_of_unity_order = 1 << max_log2_len;
+        let begin_with = if let Some(first_primes) = first_primes {
+            first_primes.as_iter().map(|Zp| *Zp.modulus()).collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let modulus = extend_sampled_primes(
+            &begin_with, 
+            log2_modulus.start, 
+            log2_modulus.end, 
+            57, 
+            |bound| largest_prime_leq_congruent_to_one(bound, required_root_of_unity_order)
+        ).unwrap();
+        let rns_base = zn_rns::Zn::new(modulus.iter().map(|p| Zn::new(*p as u64)).collect(), ZZbig);
+        let convolutions = rns_base.as_iter().map(|Zp| Arc::new(C::new(*Zp, max_log2_len))).collect::<Vec<_>>();
+        return Self::new_with_alloc(number_ring, rns_base, convolutions, allocator);
     }
 }
 
@@ -165,7 +198,7 @@ impl<NumberRing, A, C> SingleRNSRingBase<NumberRing, A, C>
     /// all pointing to this one convolution object.
     /// 
     #[instrument(skip_all)]
-    pub fn new_with_alloc(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>, allocator: A, convolutions: Vec<Arc<C>>) -> RingValue<Self> {
+    pub fn new_with_alloc(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>, convolutions: Vec<Arc<C>>, allocator: A) -> RingValue<Self> {
         assert!(rns_base.len() > 0);
         assert_eq!(rns_base.len(), convolutions.len());
         for i in 0..rns_base.len() {

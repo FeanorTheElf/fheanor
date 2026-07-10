@@ -32,7 +32,7 @@ use super::RNSOperation;
 /// Similar to (the now deprecated) [`RNSBaseConversion`], but this implementation
 /// writes the operation as integer matrix multiplication, and is usually more efficient.
 /// 
-/// [`RNSBaseConversion`]: crate::rns_conv::lift::RNSBaseConversion
+/// [`RNSBaseConversion`]: crate::rns_conv::bconv::RNSBaseConversion
 /// 
 pub struct RNSBaseConversion<A = Global>(RNSMatrixBaseConversionEnum<A>)
     where A: Allocator;
@@ -133,7 +133,7 @@ fn pad_to_block(len: usize) -> usize {
 impl RNSBaseConversion {
 
     ///
-    /// Creates a new [`RNSMatrixBaseConversion`] from `q` to `q'`.
+    /// Creates a new [`RNSBaseConversion`] from `q` to `q'`.
     /// 
     pub fn new(in_rings: Vec<Zn>, out_rings: Vec<Zn>) -> Self {
         Self::new_with_alloc(in_rings, out_rings, Global)
@@ -144,7 +144,7 @@ impl<A> RNSBaseConversion<A>
     where A: Allocator
 {
     ///
-    /// Creates a new [`RNSMatrixBaseConversion`] from `q` to `q'`.
+    /// Creates a new [`RNSBaseConversion`] from `q` to `q'`.
     /// 
     pub fn new_with_alloc(in_rings: Vec<Zn>, out_rings: Vec<Zn>, allocator: A) -> Self {
         if in_rings.len() == 1 {

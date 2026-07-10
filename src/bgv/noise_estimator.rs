@@ -145,11 +145,6 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
     fn key_switch(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>, switch_key: KeySwitchKeyDescriptor) -> CiphertextDescriptor<Params, Self>;
 
     ///
-    /// Noise equivalent of [`BGVInstantiation::hom_mul_norelin()`].
-    ///
-    fn hom_mul_norelin(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, lhs: &CiphertextDescriptor<Params, Self>, rhs: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self>;
-
-    ///
     /// Noise equivalent of [`BGVInstantiation::mod_switch_ct()`].
     ///
     fn mod_switch_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self>;
@@ -220,25 +215,9 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
     }
 
     ///
-    /// Noise equivalent of [`BGVInstantiation::relinearize()`].
-    ///
-    fn relinearize(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>, rk: KeySwitchKeyDescriptor) -> CiphertextDescriptor<Params, Self> {
-        self.key_switch(P, C, C_special, ct, rk)
-    }
-
-    ///
     /// Noise equivalent of [`BGVInstantiation::hom_mul()`].
     ///
-    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, lhs: &CiphertextDescriptor<Params, Self>, rhs: &CiphertextDescriptor<Params, Self>, rk: KeySwitchKeyDescriptor) -> CiphertextDescriptor<Params, Self> {
-        self.relinearize(P, C, C_special, &self.hom_mul_norelin(P, C, lhs, rhs), rk)
-    }
-
-    ///
-    /// Noise equivalent of [`BGVInstantiation::hom_square_norelin()`].
-    ///
-    fn hom_square_norelin(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, val: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
-        self.hom_mul_norelin(P, C, val, val)
-    }
+    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, lhs: &CiphertextDescriptor<Params, Self>, rhs: &CiphertextDescriptor<Params, Self>, rk: KeySwitchKeyDescriptor) -> CiphertextDescriptor<Params, Self>;
 
     ///
     /// Noise equivalent of [`BGVInstantiation::hom_square()`].
@@ -262,13 +241,6 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
     {
         assert_eq!(gs.len(), gks.len());
         (0..gs.len()).map(|i| self.hom_galois(P, C, C_special, ct, &gs[i], gks.at(i))).collect()
-    }
-
-    ///
-    /// Noise equivalent of [`BGVInstantiation::mod_switch_norelin()`].
-    ///
-    fn mod_switch_norelin(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
-        self.mod_switch_ct(P, Cnew, Cold, ct)
     }
 
     ///
@@ -485,18 +457,19 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         Self::descriptor::<Params>(result, P.base_ring().clone_el(&ct.implicit_scale), switch_key.new_sk)
     }
 
-    fn hom_mul_norelin(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, lhs: &CiphertextDescriptor<Params, Self>, rhs: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
-        let log2_q = BigIntRing::RING.abs_log2_ceil(C.base_ring().modulus()).unwrap() as f64;
-        let result = (lhs.noise.log2_relative_critical_quantity + rhs.noise.log2_relative_critical_quantity + 2. * log2_q) * HEURISTIC_FACTOR_MUL_INPUT_NOISE - log2_q;
-        Self::descriptor::<Params>(result, mul_scale::<Params>(P, &lhs.implicit_scale, &rhs.implicit_scale), assert_sk_distr_match(lhs.sk, rhs.sk))
-    }
-
     fn mod_switch_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
         let result = f64::max(
             ct.noise.log2_relative_critical_quantity,
             t_log2::<Params>(P) + log2_can_norm_sk_estimate::<Params>(Cnew, ct.sk) - BigIntRing::RING.abs_log2_ceil(Cnew.base_ring().modulus()).unwrap() as f64
         );
         Self::descriptor::<Params>(result, mod_switch_scale::<Params>(P, Cnew, Cold, &ct.implicit_scale), ct.sk)
+    }
+
+    fn hom_mul(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, lhs: &CiphertextDescriptor<Params, Self>, rhs: &CiphertextDescriptor<Params, Self>, rk: KeySwitchKeyDescriptor) -> CiphertextDescriptor<Params, Self> {
+        let log2_q = BigIntRing::RING.abs_log2_ceil(C.base_ring().modulus()).unwrap() as f64;
+        let result = (lhs.noise.log2_relative_critical_quantity + rhs.noise.log2_relative_critical_quantity + 2. * log2_q) * HEURISTIC_FACTOR_MUL_INPUT_NOISE - log2_q;
+        let result_no_relin = Self::descriptor::<Params>(result, mul_scale::<Params>(P, &lhs.implicit_scale, &rhs.implicit_scale), assert_sk_distr_match(lhs.sk, rhs.sk));
+        self.key_switch(P, C, C_special, &result_no_relin, rk)
     }
 
     fn fake_mod_switch_down_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
@@ -558,12 +531,12 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for AlwaysZeroNoiseEsti
         CiphertextDescriptor::new((), add_scale::<Params>(P, &lhs.implicit_scale, &rhs.implicit_scale, policy), assert_sk_distr_match(lhs.sk, rhs.sk))
     }
 
-    fn key_switch(&self, P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>, switch_key: KeySwitchKeyDescriptor) -> CiphertextDescriptor<Params, Self> {
-        CiphertextDescriptor::new((), P.base_ring().clone_el(&ct.implicit_scale), switch_key.new_sk)
+    fn hom_mul(&self, P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, lhs: &CiphertextDescriptor<Params, Self>, rhs: &CiphertextDescriptor<Params, Self>, _rk: KeySwitchKeyDescriptor) -> CiphertextDescriptor<Params, Self> {
+        CiphertextDescriptor::new((), P.base_ring().mul_ref(&lhs.implicit_scale, &rhs.implicit_scale), assert_sk_distr_match(lhs.sk, rhs.sk))
     }
 
-    fn hom_mul_norelin(&self, P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, lhs: &CiphertextDescriptor<Params, Self>, rhs: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
-        CiphertextDescriptor::new((), mul_scale::<Params>(P, &lhs.implicit_scale, &rhs.implicit_scale), assert_sk_distr_match(lhs.sk, rhs.sk))
+    fn key_switch(&self, P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>, switch_key: KeySwitchKeyDescriptor) -> CiphertextDescriptor<Params, Self> {
+        CiphertextDescriptor::new((), P.base_ring().clone_el(&ct.implicit_scale), switch_key.new_sk)
     }
 
     fn mod_switch_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, ct: &CiphertextDescriptor<Params, Self>) -> CiphertextDescriptor<Params, Self> {
