@@ -92,6 +92,13 @@ struct HelperCircuits<R: ?Sized + RingBase = zn_big::ZnBase<BigIntRing>> {
 /// it is defined over. Therefore, functions like [`DigitExtract::evaluate_plain()`]
 /// require the sequence of rings `Z/p^rZ`, ..., `Z/p^eZ` as parameter.
 /// 
+/// Note that performing digit extraction via [`DigitExtract::evaluate_plain()`] or
+/// [`DigitExtract::evaluate_generic()`] only makes sense when the input belongs to the
+/// ring `Z/p^e`, or a ring isomorphic to many copies thereof. In many cases, the plaintext
+/// space of an FHE scheme is strictly larger than that (e.g. isomorphic to a product
+/// of Galois rings), in which case it is necessary that the input actually lives in a
+/// suitable subring of the full plaintext space.
+/// 
 pub struct DigitExtract<R: ?Sized + RingBase = zn_big::ZnBase<BigIntRing>> {
     extraction_circuits: Vec<DigitExtractionCircuit<R>>,
     helper_circuits: HelperCircuits<R>,
@@ -478,12 +485,6 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
     /// Furthermore, the `eval_circuit` is given the exponent of the current ring we work in as the first
     /// parameter. The result of [`DigitExtract::evaluate_generic()`] is then the tuple `(quo, rem)` with
     /// `quo` in `Z/p^rZ` and `rem` in `Z/p^eZ` such that `x = p^(e - r) * quo + rem` and `rem < p^(e - r)`.
-    /// 
-    /// If [`DigitExtract`] is used on elements of `Z/p^e'Z` with `e' > e` (as mentioned at the end of
-    /// the doc of [`DigitExtract`]), the moduli passed to `eval_circuit()` and `change_space()` remain
-    /// nevertheless unchanged - after all, `evaluate_generic()` does not know that we are in a larger
-    /// ring. If necessary, you have to manually offset all exponents passed to `eval_circuit` and 
-    /// `change_space` by `e' - e`.
     /// 
     pub fn evaluate_generic<T, EvalCircuit, ChangeSpace>(&self, 
         original_input: T,
