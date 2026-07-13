@@ -334,6 +334,7 @@ pub trait BGVInstantiation {
             (g, gk)
         }).collect()
     }
+    
     ///
     /// Generates a key-switch key, which can be used (by [`BGVInstantiation::key_switch()`]) to
     /// convert a ciphertext w.r.t. `old_sk` into a ciphertext w.r.t. `new_sk`.

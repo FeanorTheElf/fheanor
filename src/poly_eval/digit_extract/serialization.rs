@@ -117,13 +117,13 @@ impl<'a, 'de, R> DeserializeSeed<'de> for DeserializeSeedDigitExtract<'a, R>
                 ring: PhantomData,
                 circuit_deserialize_data: self.rings.iter().skip(1).map(|ring| (ring, galois_group)).collect()
             }.deserialize(deserializer)?;
-            return Ok(DigitExtract::new_with_circuits(self.rings, result.extraction_circuits));
+            return Ok(DigitExtract::new_with_circuits(self.rings.last().unwrap(), result.p, result.e - result.v, result.v, result.extraction_circuits));
         } else {
             let result = DeserializeSeedDigitExtractData {
                 ring: PhantomData,
                 circuit_deserialize_data: self.rings.iter().skip(1).map(|ring| (ring, )).collect()
             }.deserialize(deserializer)?;
-            return Ok(DigitExtract::new_with_circuits(self.rings, result.extraction_circuits));
+            return Ok(DigitExtract::new_with_circuits(self.rings.last().unwrap(), result.p, result.e - result.v, result.v, result.extraction_circuits));
         }
     }
 }

@@ -42,9 +42,21 @@ use crate::{NiceZn, ZZbig, ZZi64, filename_keys};
 
 mod serialization;
 
+/// 
+/// Represents a digit extraction circuit, i.e. a [`PlaintextCircuit`] that, given `x in Z/p^kZ`
+/// for some `k`, computes outputs `f(x)_j` that are congruent to the lowest p-ary digit `lift(x cmod p)`
+/// modulo `p^(k_j)`, for various `k_j`.
+/// 
 pub struct DigitExtractionCircuit<R: ?Sized + RingBase = zn_big::ZnBase<BigIntRing>> {
+    /// the circuit to perform the digit extraction; it should be defined over a ring that maps into
+    /// the FHE scheme's plaintext space, have a single input and outputs corresponding to 
+    /// [`DigitExtractionCircuit::extracted_digit_mod_exp`].
     pub circuit: PlaintextCircuit<R>,
+    /// the exponent `k` of the characteristic for which this digit extraction circuit should be used;
+    /// concretely, a digit extraction circuit is given an input modulo `p^k`, and computes multiple
+    /// values that are congruent to the lowest p-ary digit of the input modulo `p^i`, `1 <= i <= k`.
     pub global_mod_exp: usize,
+    /// the exponents `k_j` modulo which the results are the lowest p-ary digit of the input.
     pub extracted_digit_mod_exp: Vec<usize>
 }
 
@@ -70,13 +82,11 @@ struct HelperCircuits<R: ?Sized + RingBase = zn_big::ZnBase<BigIntRing>> {
 /// `Z/p^eZ` that is congruent to `x` modulo `p^v`, i.e. the "centered modulo"
 /// operation (in the case that `p = 2`, we define `2^(v - 1) cmod 2^v = -2^(v - 1)`).
 /// 
-/// This function can also be applied to values in a ring `Z/p^e'Z` for
-/// `e' > e`, i.e. it will then have the signature
-/// ```text
-///   Z/p^e'Z -> Z/p^(e' - e + r)Z x Z/p^e'Z
-/// ```
-/// In this case, the results are only specified modulo `p^r` resp. `p^e`, i.e.
-/// may be perturbed by an arbitrary value `p^r a` resp. `p^e a'`.
+/// [`DigitExtract`] is generic in the type of the rings to which the internal
+/// constants belong to. Usually, these will be rings that embeds into the plaintext
+/// space of the target FHE scheme for the respective intermediate plaintext moduli
+/// `p^r, ..., p^e`; common examples would be the integers `Z`, the quotients `Z/p^kZ`
+/// or the plaintext rings `R/p^rR, ..., R/p^eR` themselves.
 /// 
 /// [`DigitExtract`] is a dependent object, and does not keep track of the ring
 /// it is defined over. Therefore, functions like [`DigitExtract::evaluate_plain()`]
@@ -109,7 +119,7 @@ impl<R> DigitExtract<R>
             S: RingStore<Type = R>,
             R: SerializableElementRing
     {
-        let (p, r, v, e) = Self::get_p_r_v_e(rings);
+        let (p, r, v, e) = DigitExtract::get_p_r_v_e(rings.iter().map(RingExtensionStore::base_ring));
         for ring in rings {
             assert!(ring.number_ring() == ring.number_ring());
         }
@@ -143,7 +153,7 @@ impl<R> DigitExtract<R>
     /// 
     #[instrument(skip_all)]
     pub fn new_digit_retain_based_with_galois<S: RingStore<Type = R>>(rings: &[S], H: &HypercubeIsomorphism<S>, cost_model: &CircuitEvaluatorCosts) -> Self {
-        let (p, r, v, _e) = Self::get_p_r_v_e(rings);
+        let (p, r, v, _e) = DigitExtract::get_p_r_v_e(rings.iter().map(RingExtensionStore::base_ring));
         assert!(rings.last().unwrap().get_ring() == H.ring().get_ring());
         for ring in rings {
             assert!(ring.number_ring() == ring.number_ring());
@@ -161,7 +171,7 @@ impl<R> DigitExtract<R>
             };
         }).collect::<Vec<_>>();
         
-        return Self::new_with_circuits(rings, digit_extraction_circuits);
+        return Self::new_with_circuits(rings.last().unwrap(), p, r, v, digit_extraction_circuits);
     }
 
     ///
@@ -175,7 +185,7 @@ impl<R> DigitExtract<R>
     /// 
     #[instrument(skip_all)]
     pub fn new_bounded_error_with_galois<S: RingStore<Type = R>>(rings: &[S], hypercube_iso: &HypercubeIsomorphism<S>, B: i64, cost_model: &CircuitEvaluatorCosts) -> Self {
-        let (p, _r, v, e) = Self::get_p_r_v_e(rings);
+        let (p, r, v, e) = DigitExtract::get_p_r_v_e(rings.iter().map(RingExtensionStore::base_ring));
         assert_eq!(1, v);
         assert!(rings.last().unwrap().get_ring() == hypercube_iso.ring().get_ring());
         for ring in rings {
@@ -190,7 +200,7 @@ impl<R> DigitExtract<R>
             circuit: circuit
         }];
         
-        return Self::new_with_circuits(rings, digit_extraction_circuits);
+        return Self::new_with_circuits(rings.last().unwrap(), p, r, v, digit_extraction_circuits);
     }
 
     pub fn required_galois_keys(&self, galois_group: &Subgroup<CyclotomicGaloisGroup>) -> Vec<GaloisGroupEl> {
@@ -232,14 +242,12 @@ impl<R: ?Sized + NiceZn> DigitExtract<R> {
         assert_el_eq!(ZZbig, ZZbig.int_hom().map(2), p);
         assert!(e <= 23);
 
-        return Self::new_with_circuits(
-            &rings,
-            (1..=v).map(|i| DigitExtractionCircuit {
-                circuit: precomputed_p_2(i + r).change_ring_uniform(|x| x.change_ring(|x| rings[i].coerce(&ZZi64, x))),
-                extracted_digit_mod_exp: [1, 2, 4, 8, 16, 23].into_iter().take_while(|j| *j < i + r).chain([i + r]).collect(),
-                global_mod_exp: i + r
-            }).collect::<Vec<_>>()
-        );
+        let circuits = (1..=v).map(|i| DigitExtractionCircuit {
+            circuit: precomputed_p_2(i + r).change_ring_uniform(|x| x.change_ring(|x| rings[i].coerce(&ZZi64, x))),
+            extracted_digit_mod_exp: [1, 2, 4, 8, 16, 23].into_iter().take_while(|j| *j < i + r).chain([i + r]).collect(),
+            global_mod_exp: i + r
+        }).collect::<Vec<_>>();
+        return Self::new_with_circuits(rings.last().unwrap(), p, r,  v, circuits);
     }
     
     ///
@@ -251,7 +259,7 @@ impl<R: ?Sized + NiceZn> DigitExtract<R> {
     /// 
     #[instrument(skip_all)]
     pub fn new_digit_retain_based<S: RingStore<Type = R>>(rings: &[S]) -> Self {
-        let (_p, r, v, _e) = Self::get_p_r_v_e(rings);
+        let (p, r, v, _e) = Self::get_p_r_v_e(rings);
         
         let digit_extraction_circuits = (1..=v).map(|i| {
             let required_digits = (2..=i).chain([r + i].into_iter()).collect::<Vec<_>>();
@@ -264,7 +272,7 @@ impl<R: ?Sized + NiceZn> DigitExtract<R> {
             };
         }).collect::<Vec<_>>();
         
-        return Self::new_with_circuits(rings, digit_extraction_circuits);
+        return Self::new_with_circuits(rings.last().unwrap(), p, r, v, digit_extraction_circuits);
     }
 
     ///
@@ -276,7 +284,7 @@ impl<R: ?Sized + NiceZn> DigitExtract<R> {
     /// 
     #[instrument(skip_all)]
     pub fn new_bounded_error<S: RingStore<Type = R>>(rings: &[S], B: i64) -> Self {
-        let (_p, _r, v, e) = Self::get_p_r_v_e(rings);
+        let (p, r, v, e) = Self::get_p_r_v_e(rings);
         assert_eq!(1, v);
         
         let poly_ring = DensePolyRing::new(rings.last().unwrap(), "X");
@@ -287,7 +295,25 @@ impl<R: ?Sized + NiceZn> DigitExtract<R> {
             circuit: circuit
         }];
         
-        return Self::new_with_circuits(rings, digit_extraction_circuits);
+        return Self::new_with_circuits(rings.last().unwrap(), p, r, v, digit_extraction_circuits);
+    }
+
+    fn get_p_r_v_e<I, S>(rings: I) -> (El<BigIntRing>, usize, usize, usize)
+        where S: RingStore<Type = R>,
+            I: IntoIterator<Item = S>
+    {
+        let mut it = rings.into_iter();
+        let first = it.next().unwrap();
+        let ZZ = first.integer_ring();
+        let (p, r) = is_prime_power(ZZ, first.modulus()).unwrap();
+        let mut v = 0;
+        for ring in it {
+            assert!(ZZ.get_ring() == ring.integer_ring().get_ring());
+            v += 1;
+            assert_el_eq!(ZZ, ZZ.pow(ZZ.clone_el(&p), r + v), ring.modulus());
+        }
+        assert!(v >= 1);
+        return (int_cast(p, ZZbig, ZZ), r, v, r + v);
     }
 
     pub fn evaluate_plain<S>(&self, input: El<S>, rings: &[S]) -> (El<S>, El<S>)
@@ -332,21 +358,18 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
     /// 
     /// If you want to use the default choice of circuits, consider using [`DigitExtract::new_default()`].
     /// 
-    /// This function takes `v + 1` rings, which should have characteristic `p^(r + i)` for
-    /// `0 <= i <= v`. For the rings `p^(r + i)` with `1 <= i <= v`, the function additionally
-    /// takes an "extraction circuit", which is able to extract `p`-ary digits modulo `p^(r + i)`.
-    /// At the very least, it must be able to extract the last digit modulo `p^(r + i)`.
-    /// More concretely, the `j`-th output of the circuit should be congruent to
-    /// `lift(input cmod p)` modulo `p^extracted_digit_mod_exp[j]`, where `cmod` is the "centered modulo",
+    /// This function takes parameters `p, r` and `v` and creates a [`DigitExtract`] modulo `p^e` for `e = r + v` as
+    /// explained at the struct-level doc. Furthermore, it takes a ring that should embed into the plaintext ring of
+    /// the FHE scheme for plaintext modulus `p^e`, which will be used to compute some auxiliary data. Finally, it
+    /// will take a list of [`DigitExtractionCircuit`]s, one for every intermediate plaintext modulus `p^(r + i)`,
+    /// `1 <= i <= v`. These circuits must, at the very least, support extraction of the lowest p-ary digit modulo
+    /// `p^(r + i)`, but may additionally extract this digit modulo `p^k`, `k < r + i`, which can lead to reduced noise
+    /// growth. Concretely, the `j`-th output of the `i`-th [`DigitExtractionCircuit`] should, on input `x` modulo
+    /// `p^(r + i + 1)` compute `x cmod p` modulo `p^extracted_digit_mod_exp[j]`. Here `cmod` is the "centered modulo",
     /// i.e. should output an element in `{ - (p - 1)/2, ..., (p - 1)/2 }` that is congruent to the input
     /// (or `{0, 1}` if `p = 2`).
     /// 
-    /// Note that this function cannot check that the rings are compatible with each other and the given circuits,
-    /// this has to be ensured by the caller.
-    /// 
-    pub fn new_with_circuits<S: RingStore<Type = R>>(rings: &[S], extraction_circuits: Vec<DigitExtractionCircuit<R>>) -> Self {
-        let (p, r, v, e) = Self::get_p_r_v_e(rings);
-
+    pub fn new_with_circuits<S: RingStore<Type = R>>(ring_pe: S, p: El<BigIntRing>, r: usize, v: usize, extraction_circuits: Vec<DigitExtractionCircuit<R>>) -> Self {
         assert_eq!(v, extraction_circuits.len());
         for (i, circuit) in extraction_circuits.iter().enumerate() {
             assert_eq!(i + r + 1, circuit.global_mod_exp);
@@ -357,11 +380,10 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
         }
 
         let center_circuits = if ZZbig.eq_el(&p, &int_cast(2, ZZbig, ZZi64)) {
-            let last_ring = rings.last().unwrap();
             let shift = ZZbig.pow(ZZbig.clone_el(&p), v - 1);
             Some((
-                PlaintextCircuit::add(last_ring).compose(PlaintextCircuit::identity(1, last_ring).tensor(PlaintextCircuit::constant_int(ZZbig.clone_el(&shift), last_ring), last_ring), last_ring),
-                PlaintextCircuit::sub(last_ring).compose(PlaintextCircuit::identity(1, last_ring).tensor(PlaintextCircuit::constant_int(shift, last_ring), last_ring), last_ring)
+                PlaintextCircuit::add(&ring_pe).compose(PlaintextCircuit::identity(1, &ring_pe).tensor(PlaintextCircuit::constant_int(ZZbig.clone_el(&shift), &ring_pe), &ring_pe), &ring_pe),
+                PlaintextCircuit::sub(&ring_pe).compose(PlaintextCircuit::identity(1, &ring_pe).tensor(PlaintextCircuit::constant_int(shift, &ring_pe), &ring_pe), &ring_pe)
             ))
         } else {
             None
@@ -369,27 +391,15 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
         Self {
             extraction_circuits: extraction_circuits,
             helper_circuits: HelperCircuits {
-                add_circuit: PlaintextCircuit::add(rings.last().unwrap()),
-                identity_circuit: PlaintextCircuit::identity(1, rings.last().unwrap()),
-                sub_circuit: PlaintextCircuit::sub(rings.last().unwrap())
+                add_circuit: PlaintextCircuit::add(&ring_pe),
+                identity_circuit: PlaintextCircuit::identity(1, &ring_pe),
+                sub_circuit: PlaintextCircuit::sub(&ring_pe)
             },
             center_circuits: center_circuits,
             v: v,
             p: p,
-            e: e
+            e: r + v
         }
-    }
-
-    fn get_p_r_v_e<S: RingStore<Type = R>>(rings: &[S]) -> (El<BigIntRing>, usize, usize, usize) {
-        assert!(rings.len() >= 2);
-        let v = rings.len() - 1;
-        let (p, e) = is_prime_power(ZZbig, &rings.last().unwrap().characteristic(ZZbig).unwrap()).unwrap();
-        assert!(v < e);
-        let r = e - v;
-        for (i, ring) in rings.iter().enumerate() {
-            assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(&p), i + r), ring.characteristic(ZZbig).unwrap());
-        }
-        return (p, r, v, e);
     }
 
     ///
