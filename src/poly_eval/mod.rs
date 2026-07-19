@@ -13,6 +13,7 @@ pub mod paterson_stockmeyer;
 /// <https://ia.cr/2023/1304>.
 /// 
 pub mod galois_based;
+pub mod special;
 ///
 /// Contains [`digit_extract::DigitExtract`] that bundles all circuits required
 /// for the digit extraction step during bootstrapping. Also contains functions to

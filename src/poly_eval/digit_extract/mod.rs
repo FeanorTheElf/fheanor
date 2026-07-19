@@ -15,7 +15,6 @@ use feanor_math::group::AbelianGroupStore;
 use feanor_math::homomorphism::{CanHomFrom, Homomorphism};
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ordered::OrderedRingStore;
-use feanor_math::primitive_int::*;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::*;
@@ -36,6 +35,7 @@ use crate::number_ring::{NumberRingQuotient, NumberRingQuotientStore};
 use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupOps, GaloisGroupEl};
 use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
 use crate::poly_eval::digit_extract::serialization::*;
+use crate::poly_eval::special::precomputed_p_2;
 use crate::poly_eval::to_circuit::{poly_to_circuit, poly_to_circuit_with_galois};
 use crate::circuit::*;
 use crate::{NiceZn, ZZbig, ZZi64, filename_keys};
@@ -250,7 +250,7 @@ impl<R: ?Sized + NiceZn> DigitExtract<R> {
         assert!(e <= 23);
 
         let circuits = (1..=v).map(|i| DigitExtractionCircuit {
-            circuit: precomputed_p_2(i + r).change_ring_uniform(|x| x.change_ring(|x| rings[i].coerce(&ZZi64, x))),
+            circuit: precomputed_p_2(&rings[i]),
             extracted_digit_mod_exp: [1, 2, 4, 8, 16, 23].into_iter().take_while(|j| *j < i + r).chain([i + r]).collect(),
             global_mod_exp: i + r
         }).collect::<Vec<_>>();
@@ -610,81 +610,6 @@ impl<'a, R> SerializeDeserializeWith<(&'a [R], &'a Subgroup<CyclotomicGaloisGrou
 }
 
 ///
-/// Returns the best arithmetic circuit that computes a function
-/// ```text
-///   digitex: Z/2^eZ -> (Z/2^eZ)^log(e)
-/// ```
-/// that satisfies `digitex(x)[i] = (x mod 2) mod 2^(2^i)`.
-/// 
-/// Uses a lookup-table, consisting mainly of the values from <https://ia.cr/2022/1364>, except for
-/// `e > 8`, where there seemed to be a mistake in the paper.
-/// 
-pub fn precomputed_p_2(e: usize) -> PlaintextCircuit<StaticRingBase<i64>> {
-    let ring = ZZi64;
-    assert!(e <= 23, "no precomputed tables are available for t > 2^23");
-    let log2_e_ceil = ZZi64.abs_log2_ceil(&(e as i64)).unwrap();
-    
-    let id = || PlaintextCircuit::linear_transform_ring(&[1], ring);
-    let f0 = id().clone(ring);
-    if log2_e_ceil == 0 {
-        return f0;
-    }
-
-    let f1 = id().tensor(PlaintextCircuit::square(ring), ring).compose(PlaintextCircuit::select(1, &[0, 0], ring).compose(f0, ring), ring);
-    if log2_e_ceil == 1 {
-        return f1;
-    }
-
-    let f2 = id().tensor(id(), ring).tensor(PlaintextCircuit::square(ring), ring).compose(PlaintextCircuit::select(2, &[0, 1, 1], ring).compose(f1, ring), ring);
-    if log2_e_ceil == 2 {
-        return f2;
-    }
-    
-    let f3_comp = PlaintextCircuit::add(ring).compose(
-        PlaintextCircuit::linear_transform_ring(&[112], ring).tensor(PlaintextCircuit::square(ring).compose(
-            PlaintextCircuit::linear_transform_ring(&[94, 121], ring), ring
-        ), ring), ring
-    ).compose(
-        PlaintextCircuit::select(2, &[0, 0, 1], ring), ring
-    );
-    let f3 = id().tensor(id(), ring).tensor(id(), ring).tensor(f3_comp, ring).compose(
-        PlaintextCircuit::select(3, &[0, 1, 2, 1, 2], ring), ring
-    ).compose(f2, ring);
-    if log2_e_ceil == 3 {
-        return f3;
-    }
-
-    let f4_comp = PlaintextCircuit::add(ring).compose(
-        PlaintextCircuit::linear_transform_ring(&[1984, 528, 22620], ring).tensor(PlaintextCircuit::mul(ring).compose(
-            PlaintextCircuit::linear_transform_ring(&[226, 113], ring).tensor(PlaintextCircuit::linear_transform_ring(&[8, 2, 301], ring), ring), ring
-        ), ring), ring
-    ).compose(
-        PlaintextCircuit::select(3, &[0, 1, 2, 1, 2, 0, 1, 2], ring), ring
-    );
-    let f4 = id().tensor(id(), ring).tensor(id(), ring).tensor(id(), ring).tensor(f4_comp, ring).compose(
-        PlaintextCircuit::select(4, &[0, 1, 2, 3, 1, 2, 3], ring), ring
-    ).compose(f3, ring);
-    if log2_e_ceil == 4 {
-        return f4;
-    }
-
-    let f5_comp = PlaintextCircuit::add(ring).compose(
-        PlaintextCircuit::linear_transform_ring(&[4849408, 3564625, 2737008, 6563608], ring).tensor(PlaintextCircuit::mul(ring).compose(
-            PlaintextCircuit::linear_transform_ring(&[997183, 8295548, 419894, 879825], ring).tensor(PlaintextCircuit::linear_transform_ring(&[443729, 555132, 491350, 758385], ring), ring), ring
-        ), ring), ring
-    ).compose(
-        PlaintextCircuit::select(4, &[0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3], ring), ring
-    );
-    let f5 = id().tensor(id(), ring).tensor(id(), ring).tensor(id(), ring).tensor(id(), ring).tensor(f5_comp, ring).compose(
-        PlaintextCircuit::select(5, &[0, 1, 2, 3, 4, 1, 2, 3, 4], ring), ring
-    ).compose(f4, ring);
-    if log2_e_ceil == 5 {
-        return f5;
-    }
-    unreachable!()
-}
-
-///
 /// Computes a low-degree polynomial `f` such that `f(x + py) = x` for
 /// `x` in `{ -B, ..., B }` over `Z/p^eZ`.
 /// 
@@ -919,33 +844,6 @@ pub fn cmod(x: i64, y: i64) -> i64 {
 #[cfg(test)]
 pub fn high_part_mod(x: i64, y: i64, z: i64) -> i64 {
     cmod((x - cmod(x, y)) / y, z)
-}
-
-#[test]
-#[ignore]
-fn test_digit_extraction_p_2_complete() {
-    feanor_tracing::DelayedLogger::init_test();
-    let circuit = precomputed_p_2(23);
-    let ring = Zn::new(1 << 23);
-    let hom = ring.can_hom(&ZZi64).unwrap();
-    for x in 0..(1 << 23) {
-        for (e, actual) in [1, 2, 4, 8, 16, 23].into_iter().zip(circuit.evaluate_no_galois(&[hom.map(x)], &hom)) {
-            assert_eq!(x % 2, ring.smallest_positive_lift(actual) % (1 << e));
-        }
-    }
-}
-
-#[test]
-fn test_digit_extraction_p_2() {
-    feanor_tracing::DelayedLogger::init_test();
-    let circuit = precomputed_p_2(17);
-    let ring = Zn::new(1 << 17);
-    let hom = ring.can_hom(&ZZi64).unwrap();
-    for x in 0..(1 << 17) {
-        for (e, actual) in [1, 2, 4, 8, 16, 17].into_iter().zip(circuit.evaluate_no_galois(&[hom.map(x)], &hom)) {
-            assert_eq!(x % 2, ring.smallest_positive_lift(actual) % (1 << e));
-        }
-    }
 }
 
 #[test]

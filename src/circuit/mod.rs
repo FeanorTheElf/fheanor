@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::cmp::max;
 use feanor_math::integer::BigIntRing;
 use feanor_math::integer::generic_impls::map_from_integer_ring;
+use feanor_math::integer::int_cast;
 use serde::Serialize;
 use serde::de::DeserializeSeed;
 
@@ -140,6 +141,12 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
         } else {
             Coefficient::Integer(el)
         }
+    }
+
+    pub fn from_zn<S: RingStore<Type = R> + Copy>(el: El<S>, ring: S) -> Self
+        where R: ZnRing
+    {
+        Self::from_int(int_cast(ring.smallest_lift(el), ZZbig, ring.integer_ring()))
     }
 
     pub fn from<S: RingStore<Type = R> + Copy>(el: El<S>, ring: S) -> Self {
@@ -562,6 +569,21 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// 
     pub fn add<S: RingStore<Type = R>>(ring: S) -> Self {
         Self::vec_add(1, ring)
+    }
+
+    /// 
+    /// Creates the circuit producing the constant value 1
+    /// ```text
+    ///  
+    ///  |‾‾‾|
+    ///  | 1 |
+    ///  |___|
+    ///    |
+    /// ```
+    /// This is a special case of [`PlaintextCircuit::constant()`].
+    /// 
+    pub fn one<S: RingStore<Type = R>>(ring: S) -> Self {
+        Self::constant_int(ZZbig.one(), ring)
     }
 
     /// 
