@@ -1,4 +1,4 @@
-use std::alloc::{Allocator, Global};
+use std::alloc::Global;
 use std::fmt::{Debug, Formatter};
 
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;

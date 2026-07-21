@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-use std::alloc::{Allocator, Global};
+use std::alloc::Global;
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::fmt::Display;

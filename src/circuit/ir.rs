@@ -1,4 +1,3 @@
-use std::alloc::Allocator;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::mem::replace;

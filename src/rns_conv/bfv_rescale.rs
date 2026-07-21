@@ -10,7 +10,7 @@ use tracing::instrument;
 #[allow(unused)] // this import is used in test or debug_assertion builds
 use feanor_math::homomorphism::*;
 
-use std::alloc::{Allocator, Global};
+use std::alloc::Global;
 
 use crate::FheanorAllocator;
 use crate::rns_conv::{UsedBaseConversion, RNSOperation};

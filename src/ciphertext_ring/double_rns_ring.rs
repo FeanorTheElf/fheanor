@@ -1,5 +1,4 @@
 
-use std::alloc::Allocator;
 use std::alloc::Global;
 use std::ops::Range;
 use std::marker::PhantomData;

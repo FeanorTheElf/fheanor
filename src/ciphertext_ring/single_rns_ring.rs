@@ -1,4 +1,4 @@
-use std::alloc::{Allocator, Global};
+use std::alloc::Global;
 use std::marker::PhantomData;
 use std::ops::{Deref, Range};
 use std::sync::Arc;

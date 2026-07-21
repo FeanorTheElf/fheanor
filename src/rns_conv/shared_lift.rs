@@ -1,4 +1,3 @@
-use std::alloc::Allocator;
 use std::alloc::Global;
 
 use feanor_math::matrix::*;

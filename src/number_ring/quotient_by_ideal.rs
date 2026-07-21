@@ -1,4 +1,4 @@
-use std::alloc::{Allocator, Global};
+use std::alloc::Global;
 use std::marker::PhantomData;
 
 use tracing::{Level, instrument, span};

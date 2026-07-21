@@ -1,4 +1,4 @@
-use std::alloc::{Allocator, Global};
+use std::alloc::Global;
 use std::convert::identity;
 use std::fmt::Display;
 use std::marker::PhantomData;

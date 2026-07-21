@@ -1,4 +1,4 @@
-use std::alloc::{Allocator, Global};
+use std::alloc::Global;
 use std::ops::Range;
 
 use feanor_math::group::AbelianGroupStore;

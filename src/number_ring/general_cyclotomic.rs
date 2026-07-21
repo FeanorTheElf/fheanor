@@ -1,4 +1,4 @@
-use std::alloc::{Allocator, Global};
+use std::alloc::Global;
 use std::fmt::{Debug, Formatter};
 use std::ptr::Alignment;
 use std::sync::Arc;
