@@ -12,6 +12,7 @@ use feanor_math::homomorphism::*;
 
 use std::alloc::{Allocator, Global};
 
+use crate::FheanorAllocator;
 use crate::rns_conv::{UsedBaseConversion, RNSOperation};
 use crate::ZZbig;
 
@@ -31,7 +32,7 @@ use crate::ZZbig;
 /// In this case, we always have `q' = b`.
 /// 
 pub struct RNSRescalingConversion<A = Global>
-    where A: Allocator + Clone
+    where A: FheanorAllocator
 {
     /// rescale `Z/qZ -> Z/(aq/b)Z`
     rescaling: RNSRescaling<A>,
@@ -55,7 +56,7 @@ impl RNSRescalingConversion {
 }
 
 impl<A> RNSRescalingConversion<A>
-    where A: Allocator + Clone
+    where A: FheanorAllocator
 {
     ///
     /// Creates a new [`RNSRescalingConversion`], where
@@ -85,7 +86,7 @@ impl<A> RNSRescalingConversion<A>
 }
 
 impl<A> RNSOperation for RNSRescalingConversion<A>
-    where A: Allocator + Clone
+    where A: FheanorAllocator
 {
     type Ring = Zn;
 
@@ -182,7 +183,7 @@ impl<A> RNSOperation for RNSRescalingConversion<A>
 /// ```
 /// 
 pub struct RNSRescaling<A = Global>
-    where A: Allocator + Clone
+    where A: FheanorAllocator
 {
     /// the `i`-th element is the position of `in_moduli[i]` in `out_moduli + b_moduli`
     in_moduli_in_out_b_moduli: Vec<usize>,
@@ -212,7 +213,7 @@ impl RNSRescaling {
 }
 
 impl<A> RNSRescaling<A>
-    where A: Allocator + Clone
+    where A: FheanorAllocator
 {
     pub fn num(&self) -> &El<BigIntRing> {
         &self.a_bigint
@@ -265,7 +266,7 @@ impl<A> RNSRescaling<A>
 }
 
 impl<A> RNSOperation for RNSRescaling<A>
-    where A: Allocator + Clone
+    where A: FheanorAllocator
 {
     type Ring = Zn;
     type RingType = ZnBase;

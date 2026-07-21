@@ -18,7 +18,7 @@ use crate::number_ring::{NumberRingDescriptor, NumberRingQuotient};
 use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
-use crate::{ZZbig, ZZi64};
+use crate::{FheanorAllocator, ZZbig, ZZi64};
 
 ///
 /// Contains the type [`RNSGadgetVectorDigitIndices`] which is used to
@@ -101,7 +101,7 @@ impl<R: NumberRingRNSQuotient> RNSGadgetProductLhsOperand<R> {
 
 impl<NumberRing, A> RNSGadgetProductLhsOperand<DoubleRNSRingBase<NumberRing, A>> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     ///
     /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits`.
@@ -326,7 +326,7 @@ fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S)
 #[instrument(skip_all)]
 fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: I) -> Vec<(<DoubleRNSRingBase<NumberRing, A> as PreparedMultiplicationRing>::PreparedMultiplicant, El<DoubleRNSRing<NumberRing, A>>)>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         I: Iterator<Item = Range<usize>>
 {
     let mut result = Vec::new();

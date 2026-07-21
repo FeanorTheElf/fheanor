@@ -70,7 +70,7 @@ impl FheanorConvolution<zn_64::Zn> for feanor_math_hexl::conv::HEXLConvolution {
 /// An object that supports computing a negacyclic NTT, i.e the evaluation of a polynomial
 /// at all primitive `m`-th roots of unity, where `m` is a power of two.
 /// 
-pub trait FheanorNegacyclicNTT<R>: PartialEq
+pub trait FheanorNegacyclicNTT<R>: PartialEq + Send + Sync
     where R: RingStore
 {
     ///
@@ -154,7 +154,8 @@ impl<R> RustNegacyclicNTT<R>
 }
 
 impl<R> FheanorNegacyclicNTT<R> for RustNegacyclicNTT<R> 
-    where R: RingStore + Clone,
+    where R: RingStore + Clone + Send + Sync,
+        El<R>: Send + Sync,
         R::Type: ZnRing
 {
     fn bitreversed_negacyclic_fft_base<const INV: bool>(&self, input: &mut [El<R>], output: &mut [El<R>]) {

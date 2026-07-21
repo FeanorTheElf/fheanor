@@ -1,8 +1,11 @@
+
 use std::alloc::Allocator;
 use std::alloc::Global;
 use std::ops::Range;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::SeqCst;
 
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::algorithms::discrete_log::Subgroup;
@@ -28,11 +31,19 @@ use feanor_serde::newtype_struct::DeserializeSeedNewtypeStruct;
 use feanor_serde::newtype_struct::SerializableNewtypeStruct;
 use feanor_serde::seq::DeserializeSeedSeq;
 use feanor_serde::seq::SerializableSeq;
+use rayon::iter::IntoParallelIterator;
+use rayon::slice::ParallelSlice;
+use rayon::slice::ParallelSliceMut;
+use rayon_cond::CondIterator;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::de::DeserializeSeed;
+use tracing::Level;
 use tracing::instrument;
+use tracing::span;
 
+use crate::FheanorAllocator;
+use crate::is_parallel;
 use crate::number_ring::galois::*;
 use crate::ciphertext_ring::{add_rns_factor_list_of_congruences, drop_rns_factor_list_of_congruences};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
@@ -68,7 +79,7 @@ use crate::ZZbig;
 /// 
 pub struct DoubleRNSRingBase<NumberRing, A = Global> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     /// The number ring whose quotient we represent
     number_ring: NumberRing,
@@ -92,7 +103,7 @@ pub type DoubleRNSRing<NumberRing, A = Global> = RingValue<DoubleRNSRingBase<Num
 /// 
 pub struct DoubleRNSEl<NumberRing, A = Global>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     number_ring: PhantomData<NumberRing>,
     allocator: PhantomData<A>,
@@ -104,7 +115,7 @@ pub struct DoubleRNSEl<NumberRing, A = Global>
 /// 
 pub struct SmallBasisEl<NumberRing, A = Global>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     number_ring: PhantomData<NumberRing>,
     allocator: PhantomData<A>,
@@ -131,7 +142,7 @@ impl<NumberRing> DoubleRNSRingBase<NumberRing>
 
 impl<NumberRing, A> Clone for DoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor + Clone,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn clone(&self) -> Self {
         Self {
@@ -146,7 +157,7 @@ impl<NumberRing, A> Clone for DoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     ///
     /// Creates a new [`DoubleRNSRing`].
@@ -245,20 +256,49 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
         SubmatrixMut::from_1d(&mut element.el_wrt_mult_basis, self.base_ring().len(), self.rank())
     }
 
+    fn rns_parts_mut<'a>(&self, data: &'a mut [ZnEl]) -> impl IntoIterator<IntoIter = std::slice::ChunksExactMut<'a, ZnEl>, Item = &'a mut [ZnEl]> + IntoParallelIterator<Iter = rayon::slice::ChunksExactMut<'a, ZnEl>, Item = &'a mut [ZnEl]> {
+        struct Result<'a>(&'a mut [ZnEl], usize);
+        impl<'a> IntoIterator for Result<'a> {
+            type IntoIter = std::slice::ChunksExactMut<'a, ZnEl>;
+            type Item = &'a mut [ZnEl];
+            fn into_iter(self) -> Self::IntoIter { self.0.chunks_exact_mut(self.1) }
+        }
+        impl<'a> IntoParallelIterator for Result<'a> {
+            type Iter = rayon::slice::ChunksExactMut<'a, ZnEl>;
+            type Item = &'a mut [ZnEl];
+            fn into_par_iter(self) -> Self::Iter { self.0.par_chunks_exact_mut(self.1) }
+        }
+        Result(data, self.rank())
+    }
+
+    fn rns_parts<'a>(&self, data: &'a [ZnEl]) -> impl IntoIterator<IntoIter = std::slice::ChunksExact<'a, ZnEl>, Item = &'a [ZnEl]> + IntoParallelIterator<Iter = rayon::slice::ChunksExact<'a, ZnEl>, Item = &'a [ZnEl]> {
+        struct Result<'a>(&'a [ZnEl], usize);
+        impl<'a> IntoIterator for Result<'a> {
+            type IntoIter = std::slice::ChunksExact<'a, ZnEl>;
+            type Item = &'a [ZnEl];
+            fn into_iter(self) -> Self::IntoIter { self.0.chunks_exact(self.1) }
+        }
+        impl<'a> IntoParallelIterator for Result<'a> {
+            type Iter = rayon::slice::ChunksExact<'a, ZnEl>;
+            type Item = &'a [ZnEl];
+            fn into_par_iter(self) -> Self::Iter { self.0.par_chunks_exact(self.1) }
+        }
+        Result(data, self.rank())
+    }
+
     ///
     /// Converts the element to its representation w.r.t. the small basis.
     /// 
     /// The coefficients w.r.t. this basis can be accessed using [`DoubleRNSRingBase::as_matrix_wrt_small_basis()`].
     /// 
     #[instrument(skip_all)]
-    pub fn undo_fft(&self, element: DoubleRNSEl<NumberRing, A>) -> SmallBasisEl<NumberRing, A> {
+    pub fn undo_fft(&self, mut element: DoubleRNSEl<NumberRing, A>) -> SmallBasisEl<NumberRing, A> {
         assert_eq!(element.el_wrt_mult_basis.len(), self.element_len());
-        let mut result = element.el_wrt_mult_basis;
-        for i in 0..self.base_ring().len() {
-            self.ring_decompositions[i].mult_basis_to_small_basis(&mut result[(i * self.rank())..((i + 1) * self.rank())]);
-        }
+        CondIterator::new(self.rns_parts_mut(&mut element.el_wrt_mult_basis), is_parallel()).enumerate().for_each(|(i, part)| 
+            span!(Level::INFO, "undo_fft_block").in_scope(|| self.ring_decompositions[i].mult_basis_to_small_basis(part))
+        );
         SmallBasisEl {
-            el_wrt_small_basis: result,
+            el_wrt_small_basis: element.el_wrt_mult_basis,
             number_ring: PhantomData,
             allocator: PhantomData
         }
@@ -323,14 +363,13 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     /// You can also access the coefficients w.r.t. the multiplicative basis using [`DoubleRNSRingBase::as_matrix_wrt_mult_basis()`].
     /// 
     #[instrument(skip_all)]
-    pub fn do_fft(&self, element: SmallBasisEl<NumberRing, A>) -> DoubleRNSEl<NumberRing, A> {
+    pub fn do_fft(&self, mut element: SmallBasisEl<NumberRing, A>) -> DoubleRNSEl<NumberRing, A> {
         assert_eq!(element.el_wrt_small_basis.len(), self.element_len());
-        let mut result = element.el_wrt_small_basis;
-        for i in 0..self.base_ring().len() {
-            self.ring_decompositions[i].small_basis_to_mult_basis(&mut result[(i * self.rank())..((i + 1) * self.rank())]);
-        }
+        CondIterator::new(self.rns_parts_mut(&mut element.el_wrt_small_basis), is_parallel()).enumerate().for_each(|(i, part)| 
+            span!(Level::INFO, "do_fft_block").in_scope(|| self.ring_decompositions[i].small_basis_to_mult_basis(part))
+        );
         DoubleRNSEl {
-            el_wrt_mult_basis: result,
+            el_wrt_mult_basis: element.el_wrt_small_basis,
             number_ring: PhantomData,
             allocator: PhantomData
         }
@@ -388,11 +427,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     pub fn negate_inplace_non_fft(&self, val: &mut SmallBasisEl<NumberRing, A>) {
         assert_eq!(self.element_len(), val.el_wrt_small_basis.len());
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                self.base_ring().at(i).negate_inplace(&mut val.el_wrt_small_basis[i * self.rank() + j]);
-            }
-        }
+        CondIterator::new(self.rns_parts_mut(&mut val.el_wrt_small_basis), is_parallel()).enumerate().for_each(|(i, part)| 
+            span!(Level::INFO, "negate_block").in_scope(|| part.iter_mut().for_each(|x| self.rns_base.at(i).negate_inplace(x)))
+        );
     }
 
     #[instrument(skip_all)]
@@ -405,32 +442,27 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     pub fn sub_assign_non_fft(&self, lhs: &mut SmallBasisEl<NumberRing, A>, rhs: &SmallBasisEl<NumberRing, A>) {
         assert_eq!(self.element_len(), lhs.el_wrt_small_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_small_basis.len());
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                self.base_ring().at(i).sub_assign_ref(&mut lhs.el_wrt_small_basis[i * self.rank() + j], &rhs.el_wrt_small_basis[i * self.rank() + j]);
-            }
-        }
+        CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_small_basis), is_parallel()).zip(self.rns_parts(&rhs.el_wrt_small_basis)).enumerate().for_each(|(i, (lhs_part, rhs_part))| 
+            span!(Level::INFO, "sub_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).sub_assign_ref(l, r)))
+        );
     }
 
     #[instrument(skip_all)]
     pub fn mul_scalar_assign_non_fft(&self, lhs: &mut SmallBasisEl<NumberRing, A>, rhs: &El<zn_rns::Zn<Zn, BigIntRing>>) {
         assert_eq!(self.element_len(), lhs.el_wrt_small_basis.len());
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                self.base_ring().at(i).mul_assign_ref(&mut lhs.el_wrt_small_basis[i * self.rank() + j], self.base_ring().get_congruence(rhs).at(i));
-            }
-        }
+        let rhs_congruence = self.rns_base.get_congruence(rhs);
+        CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_small_basis), is_parallel()).enumerate().for_each(|(i, lhs_part)| 
+            span!(Level::INFO, "mul_scalar_block").in_scope(|| lhs_part.iter_mut().for_each(|x| self.rns_base.at(i).mul_assign_ref(x, rhs_congruence.at(i))))
+        );
     }
 
     #[instrument(skip_all)]
     pub fn add_assign_non_fft(&self, lhs: &mut SmallBasisEl<NumberRing, A>, rhs: &SmallBasisEl<NumberRing, A>) {
         assert_eq!(self.element_len(), lhs.el_wrt_small_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_small_basis.len());
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                self.base_ring().at(i).add_assign_ref(&mut lhs.el_wrt_small_basis[i * self.rank() + j], &rhs.el_wrt_small_basis[i * self.rank() + j]);
-            }
-        }
+        CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_small_basis), is_parallel()).zip(self.rns_parts(&rhs.el_wrt_small_basis)).enumerate().for_each(|(i, (lhs_part, rhs_part))| 
+            span!(Level::INFO, "add_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).add_assign_ref(l, r)))
+        );
     }
 
     #[instrument(skip_all)]
@@ -444,9 +476,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
                 result[i * self.rank() + j] = self.base_ring().at(i).clone_el(congruence.at(i));
             }
         }
-        for i in 0..self.base_ring().len() {
-            self.ring_decompositions[i].coeff_basis_to_small_basis(&mut result[(i * self.rank())..((i + 1) * self.rank())]);
-        }
+        CondIterator::new(self.rns_parts_mut(&mut result), is_parallel()).enumerate().for_each(|(i, part)| 
+            span!(Level::INFO, "coeff_to_small_basis_block").in_scope(|| self.ring_decompositions[i].coeff_basis_to_small_basis(part))
+        );
         return SmallBasisEl {
             el_wrt_small_basis: result,
             allocator: PhantomData,
@@ -487,9 +519,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     pub fn wrt_canonical_basis_non_fft<'a>(&'a self, el: SmallBasisEl<NumberRing, A>) -> DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> {
         let mut result = el.el_wrt_small_basis;
-        for i in 0..self.base_ring().len() {
-            self.ring_decompositions[i].small_basis_to_coeff_basis(&mut result[(i * self.rank())..((i + 1) * self.rank())]);
-        }
+        CondIterator::new(self.rns_parts_mut(&mut result), is_parallel()).enumerate().for_each(|(i, part)| 
+            span!(Level::INFO, "small_to_coeff_basis_block").in_scope(|| self.ring_decompositions[i].small_basis_to_coeff_basis(part))
+        );
         return DoubleRNSRingBaseElVectorRepresentation {
             ring: self,
             el_wrt_coeff_basis: result
@@ -503,7 +535,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     /// 
     #[instrument(skip_all)]
     pub fn map_in_from_singlerns<A2, C>(&self, from: &SingleRNSRingBase<NumberRing, A2, C>, mut el: El<SingleRNSRing<NumberRing, A2, C>>, hom: &<Self as CanHomFrom<SingleRNSRingBase<NumberRing, A2, C>>>::Homomorphism) -> SmallBasisEl<NumberRing, A>
-        where A2: Allocator + Clone,
+        where A2: FheanorAllocator,
             C: ConvolutionAlgorithm<ZnBase>
     {
         let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
@@ -513,9 +545,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
                 result.push(Zp.get_ring().map_in_ref(from.base_ring().at(i).get_ring(), el_as_matrix.at(i, j), &hom[i]));
             }
         }
-        for i in 0..self.base_ring().len() {
-            self.ring_decompositions().at(i).coeff_basis_to_small_basis(&mut result[(i * self.rank())..((i + 1) * self.rank())]);
-        }
+        CondIterator::new(self.rns_parts_mut(&mut result), is_parallel()).enumerate().for_each(|(i, part)| 
+            span!(Level::INFO, "coeff_to_small_basis_block").in_scope(|| self.ring_decompositions[i].coeff_basis_to_small_basis(part))
+        );
         SmallBasisEl {
             el_wrt_small_basis: result,
             number_ring: PhantomData,
@@ -530,15 +562,15 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     /// 
     #[instrument(skip_all)]
     pub fn map_out_to_singlerns<A2, C>(&self, to: &SingleRNSRingBase<NumberRing, A2, C>, el: SmallBasisEl<NumberRing, A>, iso: &<Self as CanIsoFromTo<SingleRNSRingBase<NumberRing, A2, C>>>::Isomorphism) -> El<SingleRNSRing<NumberRing, A2, C>>
-        where A2: Allocator + Clone,
+        where A2: FheanorAllocator,
             C: ConvolutionAlgorithm<ZnBase>
     {
         let mut result = to.zero();
         let mut result_matrix = to.coefficients_as_matrix_mut(&mut result);
         let mut el_coeff = el.el_wrt_small_basis;
-        for i in 0..self.base_ring().len() {
-            self.ring_decompositions().at(i).small_basis_to_coeff_basis(&mut el_coeff[(i * self.rank())..((i + 1) * self.rank())]);
-        }
+        CondIterator::new(self.rns_parts_mut(&mut el_coeff), is_parallel()).enumerate().for_each(|(i, part)| 
+            span!(Level::INFO, "small_to_coeff_basis_block").in_scope(|| self.ring_decompositions[i].small_basis_to_coeff_basis(part))
+        );
         for (i, Zp) in self.base_ring().as_iter().enumerate() {
             for j in 0..self.rank() {
                 *result_matrix.at_mut(i, j) = Zp.get_ring().map_out(to.base_ring().at(i).get_ring(), Zp.clone_el(&el_coeff[i * self.rank() + j]), &iso[i]);
@@ -587,7 +619,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> NumberRingRNSQuotient for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     #[instrument(skip_all)]
     fn collect_rns_factors<'a, I>(&self, rns_factors: I) -> DoubleRNSEl<NumberRing, A>
@@ -664,7 +696,7 @@ impl<NumberRing, A> NumberRingRNSQuotient for DoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> PartialEq for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn eq(&self, other: &Self) -> bool {
         self.number_ring == other.number_ring && self.rns_base.get_ring() == other.rns_base.get_ring()
@@ -673,7 +705,7 @@ impl<NumberRing, A> PartialEq for DoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type Element = DoubleRNSEl<NumberRing, A>;
 
@@ -693,11 +725,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     fn add_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                self.base_ring().at(i).add_assign_ref(&mut lhs.el_wrt_mult_basis[i * self.rank() + j], &rhs.el_wrt_mult_basis[i * self.rank() + j]);
-            }
-        }
+        CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_mult_basis), is_parallel()).zip(self.rns_parts(&rhs.el_wrt_mult_basis)).enumerate().for_each(|(i, (lhs_part, rhs_part))| 
+            span!(Level::INFO, "add_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).add_assign_ref(l, r)))
+        );
     }
 
     fn add_assign(&self, lhs: &mut Self::Element, rhs: Self::Element) {
@@ -708,11 +738,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     fn sub_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                self.base_ring().at(i).sub_assign_ref(&mut lhs.el_wrt_mult_basis[i * self.rank() + j], &rhs.el_wrt_mult_basis[i * self.rank() + j]);
-            }
-        }
+        CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_mult_basis), is_parallel()).zip(self.rns_parts(&rhs.el_wrt_mult_basis)).enumerate().for_each(|(i, (lhs_part, rhs_part))| 
+            span!(Level::INFO, "sub_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).sub_assign_ref(l, r)))
+        );
     }
 
     fn sub_assign(&self, lhs: &mut Self::Element, rhs: Self::Element) {
@@ -722,11 +750,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     fn negate_inplace(&self, lhs: &mut Self::Element) {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                self.base_ring().at(i).negate_inplace(&mut lhs.el_wrt_mult_basis[i * self.rank() + j]);
-            }
-        }
+        CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_mult_basis), is_parallel()).enumerate().for_each(|(i, lhs_part)| 
+            span!(Level::INFO, "negate_block").in_scope(|| lhs_part.iter_mut().for_each(|l| self.rns_base.at(i).negate_inplace(l)))
+        );
     }
 
     fn mul_assign(&self, lhs: &mut Self::Element, rhs: Self::Element) {
@@ -737,50 +763,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     fn mul_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                self.base_ring().at(i).mul_assign_ref(&mut lhs.el_wrt_mult_basis[i * self.rank() + j], &rhs.el_wrt_mult_basis[i * self.rank() + j]);
-            }
-        }
-    }
-
-    #[instrument(skip_all)]
-    fn mul_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
-        assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
-        assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
-        let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
-        result.extend((0..self.element_len()).map(|i| self.base_ring().at(i / self.rank()).mul(lhs.el_wrt_mult_basis[i], rhs.el_wrt_mult_basis[i])));
-        DoubleRNSEl {
-            el_wrt_mult_basis: result,
-            number_ring: PhantomData,
-            allocator: PhantomData
-        }
-    }
-
-    #[instrument(skip_all)]
-    fn add_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
-        assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
-        assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
-        let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
-        result.extend((0..self.element_len()).map(|i| self.base_ring().at(i / self.rank()).add(lhs.el_wrt_mult_basis[i], rhs.el_wrt_mult_basis[i])));
-        DoubleRNSEl {
-            el_wrt_mult_basis: result,
-            number_ring: PhantomData,
-            allocator: PhantomData
-        }
-    }
-
-    #[instrument(skip_all)]
-    fn sub_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
-        assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
-        assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
-        let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
-        result.extend((0..self.element_len()).map(|i| self.base_ring().at(i / self.rank()).sub(lhs.el_wrt_mult_basis[i], rhs.el_wrt_mult_basis[i])));
-        DoubleRNSEl {
-            el_wrt_mult_basis: result,
-            number_ring: PhantomData,
-            allocator: PhantomData
-        }
+        CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_mult_basis), is_parallel()).zip(self.rns_parts(&rhs.el_wrt_mult_basis)).enumerate().for_each(|(i, (lhs_part, rhs_part))| 
+            span!(Level::INFO, "mul_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).mul_assign_ref(l, r)))
+        );
     }
 
     #[instrument(skip_all)]
@@ -788,16 +773,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), summand.el_wrt_mult_basis.len());
-
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                summand.el_wrt_mult_basis[i * self.rank() + j] = self.base_ring().at(i).fma(
-                    &lhs.el_wrt_mult_basis[i * self.rank() + j], 
-                    &rhs.el_wrt_mult_basis[i * self.rank() + j],
-                    summand.el_wrt_mult_basis[i * self.rank() + j]
-                );
-            }
-        }
+        CondIterator::new(self.rns_parts_mut(&mut summand.el_wrt_mult_basis), is_parallel()).zip(self.rns_parts(&lhs.el_wrt_mult_basis)).zip(self.rns_parts(&rhs.el_wrt_mult_basis)).enumerate().for_each(|(i, ((summand_part, lhs_part), rhs_part))| 
+            span!(Level::INFO, "fma_block").in_scope(|| summand_part.iter_mut().zip(lhs_part).zip(rhs_part).for_each(|((x, l), r)| *x = self.rns_base.at(i).fma(l, r, *x)))
+        );
         return summand;
     }
     
@@ -808,12 +786,10 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     fn mul_assign_int(&self, lhs: &mut Self::Element, rhs: i32) {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
-        for i in 0..self.base_ring().len() {
+        CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_mult_basis), is_parallel()).enumerate().for_each(|(i, lhs_part)| {
             let rhs_mod_p = self.base_ring().at(i).get_ring().from_int(rhs);
-            for j in 0..self.rank() {
-                self.base_ring().at(i).mul_assign_ref(&mut lhs.el_wrt_mult_basis[i * self.rank() + j], &rhs_mod_p);
-            }
-        }
+            span!(Level::INFO, "mul_int_block").in_scope(|| lhs_part.iter_mut().for_each(|l| self.rns_base.at(i).mul_assign_ref(l, &rhs_mod_p)))
+        });
     }
 
     #[instrument(skip_all)]
@@ -857,11 +833,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     fn square(&self, value: &mut Self::Element) {
         assert_eq!(self.element_len(), value.el_wrt_mult_basis.len());
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                self.base_ring().at(i).square(&mut value.el_wrt_mult_basis[i * self.rank() + j]);
-            }
-        }
+        CondIterator::new(self.rns_parts_mut(&mut value.el_wrt_mult_basis), is_parallel()).enumerate().for_each(|(i, lhs_part)| 
+            span!(Level::INFO, "square_block").in_scope(|| lhs_part.iter_mut().for_each(|l| self.rns_base.at(i).square(l)))
+        );
     }
 
     fn characteristic<I: IntegerRingStore + Copy>(&self, ZZ: I) -> Option<El<I>>
@@ -873,7 +847,7 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> NumberRingQuotient for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type NumberRing = NumberRing;
 
@@ -889,30 +863,33 @@ impl<NumberRing, A> NumberRingQuotient for DoubleRNSRingBase<NumberRing, A>
     fn apply_galois_action(&self, el: &Self::Element, g: &GaloisGroupEl) -> Self::Element {
         assert_eq!(self.element_len(), el.el_wrt_mult_basis.len());
         let mut result = self.zero();
-        for (i, _) in self.base_ring().as_iter().enumerate() {
-            self.ring_decompositions().at(i).permute_galois_action(
-                &el.el_wrt_mult_basis[(i * self.rank())..((i + 1) * self.rank())],
-                &mut result.el_wrt_mult_basis[(i * self.rank())..((i + 1) * self.rank())],
-                g
-            );
-        }
+        CondIterator::new(self.rns_parts_mut(&mut result.el_wrt_mult_basis), is_parallel()).zip(self.rns_parts(&el.el_wrt_mult_basis)).enumerate().for_each(|(i, (dst_part, src_part))| 
+            span!(Level::INFO, "galois_block").in_scope(|| self.ring_decompositions[i].permute_galois_action(src_part, dst_part, g))
+        );
         return result;
     }
 }
 
 impl<NumberRing, A> DivisibilityRing for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     #[instrument(skip_all)]
     fn checked_left_div(&self, lhs: &Self::Element, rhs: &Self::Element) -> Option<Self::Element> {
+        let failed = AtomicBool::new(false);
         let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
-        for (i, Zp) in self.base_ring().as_iter().enumerate() {
-            for j in 0..self.rank() {
-                result.push(Zp.checked_div(&lhs.el_wrt_mult_basis[i * self.rank() + j], &rhs.el_wrt_mult_basis[i * self.rank() + j])?);
-            }
+        CondIterator::new(self.rns_parts_mut(&mut result), is_parallel()).zip(self.rns_parts(&lhs.el_wrt_mult_basis)).zip(self.rns_parts(&rhs.el_wrt_mult_basis)).enumerate().for_each(|(i, ((dst_part, lhs_part), rhs_part))| 
+            span!(Level::INFO, "div_block").in_scope(|| dst_part.iter_mut().zip(lhs_part).zip(rhs_part).for_each(|((x, l), r)| if let Some(res) = self.rns_base.at(i).checked_div(l, r) {
+                *x = res;
+            } else {
+                failed.store(true, SeqCst);
+            }))
+        );
+        if failed.load(SeqCst) {
+            return None;
+        } else {
+            return Some(DoubleRNSEl { el_wrt_mult_basis: result, number_ring: PhantomData, allocator: PhantomData })
         }
-        return Some(DoubleRNSEl { el_wrt_mult_basis: result, number_ring: PhantomData, allocator: PhantomData })
     }
 
     fn is_unit(&self, x: &Self::Element) -> bool {
@@ -922,7 +899,7 @@ impl<NumberRing, A> DivisibilityRing for DoubleRNSRingBase<NumberRing, A>
 
 pub struct DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     el_wrt_coeff_basis: Vec<ZnEl, A>,
     ring: &'a DoubleRNSRingBase<NumberRing, A>
@@ -930,7 +907,7 @@ pub struct DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A>
 
 impl<'a, NumberRing, A> VectorFn<El<zn_rns::Zn<Zn, BigIntRing>>> for DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn len(&self) -> usize {
         self.ring.rank()
@@ -944,7 +921,7 @@ impl<'a, NumberRing, A> VectorFn<El<zn_rns::Zn<Zn, BigIntRing>>> for DoubleRNSRi
 
 impl<NumberRing, A> FreeAlgebra for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type VectorRepresentation<'a> = DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> 
         where Self: 'a;
@@ -982,7 +959,7 @@ impl<NumberRing, A> FreeAlgebra for DoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> RingExtension for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type BaseRing = zn_rns::Zn<Zn, BigIntRing>;
 
@@ -1039,7 +1016,7 @@ impl<NumberRing, A> RingExtension for DoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> PreparedMultiplicationRing for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type PreparedMultiplicant = ();
 
@@ -1065,14 +1042,14 @@ impl<NumberRing, A> PreparedMultiplicationRing for DoubleRNSRingBase<NumberRing,
 
 pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     ring: &'a DoubleRNSRingBase<NumberRing, A>
 }
 
 impl<'a, 'b, NumberRing, A> Clone for WRTCanonicalBasisElementCreator<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn clone(&self) -> Self {
         Self { ring: self.ring }
@@ -1081,7 +1058,7 @@ impl<'a, 'b, NumberRing, A> Clone for WRTCanonicalBasisElementCreator<'a, Number
 
 impl<'a, 'b, NumberRing, A> Fn<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     extern "rust-call" fn call(&self, args: (&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)) -> Self::Output {
         self.ring.from_canonical_basis(args.0.iter().map(|x| self.ring.base_ring().clone_el(x)))
@@ -1090,7 +1067,7 @@ impl<'a, 'b, NumberRing, A> Fn<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTC
 
 impl<'a, 'b, NumberRing, A> FnMut<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     extern "rust-call" fn call_mut(&mut self, args: (&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)) -> Self::Output {
         self.call(args)
@@ -1099,7 +1076,7 @@ impl<'a, 'b, NumberRing, A> FnMut<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for W
 
 impl<'a, 'b, NumberRing, A> FnOnce<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type Output = El<DoubleRNSRing<NumberRing, A>>;
 
@@ -1110,7 +1087,7 @@ impl<'a, 'b, NumberRing, A> FnOnce<(&'b [El<zn_rns::Zn<Zn, BigIntRing>>],)> for 
 
 impl<NumberRing, A> FiniteRingSpecializable for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn specialize<O: FiniteRingOperation<Self>>(op: O) -> O::Output {
         op.execute()
@@ -1119,7 +1096,7 @@ impl<NumberRing, A> FiniteRingSpecializable for DoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> FiniteRing for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type ElementsIter<'a> = MultiProduct<
         <zn_rns::ZnBase<Zn, BigIntRing> as FiniteRing>::ElementsIter<'a>, 
@@ -1156,7 +1133,7 @@ impl<NumberRing, A> FiniteRing for DoubleRNSRingBase<NumberRing, A>
 
 pub struct SerializableSmallBasisElWithRing<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     ring: &'a DoubleRNSRingBase<NumberRing, A>,
     el: &'a SmallBasisEl<NumberRing, A>
@@ -1164,7 +1141,7 @@ pub struct SerializableSmallBasisElWithRing<'a, NumberRing, A>
 
 impl<'a, NumberRing, A> SerializableSmallBasisElWithRing<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     pub fn new(ring: &'a DoubleRNSRingBase<NumberRing, A>, el: &'a SmallBasisEl<NumberRing, A>) -> Self {
         Self { ring, el }
@@ -1173,7 +1150,7 @@ impl<'a, NumberRing, A> SerializableSmallBasisElWithRing<'a, NumberRing, A>
 
 impl<'a, NumberRing, A> serde::Serialize for SerializableSmallBasisElWithRing<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer 
@@ -1187,14 +1164,14 @@ impl<'a, NumberRing, A> serde::Serialize for SerializableSmallBasisElWithRing<'a
 }
 pub struct DeserializeSeedSmallBasisElWithRing<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     ring: &'a DoubleRNSRingBase<NumberRing, A>,
 }
 
 impl<'a, 'de, NumberRing, A> DeserializeSeedSmallBasisElWithRing<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     pub fn new(ring: &'a DoubleRNSRingBase<NumberRing, A>) -> Self {
         Self { ring }
@@ -1203,7 +1180,7 @@ impl<'a, 'de, NumberRing, A> DeserializeSeedSmallBasisElWithRing<'a, NumberRing,
 
 impl<'a, 'de, NumberRing, A> serde::de::DeserializeSeed<'de> for DeserializeSeedSmallBasisElWithRing<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type Value = SmallBasisEl<NumberRing, A>;
 
@@ -1230,7 +1207,7 @@ impl<'a, 'de, NumberRing, A> serde::de::DeserializeSeed<'de> for DeserializeSeed
 
 impl<NumberRing, A> SerializableElementRing for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn serialize<S>(&self, el: &Self::Element, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer
@@ -1257,7 +1234,7 @@ impl<NumberRing, A> SerializableElementRing for DoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> CanHomFrom<BigIntRingBase> for DoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
 {
     type Homomorphism = <zn_rns::ZnBase<Zn, BigIntRing> as CanHomFrom<BigIntRingBase>>::Homomorphism;
 
@@ -1276,8 +1253,8 @@ impl<NumberRing, A> CanHomFrom<BigIntRingBase> for DoubleRNSRingBase<NumberRing,
 
 impl<NumberRing, A1, A2> CanHomFrom<DoubleRNSRingBase<NumberRing, A2>> for DoubleRNSRingBase<NumberRing, A1>
     where NumberRing: NumberRingDescriptor,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone,
+        A1: FheanorAllocator,
+        A2: FheanorAllocator,
 {
     type Homomorphism = Vec<<ZnBase as CanHomFrom<ZnBase>>::Homomorphism>;
 
@@ -1310,8 +1287,8 @@ impl<NumberRing, A1, A2> CanHomFrom<DoubleRNSRingBase<NumberRing, A2>> for Doubl
 
 impl<NumberRing, A1, A2, C2> CanHomFrom<SingleRNSRingBase<NumberRing, A2, C2>> for DoubleRNSRingBase<NumberRing, A1>
     where NumberRing: NumberRingDescriptor,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone,
+        A1: FheanorAllocator,
+        A2: FheanorAllocator,
         C2: ConvolutionAlgorithm<ZnBase>
 {
     type Homomorphism = Vec<<ZnBase as CanHomFrom<ZnBase>>::Homomorphism>;
@@ -1331,8 +1308,8 @@ impl<NumberRing, A1, A2, C2> CanHomFrom<SingleRNSRingBase<NumberRing, A2, C2>> f
 
 impl<NumberRing, A1, A2, C2> CanIsoFromTo<SingleRNSRingBase<NumberRing, A2, C2>> for DoubleRNSRingBase<NumberRing, A1>
     where NumberRing: NumberRingDescriptor,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone,
+        A1: FheanorAllocator,
+        A2: FheanorAllocator,
         C2: ConvolutionAlgorithm<ZnBase>
 {
     type Isomorphism = Vec<<ZnBase as CanIsoFromTo<ZnBase>>::Isomorphism>;
@@ -1352,8 +1329,8 @@ impl<NumberRing, A1, A2, C2> CanIsoFromTo<SingleRNSRingBase<NumberRing, A2, C2>>
 
 impl<NumberRing, A1, A2> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A2>> for DoubleRNSRingBase<NumberRing, A1>
     where NumberRing: NumberRingDescriptor,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone,
+        A1: FheanorAllocator,
+        A2: FheanorAllocator,
 {
     type Isomorphism = Vec<<ZnBase as CanIsoFromTo<ZnBase>>::Isomorphism>;
 

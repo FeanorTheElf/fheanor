@@ -24,7 +24,7 @@ use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::*;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
-use crate::number_ring::*;
+use crate::{FheanorAllocator, number_ring::*};
 use super::trace::extract_linear_map;
 use crate::{NiceZn};
 
@@ -941,7 +941,7 @@ impl<R> MatmulTransform<R>
 
 impl<NumberRing, A> NumberRingQuotientByIntBase<NumberRing, Zn, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     #[instrument(skip_all)]
     pub fn compute_linear_transform(&self, H: &HypercubeStructure, el: &<Self as RingBase>::Element, transform: &MatmulTransform<Self>) -> <Self as RingBase>::Element {

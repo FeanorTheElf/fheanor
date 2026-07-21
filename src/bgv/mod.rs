@@ -34,7 +34,7 @@ use crate::circuit::CircuitEvaluatorCosts;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
 use crate::number_ring::galois::GaloisGroupEl;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
-use crate::NiceZn;
+use crate::{FheanorAllocator, NiceZn};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::ntt::{FheanorConvolution, FheanorNegacyclicNTT};
 use crate::number_ring::hypercube::isomorphism::*;
@@ -1209,7 +1209,7 @@ pub const DOUBLE_RNS_BGV_COST: CircuitEvaluatorCosts = CircuitEvaluatorCosts {
 };
 
 #[derive(Debug)]
-pub struct Pow2BGV<A: Allocator + Clone = DefaultCiphertextAllocator, C: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
+pub struct Pow2BGV<A: FheanorAllocator = DefaultCiphertextAllocator, C: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
     number_ring: Pow2CyclotomicNumberRing<C>,
     ciphertext_allocator: A,
     negacyclic_ntt: PhantomData<C>
@@ -1222,7 +1222,7 @@ impl Pow2BGV {
     }
 }
 
-impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> Pow2BGV<A, C> {
+impl<A: FheanorAllocator, C: FheanorNegacyclicNTT<Zn>> Pow2BGV<A, C> {
 
     #[instrument(skip_all)]
     pub fn new_with_ntt(m: usize, alloc: A) -> Self {
@@ -1234,7 +1234,7 @@ impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> Pow2BGV<A, C> {
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Clone for Pow2BGV<A, C> {
+impl<A: FheanorAllocator , C: FheanorNegacyclicNTT<Zn>> Clone for Pow2BGV<A, C> {
 
     fn clone(&self) -> Self {
         Self {
@@ -1245,14 +1245,14 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Clone for Pow2BGV<A, C>
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Display for Pow2BGV<A, C> {
+impl<A: FheanorAllocator , C: FheanorNegacyclicNTT<Zn>> Display for Pow2BGV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BGV({:?})", self.number_ring)
     }
 }
 
-impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow2BGV<A, C> {
+impl<A: FheanorAllocator, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow2BGV<A, C> {
 
     type NumberRing = Pow2CyclotomicNumberRing<C>;
     type CiphertextRing = DoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
@@ -1320,12 +1320,12 @@ impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow
 }
 
 #[derive(Clone, Debug)]
-pub struct CompositeBGV<A: Allocator + Clone = DefaultCiphertextAllocator> {
+pub struct CompositeBGV<A: FheanorAllocator = DefaultCiphertextAllocator> {
     number_ring: TensorProductNumberRing,
     ciphertext_allocator: A
 }
 
-impl<A: Allocator + Clone > Display for CompositeBGV<A> {
+impl<A: FheanorAllocator > Display for CompositeBGV<A> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BGV({:?})", self.number_ring)
@@ -1339,7 +1339,7 @@ impl CompositeBGV {
     }
 }
 
-impl<A: Allocator + Clone > CompositeBGV<A> {
+impl<A: FheanorAllocator> CompositeBGV<A> {
 
     #[instrument(skip_all)]
     pub fn new_with_alloc(m1: usize, m2: usize, alloc: A) -> Self {
@@ -1350,7 +1350,7 @@ impl<A: Allocator + Clone > CompositeBGV<A> {
     }
 }
 
-impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
+impl<A: FheanorAllocator> BGVInstantiation for CompositeBGV<A> {
 
     type NumberRing = TensorProductNumberRing;
     type CiphertextRing = ManagedDoubleRNSRingBase<TensorProductNumberRing, A>;
@@ -1429,7 +1429,7 @@ pub const SINGLE_RNS_BGV_COST: CircuitEvaluatorCosts = CircuitEvaluatorCosts {
 /// but significantly slower with Galois automorphisms and prepared plaintext-ciphertext
 /// multiplications.
 #[derive(Clone, Debug)]
-pub struct CompositeSingleRNSBGV<A: Allocator + Clone = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
+pub struct CompositeSingleRNSBGV<A: FheanorAllocator = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
     number_ring: TensorProductNumberRing,
     ciphertext_allocator: A,
     convolution: PhantomData<C>
@@ -1442,7 +1442,7 @@ impl CompositeSingleRNSBGV {
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> CompositeSingleRNSBGV<A, C> {
+impl<A: FheanorAllocator , C: FheanorConvolution<Zn>> CompositeSingleRNSBGV<A, C> {
 
     pub fn new_with_alloc(m1: usize, m2: usize, allocator: A) -> Self {
         Self {
@@ -1453,7 +1453,7 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> CompositeSingleRNSBGV<A, 
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BGVInstantiation for CompositeSingleRNSBGV<A, C> {
+impl<A: FheanorAllocator, C: FheanorConvolution<Zn>> BGVInstantiation for CompositeSingleRNSBGV<A, C> {
 
     type NumberRing = TensorProductNumberRing;
     type CiphertextRing = SingleRNSRingBase<TensorProductNumberRing, A, C>;

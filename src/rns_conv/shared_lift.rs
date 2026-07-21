@@ -6,6 +6,7 @@ use feanor_math::rings::zn::zn_64::*;
 use feanor_math::ring::*;
 use tracing::instrument;
 
+use crate::FheanorAllocator;
 use crate::rns_conv::UsedBaseConversion;
 
 use super::RNSOperation;
@@ -26,7 +27,7 @@ use super::RNSOperation;
 /// [`RNSBaseConversion`]: crate::rns_conv::bconv::RNSBaseConversion
 /// 
 pub struct RNSSharedBaseConversion<A = Global>
-    where A: Allocator + Clone
+    where A: FheanorAllocator
 {
     conversion: UsedBaseConversion<A>,
     out_moduli: Vec<Zn>
@@ -49,7 +50,7 @@ impl RNSSharedBaseConversion {
     }
 }
 impl<A> RNSSharedBaseConversion<A>
-    where A: Allocator + Clone
+    where A: FheanorAllocator
 {
     ///
     /// Creates a new [`RNSSharedBaseConversion`], where
@@ -78,7 +79,7 @@ impl<A> RNSSharedBaseConversion<A>
 }
 
 impl<A> RNSOperation for RNSSharedBaseConversion<A>
-    where A: Allocator + Clone
+    where A: FheanorAllocator
 {
     type Ring = Zn;
     type RingType = ZnBase;

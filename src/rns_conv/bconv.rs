@@ -11,9 +11,10 @@ use tracing::instrument;
 
 use std::alloc::Allocator;
 use std::alloc::Global;
-use std::array::from_fn;
 use std::slice::from_ref;
 
+use crate::rns_conv::matmul_kernel::skinny_matmul_i64_i64_i128;
+use crate::rns_conv::matmul_kernel::skinny_matmul_i128_i64_i128;
 use crate::{ZZbig, ZZi64, ZZi128};
 use super::RNSOperation;
 
@@ -74,61 +75,6 @@ struct SingleInRNSMatrixBaseConversion<A>
 
 // we currently use `any_lift()`; I haven't yet documented it anywhere, but in fact the largest output of `zn_64::Zn::any_lift()` is currently `6 * modulus()`
 const ZN_ANY_LIFT_FACTOR: i64 = 6;
-
-const BLOCK_SIZE_LOG2: usize = 2;
-const BLOCK_SIZE: usize = 1 << BLOCK_SIZE_LOG2;
-
-#[inline]
-fn matmul_4x4_i64_to_i128(lhs: [&[i64; BLOCK_SIZE]; BLOCK_SIZE], rhs: [&[i64]; BLOCK_SIZE], out: &mut [&mut [i128]; BLOCK_SIZE]) {
-    let len = rhs[0].len();
-    for i in 0..BLOCK_SIZE {
-        assert_eq!(len, rhs[i].len());
-        assert_eq!(len, out[i].len());
-    }
-
-    for (l_r, o_r) in lhs.into_iter().zip(out.into_iter()) {
-        let o_r = &mut **o_r;
-        for j in 0..len {
-            let mut value = 0;
-            for k in 0..BLOCK_SIZE {
-                // safe since k < len
-                debug_assert!(j < rhs[k].len());
-                value += (unsafe { *rhs[k].get_unchecked(j) } as i128) * (l_r[k] as i128);
-            }
-            // safe since k < len
-            debug_assert!(j < o_r.len());
-            *unsafe { o_r.get_unchecked_mut(j) } += value;
-        }
-    }
-}
-
-#[inline]
-fn vecmatmul_4_i128_to_i128(lhs: [i128; BLOCK_SIZE], rhs: [&[i64]; BLOCK_SIZE], out: &mut [i128]) {
-    let len = out.len();
-    for i in 0..BLOCK_SIZE {
-        assert_eq!(len, rhs[i].len());
-    }
-
-    for j in 0..len {
-        let mut value = 0;
-        for k in 0..BLOCK_SIZE {
-            // safe since k < len
-            debug_assert!(j < rhs[k].len());
-            value += (unsafe { *rhs[k].get_unchecked(j) } as i128) * (lhs[k] as i128);
-        }
-        // safe since k < len
-        debug_assert!(j < out.len());
-        *unsafe { out.get_unchecked_mut(j) } += value;
-    }
-}
-
-fn pad_to_block(len: usize) -> usize {
-    if len == 0 {
-        0
-    } else {
-        ((len - 1) / (1 << BLOCK_SIZE_LOG2) + 1) * (1 << BLOCK_SIZE_LOG2)
-    }
-}
 
 impl RNSBaseConversion {
 
@@ -191,7 +137,7 @@ impl<A> GeneralRNSMatrixBaseConversion<A>
         let gamma_log2 = ZZbig.abs_log2_ceil(&gamma).unwrap();
         assert!(gamma_log2 == ZZbig.abs_log2_floor(&gamma).unwrap());
 
-        let Q_over_q_mod = OwnedMatrix::from_fn_in(pad_to_block(out_rings.len()), pad_to_block(in_rings.len()), |i, j| {
+        let Q_over_q_mod = OwnedMatrix::from_fn_in(out_rings.len(), in_rings.len(), |i, j| {
             if i < out_rings.len() && j < in_rings.len() {
                 let ring = out_rings.at(i);
                 ring.smallest_lift(ring.coerce(&ZZbig, ZZbig.checked_div(&Q, &int_cast(*in_rings.at(j).modulus(), ZZbig, ZZi64)).unwrap()))
@@ -199,7 +145,7 @@ impl<A> GeneralRNSMatrixBaseConversion<A>
                 0
             }
         }, Global);
-        let Q_over_q_downscaled = (0..pad_to_block(in_rings.len())).map(|j| if j < in_rings.len() {
+        let Q_over_q_downscaled = (0..in_rings.len()).map(|j| if j < in_rings.len() {
             int_cast(ZZbig.rounded_div(ZZbig.clone_el(&gamma), &int_cast(*in_rings.at(j).modulus(), ZZbig, ZZi64)), ZZi128, ZZbig)
         } else {
             0
@@ -243,7 +189,7 @@ impl<A> GeneralRNSMatrixBaseConversion<A>
         let out_len = output.row_count();
         let col_count = input.col_count();
         let int_to_homs = (0..self.to_moduli.len()).map(|k| self.to_moduli.at(k).can_hom(&ZZi128).unwrap()).collect::<Vec<_>>();
-        let mut lifts = OwnedMatrix::from_fn_in(pad_to_block(in_len), pad_to_block(col_count), |_, _| 0, &self.allocator);
+        let mut lifts = OwnedMatrix::from_fn_in(in_len, col_count, |_, _| 0, &self.allocator);
         let mut lifts = lifts.data_mut();
         for i in 0..in_len {
             for j in 0..col_count {
@@ -252,29 +198,19 @@ impl<A> GeneralRNSMatrixBaseConversion<A>
             }
         }
 
-        let mut output_unreduced = OwnedMatrix::zero(pad_to_block(out_len), pad_to_block(col_count), ZZi128);
-        assert_eq!(0, self.Q_over_q_mod.row_count() % BLOCK_SIZE);
-        assert_eq!(0, self.Q_over_q_mod.col_count() % BLOCK_SIZE);
-        assert_eq!(0, output_unreduced.row_count() % BLOCK_SIZE);
-        assert_eq!(0, lifts.row_count() % BLOCK_SIZE);
-        for (lhs_blocks, mut res_block) in self.Q_over_q_mod.data().row_iter().array_chunks::<BLOCK_SIZE>().zip(
-            output_unreduced.data_mut().row_iter().array_chunks::<BLOCK_SIZE>()
-        ) {
-            for (j, rhs_block) in lifts.as_const().row_iter().array_chunks::<BLOCK_SIZE>().enumerate() {
-                matmul_4x4_i64_to_i128(
-                    from_fn(|i| &lhs_blocks[i].as_chunks::<BLOCK_SIZE>().0[j]), 
-                    rhs_block, 
-                    &mut res_block);
-            }
-        }
+        let mut output_unreduced = OwnedMatrix::zero(out_len, col_count, ZZi128);
+        skinny_matmul_i64_i64_i128(
+            self.Q_over_q_mod.data(),
+            lifts.as_const(),
+            output_unreduced.data_mut()
+        );
 
-        let mut output_correction: Vec<i128> = (0..pad_to_block(col_count)).map(|_| 0).collect();
-        assert_eq!(0, self.Q_over_q_downscaled.len() % BLOCK_SIZE);
-        for (lhs_block, rhs_block) in self.Q_over_q_downscaled.iter().copied().array_chunks::<BLOCK_SIZE>().zip(
-            lifts.as_const().row_iter().array_chunks::<BLOCK_SIZE>()
-        ) {
-            vecmatmul_4_i128_to_i128(lhs_block, rhs_block, &mut output_correction);
-        }
+        let mut output_correction: Vec<i128> = (0..col_count).map(|_| 0).collect();
+        skinny_matmul_i128_i64_i128(
+            Submatrix::from_1d(&self.Q_over_q_downscaled, 1, in_len),
+            lifts.as_const(),
+            SubmatrixMut::from_1d(&mut output_correction, 1, col_count)
+        );
 
         for j in 0..col_count {
             let mut correction = *output_correction.at(j);
@@ -361,7 +297,7 @@ impl<A> RNSOperation for RNSBaseConversion<A>
 }
 
 #[cfg(test)]
-use feanor_math::{assert_el_eq, assert_matrix_eq};
+use feanor_math::assert_el_eq;
 #[cfg(test)]
 use test::Bencher;
 #[cfg(test)]
@@ -385,26 +321,6 @@ fn check_almost_exact_result(to: &[Zn], k: i32, q: i32, actual: &[ZnEl], expecte
             k
         );
     }
-}
-
-#[test]
-fn test_matmul() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mat_data = (0..(BLOCK_SIZE * BLOCK_SIZE)).map(|x| x as i64).collect::<Vec<_>>();
-    let mat = mat_data.as_chunks::<BLOCK_SIZE>().0.iter().array_chunks::<BLOCK_SIZE>().next().unwrap();
-
-    let mut res_data = (0..(BLOCK_SIZE * BLOCK_SIZE)).map(|x| x as i128).collect::<Vec<_>>();
-    let mut res = res_data.chunks_mut(BLOCK_SIZE).array_chunks::<BLOCK_SIZE>().next().unwrap();
-
-    matmul_4x4_i64_to_i128(mat, from_fn(|i| &mat[i][..]), &mut res);
-
-    let expected = [
-        [56, 63, 70, 77],
-        [156, 179, 202, 225],
-        [256, 295, 334, 373],
-        [356, 411, 466, 521]
-    ];
-    assert_matrix_eq!(ZZi128, expected, from_fn::<_, BLOCK_SIZE, _>(|i| res[i].as_chunks::<BLOCK_SIZE>().0[0]));
 }
 
 #[test]

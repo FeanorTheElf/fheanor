@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde::de::DeserializeSeed;
 use tracing::instrument;
 
-use crate::ZZbig;
+use crate::{FheanorAllocator, ZZbig};
 use crate::boo::{Boo, MappedRwLockReadGuardType};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::RNSFactorCongruence;
@@ -85,7 +85,7 @@ use super::PreparedMultiplicationRing;
 /// 
 pub struct ManagedDoubleRNSRingBase<NumberRing, A = Global> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     base: DoubleRNSRingBase<NumberRing, A>,
     zero: SmallBasisEl<NumberRing, A>
@@ -134,7 +134,7 @@ impl ManagedDoubleRNSElRepresentationKind {
 
 enum ManagedDoubleRNSElRepresentation<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     Sum(Boo<'a, (SmallBasisEl<NumberRing, A>, DoubleRNSEl<NumberRing, A>), MappedRwLockReadGuardType<(SmallBasisEl<NumberRing, A>, DoubleRNSEl<NumberRing, A>)>>),
     SmallBasis(Boo<'a, SmallBasisEl<NumberRing, A>>),
@@ -145,7 +145,7 @@ enum ManagedDoubleRNSElRepresentation<'a, NumberRing, A>
 
 impl<'a, NumberRing, A> ManagedDoubleRNSElRepresentation<'a, NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn get_kind(&self) -> ManagedDoubleRNSElRepresentationKind {
         match self {
@@ -160,7 +160,7 @@ impl<'a, NumberRing, A> ManagedDoubleRNSElRepresentation<'a, NumberRing, A>
 
 struct DoubleRNSElInternal<NumberRing, A = Global> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     small_basis_repr: OnceLock<SmallBasisEl<NumberRing, A>>,
     double_rns_repr: OnceLock<DoubleRNSEl<NumberRing, A>>,
@@ -169,7 +169,7 @@ struct DoubleRNSElInternal<NumberRing, A = Global>
 
 impl<NumberRing, A> DoubleRNSElInternal<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn get_repr<'a>(&'a self) -> ManagedDoubleRNSElRepresentation<'a, NumberRing, A> {
         let sum_repr = self.sum_repr.read().unwrap();
@@ -223,14 +223,14 @@ impl<NumberRing, A> DoubleRNSElInternal<NumberRing, A>
 
 pub struct ManagedDoubleRNSEl<NumberRing, A = Global> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     internal: Arc<DoubleRNSElInternal<NumberRing, A>>
 }
 
 impl<NumberRing, A> Clone for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor + Clone,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn clone(&self) -> Self {
         Self {
@@ -242,7 +242,7 @@ impl<NumberRing, A> Clone for ManagedDoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     #[instrument(skip_all)]
     pub fn new_with_alloc(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>, allocator: A) -> RingValue<ManagedDoubleRNSRingBase<NumberRing, A>> {
@@ -628,7 +628,7 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> PreparedMultiplicationRing for ManagedDoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type PreparedMultiplicant = ();
 
@@ -655,7 +655,7 @@ impl<NumberRing, A> PreparedMultiplicationRing for ManagedDoubleRNSRingBase<Numb
 
 impl<NumberRing, A> NumberRingRNSQuotient for ManagedDoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn drop_rns_factor(&self, drop_rns_factors: &RNSFactorIndexList) -> Self {
         let new_base = self.base.drop_rns_factor(drop_rns_factors);
@@ -767,7 +767,7 @@ impl<NumberRing, A> NumberRingRNSQuotient for ManagedDoubleRNSRingBase<NumberRin
 
 impl<NumberRing, A> NumberRingQuotient for ManagedDoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type NumberRing = NumberRing;
 
@@ -791,7 +791,7 @@ impl<NumberRing, A> NumberRingQuotient for ManagedDoubleRNSRingBase<NumberRing, 
 
 impl<NumberRing, A> PartialEq for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn eq(&self, other: &Self) -> bool {
         self.base == other.base
@@ -800,7 +800,7 @@ impl<NumberRing, A> PartialEq for ManagedDoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> RingBase for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type Element = ManagedDoubleRNSEl<NumberRing, A>;
 
@@ -1034,7 +1034,7 @@ impl<NumberRing, A> RingBase for ManagedDoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> ComputeInnerProduct for ManagedDoubleRNSRingBase<NumberRing, A> 
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     default fn inner_product<I: Iterator<Item = (Self::Element, Self::Element)>>(&self, els: I) -> Self::Element {
         let data = els.collect::<Vec<_>>();
@@ -1062,7 +1062,7 @@ impl<NumberRing, A> ComputeInnerProduct for ManagedDoubleRNSRingBase<NumberRing,
 
 impl<NumberRing, A> RingExtension for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type BaseRing = <DoubleRNSRingBase<NumberRing, A> as RingExtension>::BaseRing;
 
@@ -1083,7 +1083,7 @@ impl<NumberRing, A> RingExtension for ManagedDoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> FreeAlgebra for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type VectorRepresentation<'a> = DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> 
         where Self: 'a;
@@ -1116,7 +1116,7 @@ impl<NumberRing, A> FreeAlgebra for ManagedDoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> FiniteRingSpecializable for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn specialize<O: FiniteRingOperation<Self>>(op: O) -> O::Output {
         op.execute()
@@ -1125,7 +1125,7 @@ impl<NumberRing, A> FiniteRingSpecializable for ManagedDoubleRNSRingBase<NumberR
 
 impl<NumberRing, A> FiniteRing for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type ElementsIter<'a> = std::iter::Map<<DoubleRNSRingBase<NumberRing, A> as FiniteRing>::ElementsIter<'a>, fn(DoubleRNSEl<NumberRing, A>) -> ManagedDoubleRNSEl<NumberRing, A>>
         where Self: 'a;
@@ -1133,7 +1133,7 @@ impl<NumberRing, A> FiniteRing for ManagedDoubleRNSRingBase<NumberRing, A>
     fn elements<'a>(&'a self) -> Self::ElementsIter<'a> {
         fn from_doublerns<NumberRing, A>(x: DoubleRNSEl<NumberRing, A>) -> ManagedDoubleRNSEl<NumberRing, A>
             where NumberRing: NumberRingDescriptor,
-                A: Allocator + Clone
+                A: FheanorAllocator
         {
             return ManagedDoubleRNSEl { internal: Arc::new(DoubleRNSElInternal {
                 double_rns_repr: {
@@ -1161,7 +1161,7 @@ impl<NumberRing, A> FiniteRing for ManagedDoubleRNSRingBase<NumberRing, A>
 
 impl<NumberRing, A> SerializableElementRing for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn serialize<S>(&self, el: &Self::Element, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer
@@ -1190,13 +1190,13 @@ impl<NumberRing, A> SerializableElementRing for ManagedDoubleRNSRingBase<NumberR
 
         struct ResultVisitor<'a, NumberRing, A>
             where NumberRing: NumberRingDescriptor,
-                A: Allocator + Clone
+                A: FheanorAllocator
         {
             ring: &'a ManagedDoubleRNSRingBase<NumberRing, A>,
         }
         impl<'a, 'de, NumberRing, A> serde::de::Visitor<'de> for ResultVisitor<'a, NumberRing, A>
             where NumberRing: NumberRingDescriptor,
-                A: Allocator + Clone
+                A: FheanorAllocator
         {
             type Value = ManagedDoubleRNSEl<NumberRing, A>;
 
@@ -1260,7 +1260,7 @@ impl<NumberRing, A> SerializableElementRing for ManagedDoubleRNSRingBase<NumberR
 
 impl<NumberRing, A> CanHomFrom<BigIntRingBase> for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: NumberRingDescriptor,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     type Homomorphism = <zn_rns::ZnBase<Zn, BigIntRing> as CanHomFrom<BigIntRingBase>>::Homomorphism;
 
@@ -1283,8 +1283,8 @@ impl<NumberRing, A> CanHomFrom<BigIntRingBase> for ManagedDoubleRNSRingBase<Numb
 
 impl<NumberRing, A1, A2, C> CanHomFrom<SingleRNSRingBase<NumberRing, A1, C>> for ManagedDoubleRNSRingBase<NumberRing, A2>
     where NumberRing: NumberRingDescriptor,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone,
+        A1: FheanorAllocator,
+        A2: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnBase>
 {
     type Homomorphism = <DoubleRNSRingBase<NumberRing, A2> as CanHomFrom<SingleRNSRingBase<NumberRing, A1, C>>>::Homomorphism;
@@ -1303,8 +1303,8 @@ impl<NumberRing, A1, A2, C> CanHomFrom<SingleRNSRingBase<NumberRing, A1, C>> for
 
 impl<NumberRing, A1, A2> CanHomFrom<DoubleRNSRingBase<NumberRing, A1>> for ManagedDoubleRNSRingBase<NumberRing, A2>
     where NumberRing: NumberRingDescriptor,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone
+        A1: FheanorAllocator,
+        A2: FheanorAllocator
 {
     type Homomorphism = <DoubleRNSRingBase<NumberRing, A2> as CanHomFrom<DoubleRNSRingBase<NumberRing, A2>>>::Homomorphism;
 
@@ -1322,8 +1322,8 @@ impl<NumberRing, A1, A2> CanHomFrom<DoubleRNSRingBase<NumberRing, A1>> for Manag
 
 impl<NumberRing, A1, A2> CanHomFrom<ManagedDoubleRNSRingBase<NumberRing, A1>> for ManagedDoubleRNSRingBase<NumberRing, A2>
     where NumberRing: NumberRingDescriptor,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone
+        A1: FheanorAllocator,
+        A2: FheanorAllocator
 {
     type Homomorphism = <DoubleRNSRingBase<NumberRing, A2> as CanHomFrom<DoubleRNSRingBase<NumberRing, A2>>>::Homomorphism;
 
@@ -1346,8 +1346,8 @@ impl<NumberRing, A1, A2> CanHomFrom<ManagedDoubleRNSRingBase<NumberRing, A1>> fo
 
 impl<NumberRing, A1, A2, C> CanIsoFromTo<SingleRNSRingBase<NumberRing, A1, C>> for ManagedDoubleRNSRingBase<NumberRing, A2>
     where NumberRing: NumberRingDescriptor,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone,
+        A1: FheanorAllocator,
+        A2: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnBase>
 {
     type Isomorphism = <DoubleRNSRingBase<NumberRing, A2> as CanIsoFromTo<SingleRNSRingBase<NumberRing, A1, C>>>::Isomorphism;
@@ -1367,8 +1367,8 @@ impl<NumberRing, A1, A2, C> CanIsoFromTo<SingleRNSRingBase<NumberRing, A1, C>> f
 
 impl<NumberRing, A1, A2> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A1>> for ManagedDoubleRNSRingBase<NumberRing, A2>
     where NumberRing: NumberRingDescriptor,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone
+        A1: FheanorAllocator,
+        A2: FheanorAllocator
 {
     type Isomorphism = <DoubleRNSRingBase<NumberRing, A2> as CanIsoFromTo<DoubleRNSRingBase<NumberRing, A2>>>::Isomorphism;
 
@@ -1387,8 +1387,8 @@ impl<NumberRing, A1, A2> CanIsoFromTo<DoubleRNSRingBase<NumberRing, A1>> for Man
 
 impl<NumberRing, A1, A2> CanIsoFromTo<ManagedDoubleRNSRingBase<NumberRing, A1>> for ManagedDoubleRNSRingBase<NumberRing, A2>
     where NumberRing: NumberRingDescriptor,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone
+        A1: FheanorAllocator,
+        A2: FheanorAllocator
 {
     type Isomorphism = <DoubleRNSRingBase<NumberRing, A1> as CanHomFrom<DoubleRNSRingBase<NumberRing, A2>>>::Homomorphism;
 

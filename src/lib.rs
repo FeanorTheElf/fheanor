@@ -19,6 +19,7 @@
 
 #![doc = include_str!("../Readme.md")]
 
+use std::alloc::Allocator;
 use std::alloc::Global;
 
 use feanor_math::integer::*;
@@ -51,6 +52,14 @@ fn ring_literal<R>(ring: R, data: &[i32]) -> El<R>
 
     ring.from_canonical_basis(data.iter().map(|x| ring.base_ring().int_hom().map(*x)))
 }
+
+fn is_parallel() -> bool {
+    cfg!(feature = "parallel")
+}
+
+pub trait FheanorAllocator: Send + Sync + Clone + Allocator {}
+
+impl<A: Send + Sync + Clone + Allocator> FheanorAllocator for A {}
 
 ///
 /// The default convolution algorithm that will be used by all tests and benchmarks.

@@ -4,11 +4,8 @@ use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::IntegerRingStore;
 use feanor_math::ring::{El, RingExtensionStore, RingStore};
-use feanor_math::rings::finite::FiniteRingStore;
-use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
-use feanor_math::rings::zn::zn_64::Zn;
-use feanor_math::rings::zn::{ZnRing, ZnRingStore};
+use feanor_math::rings::zn::*;
 
 use crate::ZZi64;
 use crate::circuit::{Coefficient, PlaintextCircuit};
@@ -326,6 +323,13 @@ pub fn degree_8_poly_circuit<R>(ZpeX: R, mut poly: El<R>) -> Result<PlaintextCir
         return Ok(circuit);
     }
 }
+
+#[cfg(test)]
+use feanor_math::rings::poly::dense_poly::DensePolyRing;
+#[cfg(test)]
+use feanor_math::rings::zn::zn_64::Zn;
+#[cfg(test)]
+use feanor_math::rings::finite::FiniteRingStore;
 
 #[test]
 #[ignore]

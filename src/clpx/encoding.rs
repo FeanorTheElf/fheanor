@@ -27,6 +27,7 @@ use feanor_math::rings::rational::RationalField;
 use feanor_math::integer::*;
 use tracing::instrument;
 
+use crate::FheanorAllocator;
 use crate::number_ring::galois::*;
 use crate::number_ring::quotient_by_ideal::*;
 use crate::number_ring::*;
@@ -37,7 +38,7 @@ pub struct CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
     where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     ZZX: DensePolyRing<BigIntRing>,
@@ -56,7 +57,7 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
     where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     #[instrument(skip_all)]
@@ -208,7 +209,7 @@ impl<NumberRing, ZnTy, A, C> PartialEq for CLPXPlaintextRingBase<NumberRing, ZnT
     where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     fn eq(&self, other: &Self) -> bool {
@@ -220,7 +221,7 @@ impl<NumberRing, ZnTy, A, C> DelegateRing for CLPXPlaintextRingBase<NumberRing, 
     where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type Base = NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>;
@@ -240,7 +241,7 @@ impl<NumberRing, ZnTy, A, C> DelegateRingImplFiniteRing for CLPXPlaintextRingBas
     where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {}
 
@@ -248,7 +249,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for CLPXPlaintextRingBase<Number
     where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type NumberRing = NumberRing;
@@ -276,9 +277,9 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<CLPXPlaintextRingBase<
         ZnTy1::Type: NiceZn + CanHomFrom<ZnTy2::Type>,
         ZnTy2: RingStore,
         ZnTy2::Type: NiceZn,
-        A1: Allocator + Clone,
+        A1: FheanorAllocator,
         C1: ConvolutionAlgorithm<ZnTy1::Type>,
-        A2: Allocator + Clone,
+        A2: FheanorAllocator,
         C2: ConvolutionAlgorithm<ZnTy2::Type>,
 {
     type Homomorphism = <NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1> as CanHomFrom<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>>>::Homomorphism;
@@ -315,9 +316,9 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<CLPXPlaintextRingBas
         ZnTy1::Type: NiceZn + CanIsoFromTo<ZnTy2::Type>,
         ZnTy2: RingStore,
         ZnTy2::Type: NiceZn,
-        A1: Allocator + Clone,
+        A1: FheanorAllocator,
         C1: ConvolutionAlgorithm<ZnTy1::Type>,
-        A2: Allocator + Clone,
+        A2: FheanorAllocator,
         C2: ConvolutionAlgorithm<ZnTy2::Type>,
 {
     type Isomorphism = <NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1> as CanIsoFromTo<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>>>::Isomorphism;
@@ -337,9 +338,9 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientById
         ZnTy1::Type: NiceZn + CanHomFrom<ZnTy2::Type>,
         ZnTy2: RingStore,
         ZnTy2::Type: NiceZn,
-        A1: Allocator + Clone,
+        A1: FheanorAllocator,
         C1: ConvolutionAlgorithm<ZnTy1::Type>,
-        A2: Allocator + Clone,
+        A2: FheanorAllocator,
         C2: ConvolutionAlgorithm<ZnTy2::Type>,
 {
     type Homomorphism = <NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1> as CanHomFrom<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>>>::Homomorphism;
@@ -375,9 +376,9 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientBy
         ZnTy1::Type: NiceZn + CanIsoFromTo<ZnTy2::Type>,
         ZnTy2: RingStore,
         ZnTy2::Type: NiceZn,
-        A1: Allocator + Clone,
+        A1: FheanorAllocator,
         C1: ConvolutionAlgorithm<ZnTy1::Type>,
-        A2: Allocator + Clone,
+        A2: FheanorAllocator,
         C2: ConvolutionAlgorithm<ZnTy2::Type>,
 {
     type Isomorphism = <NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1> as CanIsoFromTo<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>>>::Isomorphism;

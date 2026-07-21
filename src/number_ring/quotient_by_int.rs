@@ -30,7 +30,7 @@ use tracing::instrument;
 
 use crate::number_ring::galois::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
-use crate::{number_ring::*, ZZi64};
+use crate::{FheanorAllocator, ZZi64, number_ring::*};
 use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::serde::de::DeserializeSeed;
 use crate::ZZbig;
@@ -54,7 +54,7 @@ pub struct NumberRingQuotientByIntBase<NumberRing, ZnTy, A = Global, C = Karatsu
     where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     number_ring: NumberRing,
@@ -72,7 +72,7 @@ pub struct NumberRingQuotientByIntEl<NumberRing, ZnTy, A = Global, C = Karatsuba
     where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     ring: PhantomData<NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>>,
@@ -86,7 +86,7 @@ pub struct NumberRingQuotientByIntPreparedMultiplicant<NumberRing, ZnTy, A = Glo
     where NumberRing: NumberRingDescriptor,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     ring: PhantomData<NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>>,
@@ -107,7 +107,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     #[instrument(skip_all)]
@@ -130,7 +130,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     fn convolution(&self) -> &C {
@@ -146,7 +146,7 @@ impl<NumberRing, ZnTy, A, C> Clone for NumberRingQuotientByIntBase<NumberRing, Z
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type> + Clone
 {
     fn clone(&self) -> Self {
@@ -163,7 +163,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIntBase<
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type NumberRing = NumberRing;
@@ -199,7 +199,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type PreparedMultiplicant = NumberRingQuotientByIntPreparedMultiplicant<NumberRing, ZnTy, A, C>;
@@ -258,7 +258,7 @@ impl<NumberRing, ZnTy, A, C> PartialEq for NumberRingQuotientByIntBase<NumberRin
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     fn eq(&self, other: &Self) -> bool {
@@ -270,7 +270,7 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type Element = NumberRingQuotientByIntEl<NumberRing, ZnTy, A, C>;
@@ -402,7 +402,7 @@ impl<NumberRing, ZnTy, A, C> RingExtension for NumberRingQuotientByIntBase<Numbe
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type BaseRing = ZnTy;
@@ -450,7 +450,7 @@ impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIntBase<NumberR
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type VectorRepresentation<'a> = CloneElFn<Vec<El<ZnTy>, A>, El<ZnTy>, CloneRingEl<&'a ZnTy>>
@@ -512,7 +512,7 @@ pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     ring: &'a NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>,
@@ -522,7 +522,7 @@ impl<'a, NumberRing, ZnTy, A, C> Copy for WRTCanonicalBasisElementCreator<'a, Nu
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {}
 
@@ -530,7 +530,7 @@ impl<'a, NumberRing, ZnTy, A, C> Clone for WRTCanonicalBasisElementCreator<'a, N
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     fn clone(&self) -> Self {
@@ -542,7 +542,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> FnOnce<(&'b [El<ZnTy>],)> for WRTCanonicalB
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type Output = El<NumberRingQuotientByInt<NumberRing, ZnTy, A, C>>;
@@ -556,7 +556,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> FnMut<(&'b [El<ZnTy>],)> for WRTCanonicalBa
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     extern "rust-call" fn call_mut(&mut self, args: (&'b [El<ZnTy>],)) -> Self::Output {
@@ -568,7 +568,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> Fn<(&'b [El<ZnTy>],)> for WRTCanonicalBasis
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     extern "rust-call" fn call(&self, args: (&'b [El<ZnTy>],)) -> Self::Output {
@@ -580,7 +580,7 @@ impl<NumberRing, ZnTy, A, C> FiniteRingSpecializable for NumberRingQuotientByInt
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     fn specialize<O: FiniteRingOperation<Self>>(op: O) -> O::Output {
@@ -592,7 +592,7 @@ impl<NumberRing, ZnTy, A, C> FiniteRing for NumberRingQuotientByIntBase<NumberRi
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type ElementsIter<'a> = MultiProduct<<ZnTy::Type as FiniteRing>::ElementsIter<'a>, WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>, CloneRingEl<&'a ZnTy>, Self::Element>
@@ -629,7 +629,7 @@ impl<NumberRing, ZnTy, A, C> DivisibilityRing for NumberRingQuotientByIntBase<Nu
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     fn checked_left_div(&self, lhs: &Self::Element, rhs: &Self::Element) -> Option<Self::Element> {
@@ -651,7 +651,7 @@ impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByInt
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: SerializableElementRing + ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     #[instrument(skip_all)]
@@ -690,7 +690,7 @@ impl<NumberRing, ZnTy, A, C> CanHomFrom<BigIntRingBase> for NumberRingQuotientBy
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy: RingStore + Clone,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type Homomorphism = <ZnTy::Type as CanHomFrom<BigIntRingBase>>::Homomorphism;
@@ -716,11 +716,11 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientByIn
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy1: RingStore + Clone,
         ZnTy1::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A1: Allocator + Clone,
+        A1: FheanorAllocator,
         C1: ConvolutionAlgorithm<ZnTy1::Type> + Clone,
         ZnTy2: RingStore + Clone,
         ZnTy2::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A2: Allocator + Clone,
+        A2: FheanorAllocator,
         C2: ConvolutionAlgorithm<ZnTy2::Type> + Clone,
         ZnTy1::Type: CanHomFrom<ZnTy2::Type>
 {
@@ -750,11 +750,11 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientBy
     where NumberRing: NumberRingDescriptor + Clone,
         ZnTy1: RingStore + Clone,
         ZnTy1::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A1: Allocator + Clone,
+        A1: FheanorAllocator,
         C1: ConvolutionAlgorithm<ZnTy1::Type> + Clone,
         ZnTy2: RingStore + Clone,
         ZnTy2::Type: ZnRing + CanHomFrom<BigIntRingBase>,
-        A2: Allocator + Clone,
+        A2: FheanorAllocator,
         C2: ConvolutionAlgorithm<ZnTy2::Type> + Clone,
         ZnTy1::Type: CanIsoFromTo<ZnTy2::Type>
 {

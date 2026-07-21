@@ -132,7 +132,7 @@ impl<R: RingStore> NumberRingQuotientStore for R
 /// represent the same ring, and also all three basis should coincide (in case of the "multiplicative
 /// basis", it should coincide for every prime `p`).
 /// 
-pub trait NumberRingDescriptor: PartialEq + Clone + Debug {
+pub trait NumberRingDescriptor: PartialEq + Clone + Debug + Send + Sync {
 
     type NumberRingQuotientBases: NumberRingQuotientBases;
 
@@ -198,7 +198,7 @@ pub trait NumberRingDescriptor: PartialEq + Clone + Debug {
 /// elements `𝝵^i` are all "small"), staying in "small basis" whenever possible has
 /// performance benefits, because of the tensor-decomposition.
 /// 
-pub trait NumberRingQuotientBases: PartialEq {
+pub trait NumberRingQuotientBases: PartialEq + Send + Sync {
 
     fn base_ring(&self) -> &zn_64::Zn;
 

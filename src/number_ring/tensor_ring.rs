@@ -20,7 +20,7 @@ use tracing::instrument;
 
 use crate::number_ring::galois::*;
 use crate::number_ring::general_cyclotomic::*;
-use crate::ZZi64;
+use crate::{FheanorAllocator, ZZi64};
 use crate::number_ring::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 
@@ -238,7 +238,7 @@ impl<L: NumberRingDescriptor, R: NumberRingDescriptor> NumberRingDescriptor for 
 pub struct CompositeCyclotomicNumberRingQuotientBases<L, R, A = Global> 
     where L: NumberRingQuotientBases,
         R: NumberRingQuotientBases,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     allocator: A,
     left_factor: L,
@@ -253,7 +253,7 @@ pub struct CompositeCyclotomicNumberRingQuotientBases<L, R, A = Global>
 impl<L, R, A> PartialEq for CompositeCyclotomicNumberRingQuotientBases<L, R, A> 
     where L: NumberRingQuotientBases,
         R: NumberRingQuotientBases,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn eq(&self, other: &Self) -> bool {
         self.left_factor == other.left_factor && self.right_factor == other.right_factor
@@ -263,7 +263,7 @@ impl<L, R, A> PartialEq for CompositeCyclotomicNumberRingQuotientBases<L, R, A>
 impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientBases<L, R, A> 
     where L: NumberRingQuotientBases,
         R: NumberRingQuotientBases,
-        A: Allocator + Clone 
+        A: FheanorAllocator 
 {
     fn galois_group(&self) -> &CyclotomicGaloisGroup {
         &self.joint_galois_group

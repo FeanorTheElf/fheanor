@@ -14,6 +14,7 @@ use feanor_math::rings::poly::*;
 use feanor_math::rings::zn::zn_64;
 use feanor_math::seq::*;
 
+use crate::FheanorAllocator;
 use crate::ntt::FheanorNegacyclicNTT;
 use crate::number_ring::galois::*;
 use crate::number_ring::*;
@@ -119,7 +120,7 @@ impl<N> NumberRingDescriptor for Pow2CyclotomicNumberRing<N>
 
 pub struct Pow2CyclotomicNumberRingQuotientBases<N, A> 
     where N: FheanorNegacyclicNTT<zn_64::Zn>,
-        A: Allocator
+        A: FheanorAllocator
 {
     log2_m: usize,
     ntt: N,
@@ -129,7 +130,7 @@ pub struct Pow2CyclotomicNumberRingQuotientBases<N, A>
 
 impl<N, A> PartialEq for Pow2CyclotomicNumberRingQuotientBases<N, A> 
     where N: FheanorNegacyclicNTT<zn_64::Zn>,
-        A: Allocator
+        A: FheanorAllocator
 {
     fn eq(&self, other: &Self) -> bool {
         self.ntt == other.ntt
@@ -138,7 +139,7 @@ impl<N, A> PartialEq for Pow2CyclotomicNumberRingQuotientBases<N, A>
 
 impl<N, A> NumberRingQuotientBases for Pow2CyclotomicNumberRingQuotientBases<N, A> 
     where N: FheanorNegacyclicNTT<zn_64::Zn>,
-        A: Allocator
+        A: FheanorAllocator
 {
     fn galois_group(&self) -> &CyclotomicGaloisGroup {
         &self.galois_group

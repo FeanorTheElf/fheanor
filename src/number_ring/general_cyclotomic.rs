@@ -23,7 +23,7 @@ use feanor_mempool::AllocArc;
 use feanor_math::seq::*;
 use tracing::instrument;
 
-use crate::{ZZi64, euler_phi, euler_phi_squarefree};
+use crate::{FheanorAllocator, ZZi64, euler_phi, euler_phi_squarefree};
 use crate::number_ring::galois::*;
 use crate::number_ring::*;
 
@@ -322,7 +322,7 @@ impl NumberRingDescriptor for OddSquarefreeCyclotomicNumberRing {
 
 pub struct OddSquarefreeCyclotomicDecomposedNumberRing<F, A = Global> 
     where F: FFTAlgorithm<ZnBase> + PartialEq,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     galois_group: CyclotomicGaloisGroup,
     ring: Zn,
@@ -336,7 +336,7 @@ pub struct OddSquarefreeCyclotomicDecomposedNumberRing<F, A = Global>
 
 impl<F, A> PartialEq for OddSquarefreeCyclotomicDecomposedNumberRing<F, A> 
     where F: FFTAlgorithm<ZnBase> + PartialEq,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn eq(&self, other: &Self) -> bool {
         self.ring.get_ring() == other.ring.get_ring() && self.fft_table == other.fft_table
@@ -345,7 +345,7 @@ impl<F, A> PartialEq for OddSquarefreeCyclotomicDecomposedNumberRing<F, A>
 
 impl<F, A> OddSquarefreeCyclotomicDecomposedNumberRing<F, A> 
     where F: FFTAlgorithm<ZnBase> + PartialEq,
-        A: Allocator + Clone
+        A: FheanorAllocator
 {
     fn create_squarefree(fft_table: F, Fp: Zn, n_factorization: &[i64], galois_group: CyclotomicGaloisGroup, allocator: A) -> Self {
         let m = galois_group.m();
@@ -394,8 +394,8 @@ impl<F, A> OddSquarefreeCyclotomicDecomposedNumberRing<F, A>
 }
 
 impl<F, A> NumberRingQuotientBases for OddSquarefreeCyclotomicDecomposedNumberRing<F, A> 
-    where F: FFTAlgorithm<ZnBase> + PartialEq,
-        A: Allocator + Clone
+    where F: FFTAlgorithm<ZnBase> + PartialEq + Send + Sync,
+        A: FheanorAllocator
 {
     fn galois_group(&self) -> &CyclotomicGaloisGroup {
         &self.galois_group

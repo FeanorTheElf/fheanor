@@ -39,7 +39,7 @@ impl<NumberRing, ZnTy, A, C> ElToIRRing for NumberRingQuotientByIntBase<NumberRi
         ZnTy: RingStore + Clone,
         ZnTy::Type: NiceZn,
         <ZnTy::Type as ZnRing>::IntegerRing: Default,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type ElRepr = ValueList<ValueInt<<ZnTy::Type as ZnRing>::IntegerRing>>;
@@ -59,7 +59,7 @@ impl<NumberRing, ZnTy, A, C> ElToIRRing for NumberRingQuotientByIdealBase<Number
         ZnTy: RingStore + Clone,
         ZnTy::Type: NiceZn,
         <ZnTy::Type as ZnRing>::IntegerRing: Default,
-        A: Allocator + Clone,
+        A: FheanorAllocator,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     type ElRepr = ValueList<ValueInt<<ZnTy::Type as ZnRing>::IntegerRing>>;
