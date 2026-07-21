@@ -1,4 +1,3 @@
-use std::alloc::Global;
 use std::ops::Range;
 
 use feanor_math::group::AbelianGroupStore;
@@ -26,7 +25,7 @@ use crate::{FheanorAllocator, ZZbig, ZZi64};
 /// 
 pub mod digits;
 
-type GadgetProductBaseConversion<A> = UsedBaseConversion<A>;
+type GadgetProductBaseConversion = UsedBaseConversion;
 
 ///
 /// Represents the left-hand side operand of a gadget product.
@@ -303,10 +302,9 @@ fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S)
     
     for digit in digits {
 
-        let conversion = GadgetProductBaseConversion::new_with_alloc(
+        let conversion = GadgetProductBaseConversion::new(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
-            homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
-            Global
+            homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>()
         );
         
         conversion.apply(
@@ -335,10 +333,9 @@ fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberR
     
     for digit in digits {
 
-        let conversion = GadgetProductBaseConversion::new_with_alloc(
+        let conversion = GadgetProductBaseConversion::new(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
-            homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
-            Global
+            homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>()
         );
         
         let mut decomposition_part = ring.zero_non_fft();
@@ -507,6 +504,8 @@ impl<R: NumberRingRNSQuotient> RNSGadgetProductRhsOperand<R> {
     }
 }
 
+#[cfg(test)]
+use std::alloc::Global;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]

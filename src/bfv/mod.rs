@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-use std::alloc::Global;
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::fmt::Display;
@@ -633,10 +632,9 @@ pub trait BFVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn mod_switch_ct(_P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        let mod_switch = RNSRescaling::new_with_alloc(
+        let mod_switch = RNSRescaling::new(
             Cold.base_ring().as_iter().map(|Zp| *Zp).collect(),
             Cnew.base_ring().as_iter().map(|Zp| *Zp).collect(),
-            Global
         );
         assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
         assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
@@ -657,10 +655,9 @@ pub trait BFVInstantiation {
         if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
             return Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
         } else {
-            let mod_switch = UsedBaseConversion::new_with_alloc(
+            let mod_switch = UsedBaseConversion::new(
                 Cold.base_ring().as_iter().cloned().collect(),
-                Cnew.base_ring().as_iter().cloned().collect(),
-                Global
+                Cnew.base_ring().as_iter().cloned().collect()
             );
             assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
             assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
@@ -1222,11 +1219,10 @@ pub fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, 
         |bound| prev_prime(ZZi64, bound)
     ).unwrap().into_iter().map(|p| Zn::new(p as u64)).collect::<Vec<_>>();
 
-    let to_extended = RNSSharedBaseConversion::new_with_alloc(
+    let to_extended = RNSSharedBaseConversion::new(
         extended_rns_base[..current.len()].iter().cloned().collect::<Vec<_>>(),
         Vec::new(),
         extended_rns_base[current.len()..].iter().cloned().collect::<Vec<_>>(),
-        Global
     );
 
     to_extended
@@ -1249,10 +1245,9 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
         F: 'a + Fn(&RingValue<R::Type>, El<R>) -> El<R>
 {
     let C_delta = C_mul.get_ring().drop_rns_factor(&RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len()));
-    let lift = UsedBaseConversion::new_with_alloc(
+    let lift = UsedBaseConversion::new(
         C.base_ring().as_iter().cloned().collect::<Vec<_>>(),
         C_mul.base_ring().as_iter().skip(C.base_ring().len()).cloned().collect::<Vec<_>>(),
-        Global
     );
     let mut tmp_in = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
     let mut tmp_out = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
@@ -1264,7 +1259,7 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
         C_delta: &RingValue<R::Type>, 
         tmp_in: &mut OwnedMatrix<El<Zn>>,
         tmp_out: &mut OwnedMatrix<El<Zn>>,
-        lift: &UsedBaseConversion<Global>,
+        lift: &UsedBaseConversion,
         c: &El<R>,
         prepare_delta: &F
     ) -> El<R>
@@ -1302,12 +1297,11 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + BFVInstantiation>(
     // we treat the case that Zt can be represented using zn_64::Zn separately, since it is 
     // common and can be implemented more efficiently
     if let Some(Zt) = t_fits_zn_64(ZZ, P.base_ring().modulus()) && ZZbig.is_unit(&ZZbig.gcd(&int_cast(*Zt.modulus(), ZZbig, ZZi64), C_mul.base_ring().modulus())) {
-        let rescale = RNSRescalingConversion::new_with_alloc(
+        let rescale = RNSRescalingConversion::new(
             C_mul.base_ring().as_iter().cloned().collect(), 
             C.base_ring().as_iter().cloned().collect(),
             vec![Zt], 
-            (0..C.base_ring().len()).collect(),
-            Global
+            (0..C.base_ring().len()).collect()
         );
 
         #[instrument(skip_all)]
@@ -1322,12 +1316,11 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + BFVInstantiation>(
         Box::new(move |c| rescale_to_C_impl_small_t::<Inst>(C, C_mul, &rescale, c))
     } else {
         let to_extended = temporarily_extend_rns_base(C_mul.base_ring(), ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap());
-        let rescale = RNSRescalingConversion::new_with_alloc(
+        let rescale = RNSRescalingConversion::new(
             to_extended.output_rings().to_owned(), 
             C.base_ring().as_iter().cloned().collect(),
             Vec::new(), 
             (0..C.base_ring().len()).collect(),
-            Global
         );
         let t_mod_extended = to_extended.output_rings().iter().map(|ring| ring.coerce(ZZ, ZZ.clone_el(P.base_ring().modulus()))).collect::<Vec<_>>();
         let mut tmp_in_out = OwnedMatrix::from_fn(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), |i, _| C_mul.base_ring().at(i).zero());

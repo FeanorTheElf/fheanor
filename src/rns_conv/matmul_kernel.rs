@@ -25,14 +25,14 @@
 
 use feanor_math::matrix::{AsPointerToSlice, Submatrix, SubmatrixMut};
 use rayon_cond::CondIterator;
-use tracing::{Level, span};
+use tracing::{Level, Span, span};
 
 use crate::is_parallel;
 
 /// Columns processed per cache block along the long `k` axis. Sized so one
 /// block of `rhs` (`m * BLOCK` i64s, <= 128 KiB for `m = 32`) is reused from L2
 /// across the `n` output rows while the `out` block stays in L1.
-const BLOCK: usize = 512;
+pub const BLOCK: usize = 512;
 
 /// Columns held in registers at once within a block. Four i128 accumulators
 /// (two registers each) fit the general-purpose register file alongside the
@@ -44,6 +44,7 @@ const TILE: usize = 4;
 /// `lhs` is in row-major storage, and both `rhs` and `out` are given as collections of their rows.
 ///
 /// Optimized for small `n, m` (say <= 32) and large `k`.
+#[allow(unused)]
 pub fn skinny_matmul_i64_i64_i128<V1, V2, V3>(
     lhs: Submatrix<V1, i64>,
     rhs: Submatrix<V2, i64>,
@@ -68,7 +69,8 @@ pub fn skinny_matmul_i64_i64_i128<V1, V2, V3>(
         out = rest;
     }
     tasks.push(out);
-    CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(i, out)| span!(Level::INFO, "matmul_block").in_scope(|| {
+    let outer_span = Span::current();
+    CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(i, out)| span!(parent: &outer_span, Level::INFO, "matmul_block").in_scope(|| {
         skinny_matmul_i64_i64_i128_block(
             lhs,
             rhs.restrict_cols((i * BLOCK)..usize::min((i + 1) * BLOCK, k)),
@@ -77,7 +79,7 @@ pub fn skinny_matmul_i64_i64_i128<V1, V2, V3>(
     }));
 }
 
-fn skinny_matmul_i64_i64_i128_block<V1, V2, V3>(
+pub fn skinny_matmul_i64_i64_i128_block<V1, V2, V3>(
     lhs: Submatrix<V1, i64>,
     rhs: Submatrix<V2, i64>,
     mut out: SubmatrixMut<V3, i128>,
@@ -130,6 +132,7 @@ fn skinny_matmul_i64_i64_i128_block<V1, V2, V3>(
 ///
 /// The mathematical products are assumed to fit in i128 (no overflow), so each
 /// `lhs * rhs` term is a plain `128x64 -> 128` multiply.
+#[allow(unused)]
 pub fn skinny_matmul_i128_i64_i128<V1, V2, V3>(
     lhs: Submatrix<V1, i128>,
     rhs: Submatrix<V2, i64>,
@@ -154,7 +157,8 @@ pub fn skinny_matmul_i128_i64_i128<V1, V2, V3>(
         out = rest;
     }
     tasks.push(out);
-    CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(i, out)| span!(Level::INFO, "matmul_block").in_scope(|| {
+    let outer_span = Span::current();
+    CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(i, out)| span!(parent: &outer_span, Level::INFO, "matmul_block").in_scope(|| {
         skinny_matmul_i128_i64_i128_block(
             lhs,
             rhs.restrict_cols((i * BLOCK)..usize::min((i + 1) * BLOCK, k)),
@@ -163,7 +167,7 @@ pub fn skinny_matmul_i128_i64_i128<V1, V2, V3>(
     }));
 }
 
-fn skinny_matmul_i128_i64_i128_block<V1, V2, V3>(
+pub fn skinny_matmul_i128_i64_i128_block<V1, V2, V3>(
     lhs: Submatrix<V1, i128>,
     rhs: Submatrix<V2, i64>,
     mut out: SubmatrixMut<V3, i128>,

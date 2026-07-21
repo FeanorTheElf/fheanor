@@ -689,12 +689,11 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + CLPXInstantiation>(
         "extended modulus not big enough to avoid wrap-around during homomorphic multiplication"
     );
 
-    let rescale = RNSRescalingConversion::new_with_alloc(
+    let rescale = RNSRescalingConversion::new(
         C_mul.base_ring().as_iter().cloned().collect(), 
         C.base_ring().as_iter().cloned().collect(),
         Vec::new(), 
-        (0..C.base_ring().len()).collect(),
-        Global
+        (0..C.base_ring().len()).collect()
     );
     let mut tmp_in = OwnedMatrix::from_fn(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), |i, _| C_mul.base_ring().at(i).zero());
     let mut tmp_out = OwnedMatrix::from_fn(C.base_ring().len(), C.get_ring().small_generating_set_len(), |i, _| C.base_ring().at(i).zero());

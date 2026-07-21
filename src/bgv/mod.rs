@@ -1,4 +1,3 @@
-use std::alloc::Global;
 use std::convert::identity;
 use std::fmt::Display;
 use std::marker::PhantomData;
@@ -982,11 +981,10 @@ pub trait BGVInstantiation {
 
         let C_dropped = RingValue::from(Cold.get_ring().drop_rns_factor(&kept_rns_factors));
         let Zt = Zn::new(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()) as u64);
-        let compute_delta = RNSCongruencePreservingBaseConversion::new_with_alloc(
+        let compute_delta = RNSCongruencePreservingBaseConversion::new(
             C_dropped.base_ring().as_iter().cloned().collect(),
             Cnew.base_ring().as_iter().cloned().collect(),
-            Zt,
-            Global
+            Zt
         );
         let b_inv = Cnew.base_ring().invert(&Cnew.base_ring().coerce(&ZZbig, ZZbig.prod(dropped_rns_factors.iter().map(|i| int_cast(*Cold.base_ring().at(*i).modulus(), ZZbig, ZZi64))))).unwrap();
         Box::new(move |mut x: El<CiphertextRing<Self>>| {
@@ -1074,10 +1072,9 @@ pub trait BGVInstantiation {
         if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
             return Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
         } else {
-            let mod_switch = UsedBaseConversion::new_with_alloc(
+            let mod_switch = UsedBaseConversion::new(
                 Cold.base_ring().as_iter().cloned().collect(),
-                Cnew.base_ring().as_iter().cloned().collect(),
-                Global
+                Cnew.base_ring().as_iter().cloned().collect()
             );
             assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
             assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));

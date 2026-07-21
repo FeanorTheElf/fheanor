@@ -38,6 +38,7 @@ use serde::Deserializer;
 use serde::Serialize;
 use serde::de::DeserializeSeed;
 use tracing::Level;
+use tracing::Span;
 use tracing::instrument;
 use tracing::span;
 
@@ -293,8 +294,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     pub fn undo_fft(&self, mut element: DoubleRNSEl<NumberRing, A>) -> SmallBasisEl<NumberRing, A> {
         assert_eq!(element.el_wrt_mult_basis.len(), self.element_len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut element.el_wrt_mult_basis), is_parallel()).enumerate().for_each(|(i, part)| 
-            span!(Level::INFO, "undo_fft_block").in_scope(|| self.ring_decompositions[i].mult_basis_to_small_basis(part))
+            span!(parent: &outer_span, Level::INFO, "undo_fft_block").in_scope(|| self.ring_decompositions[i].mult_basis_to_small_basis(part))
         );
         SmallBasisEl {
             el_wrt_small_basis: element.el_wrt_mult_basis,
@@ -364,8 +366,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     pub fn do_fft(&self, mut element: SmallBasisEl<NumberRing, A>) -> DoubleRNSEl<NumberRing, A> {
         assert_eq!(element.el_wrt_small_basis.len(), self.element_len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut element.el_wrt_small_basis), is_parallel()).enumerate().for_each(|(i, part)| 
-            span!(Level::INFO, "do_fft_block").in_scope(|| self.ring_decompositions[i].small_basis_to_mult_basis(part))
+            span!(parent: &outer_span, Level::INFO, "do_fft_block").in_scope(|| self.ring_decompositions[i].small_basis_to_mult_basis(part))
         );
         DoubleRNSEl {
             el_wrt_mult_basis: element.el_wrt_small_basis,
@@ -426,8 +429,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     pub fn negate_inplace_non_fft(&self, val: &mut SmallBasisEl<NumberRing, A>) {
         assert_eq!(self.element_len(), val.el_wrt_small_basis.len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut val.el_wrt_small_basis), is_parallel()).enumerate().for_each(|(i, part)| 
-            span!(Level::INFO, "negate_block").in_scope(|| part.iter_mut().for_each(|x| self.rns_base.at(i).negate_inplace(x)))
+            span!(parent: &outer_span, Level::INFO, "negate_block").in_scope(|| part.iter_mut().for_each(|x| self.rns_base.at(i).negate_inplace(x)))
         );
     }
 
@@ -441,8 +445,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     pub fn sub_assign_non_fft(&self, lhs: &mut SmallBasisEl<NumberRing, A>, rhs: &SmallBasisEl<NumberRing, A>) {
         assert_eq!(self.element_len(), lhs.el_wrt_small_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_small_basis.len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_small_basis), is_parallel()).zip(self.rns_parts(&rhs.el_wrt_small_basis)).enumerate().for_each(|(i, (lhs_part, rhs_part))| 
-            span!(Level::INFO, "sub_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).sub_assign_ref(l, r)))
+            span!(parent: &outer_span, Level::INFO, "sub_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).sub_assign_ref(l, r)))
         );
     }
 
@@ -450,8 +455,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     pub fn mul_scalar_assign_non_fft(&self, lhs: &mut SmallBasisEl<NumberRing, A>, rhs: &El<zn_rns::Zn<Zn, BigIntRing>>) {
         assert_eq!(self.element_len(), lhs.el_wrt_small_basis.len());
         let rhs_congruence = self.rns_base.get_congruence(rhs);
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_small_basis), is_parallel()).enumerate().for_each(|(i, lhs_part)| 
-            span!(Level::INFO, "mul_scalar_block").in_scope(|| lhs_part.iter_mut().for_each(|x| self.rns_base.at(i).mul_assign_ref(x, rhs_congruence.at(i))))
+            span!(parent: &outer_span, Level::INFO, "mul_scalar_block").in_scope(|| lhs_part.iter_mut().for_each(|x| self.rns_base.at(i).mul_assign_ref(x, rhs_congruence.at(i))))
         );
     }
 
@@ -459,8 +465,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     pub fn add_assign_non_fft(&self, lhs: &mut SmallBasisEl<NumberRing, A>, rhs: &SmallBasisEl<NumberRing, A>) {
         assert_eq!(self.element_len(), lhs.el_wrt_small_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_small_basis.len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_small_basis), is_parallel()).zip(self.rns_parts(&rhs.el_wrt_small_basis)).enumerate().for_each(|(i, (lhs_part, rhs_part))| 
-            span!(Level::INFO, "add_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).add_assign_ref(l, r)))
+            span!(parent: &outer_span, Level::INFO, "add_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).add_assign_ref(l, r)))
         );
     }
 
@@ -475,8 +482,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
                 result[i * self.rank() + j] = self.base_ring().at(i).clone_el(congruence.at(i));
             }
         }
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut result), is_parallel()).enumerate().for_each(|(i, part)| 
-            span!(Level::INFO, "coeff_to_small_basis_block").in_scope(|| self.ring_decompositions[i].coeff_basis_to_small_basis(part))
+            span!(parent: &outer_span, Level::INFO, "coeff_to_small_basis_block").in_scope(|| self.ring_decompositions[i].coeff_basis_to_small_basis(part))
         );
         return SmallBasisEl {
             el_wrt_small_basis: result,
@@ -518,8 +526,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     pub fn wrt_canonical_basis_non_fft<'a>(&'a self, el: SmallBasisEl<NumberRing, A>) -> DoubleRNSRingBaseElVectorRepresentation<'a, NumberRing, A> {
         let mut result = el.el_wrt_small_basis;
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut result), is_parallel()).enumerate().for_each(|(i, part)| 
-            span!(Level::INFO, "small_to_coeff_basis_block").in_scope(|| self.ring_decompositions[i].small_basis_to_coeff_basis(part))
+            span!(parent: &outer_span, Level::INFO, "small_to_coeff_basis_block").in_scope(|| self.ring_decompositions[i].small_basis_to_coeff_basis(part))
         );
         return DoubleRNSRingBaseElVectorRepresentation {
             ring: self,
@@ -544,8 +553,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
                 result.push(Zp.get_ring().map_in_ref(from.base_ring().at(i).get_ring(), el_as_matrix.at(i, j), &hom[i]));
             }
         }
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut result), is_parallel()).enumerate().for_each(|(i, part)| 
-            span!(Level::INFO, "coeff_to_small_basis_block").in_scope(|| self.ring_decompositions[i].coeff_basis_to_small_basis(part))
+            span!(parent: &outer_span, Level::INFO, "coeff_to_small_basis_block").in_scope(|| self.ring_decompositions[i].coeff_basis_to_small_basis(part))
         );
         SmallBasisEl {
             el_wrt_small_basis: result,
@@ -567,8 +577,9 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
         let mut result = to.zero();
         let mut result_matrix = to.coefficients_as_matrix_mut(&mut result);
         let mut el_coeff = el.el_wrt_small_basis;
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut el_coeff), is_parallel()).enumerate().for_each(|(i, part)| 
-            span!(Level::INFO, "small_to_coeff_basis_block").in_scope(|| self.ring_decompositions[i].small_basis_to_coeff_basis(part))
+            span!(parent: &outer_span, Level::INFO, "small_to_coeff_basis_block").in_scope(|| self.ring_decompositions[i].small_basis_to_coeff_basis(part))
         );
         for (i, Zp) in self.base_ring().as_iter().enumerate() {
             for j in 0..self.rank() {
@@ -724,8 +735,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     fn add_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_mult_basis), is_parallel()).zip(self.rns_parts(&rhs.el_wrt_mult_basis)).enumerate().for_each(|(i, (lhs_part, rhs_part))| 
-            span!(Level::INFO, "add_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).add_assign_ref(l, r)))
+            span!(parent: &outer_span, Level::INFO, "add_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).add_assign_ref(l, r)))
         );
     }
 
@@ -737,8 +749,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     fn sub_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_mult_basis), is_parallel()).zip(self.rns_parts(&rhs.el_wrt_mult_basis)).enumerate().for_each(|(i, (lhs_part, rhs_part))| 
-            span!(Level::INFO, "sub_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).sub_assign_ref(l, r)))
+            span!(parent: &outer_span, Level::INFO, "sub_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).sub_assign_ref(l, r)))
         );
     }
 
@@ -749,8 +762,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     fn negate_inplace(&self, lhs: &mut Self::Element) {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_mult_basis), is_parallel()).enumerate().for_each(|(i, lhs_part)| 
-            span!(Level::INFO, "negate_block").in_scope(|| lhs_part.iter_mut().for_each(|l| self.rns_base.at(i).negate_inplace(l)))
+            span!(parent: &outer_span, Level::INFO, "negate_block").in_scope(|| lhs_part.iter_mut().for_each(|l| self.rns_base.at(i).negate_inplace(l)))
         );
     }
 
@@ -762,8 +776,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     fn mul_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_mult_basis), is_parallel()).zip(self.rns_parts(&rhs.el_wrt_mult_basis)).enumerate().for_each(|(i, (lhs_part, rhs_part))| 
-            span!(Level::INFO, "mul_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).mul_assign_ref(l, r)))
+            span!(parent: &outer_span, Level::INFO, "mul_block").in_scope(|| lhs_part.iter_mut().zip(rhs_part).for_each(|(l, r)| self.rns_base.at(i).mul_assign_ref(l, r)))
         );
     }
 
@@ -772,8 +787,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
         assert_eq!(self.element_len(), summand.el_wrt_mult_basis.len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut summand.el_wrt_mult_basis), is_parallel()).zip(self.rns_parts(&lhs.el_wrt_mult_basis)).zip(self.rns_parts(&rhs.el_wrt_mult_basis)).enumerate().for_each(|(i, ((summand_part, lhs_part), rhs_part))| 
-            span!(Level::INFO, "fma_block").in_scope(|| summand_part.iter_mut().zip(lhs_part).zip(rhs_part).for_each(|((x, l), r)| *x = self.rns_base.at(i).fma(l, r, *x)))
+            span!(parent: &outer_span, Level::INFO, "fma_block").in_scope(|| summand_part.iter_mut().zip(lhs_part).zip(rhs_part).for_each(|((x, l), r)| *x = self.rns_base.at(i).fma(l, r, *x)))
         );
         return summand;
     }
@@ -785,9 +801,10 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     fn mul_assign_int(&self, lhs: &mut Self::Element, rhs: i32) {
         assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut lhs.el_wrt_mult_basis), is_parallel()).enumerate().for_each(|(i, lhs_part)| {
             let rhs_mod_p = self.base_ring().at(i).get_ring().from_int(rhs);
-            span!(Level::INFO, "mul_int_block").in_scope(|| lhs_part.iter_mut().for_each(|l| self.rns_base.at(i).mul_assign_ref(l, &rhs_mod_p)))
+            span!(parent: &outer_span, Level::INFO, "mul_int_block").in_scope(|| lhs_part.iter_mut().for_each(|l| self.rns_base.at(i).mul_assign_ref(l, &rhs_mod_p)))
         });
     }
 
@@ -832,8 +849,9 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     #[instrument(skip_all)]
     fn square(&self, value: &mut Self::Element) {
         assert_eq!(self.element_len(), value.el_wrt_mult_basis.len());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut value.el_wrt_mult_basis), is_parallel()).enumerate().for_each(|(i, lhs_part)| 
-            span!(Level::INFO, "square_block").in_scope(|| lhs_part.iter_mut().for_each(|l| self.rns_base.at(i).square(l)))
+            span!(parent: &outer_span, Level::INFO, "square_block").in_scope(|| lhs_part.iter_mut().for_each(|l| self.rns_base.at(i).square(l)))
         );
     }
 
@@ -862,8 +880,9 @@ impl<NumberRing, A> NumberRingQuotient for DoubleRNSRingBase<NumberRing, A>
     fn apply_galois_action(&self, el: &Self::Element, g: &GaloisGroupEl) -> Self::Element {
         assert_eq!(self.element_len(), el.el_wrt_mult_basis.len());
         let mut result = self.zero();
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut result.el_wrt_mult_basis), is_parallel()).zip(self.rns_parts(&el.el_wrt_mult_basis)).enumerate().for_each(|(i, (dst_part, src_part))| 
-            span!(Level::INFO, "galois_block").in_scope(|| self.ring_decompositions[i].permute_galois_action(src_part, dst_part, g))
+            span!(parent: &outer_span, Level::INFO, "galois_block").in_scope(|| self.ring_decompositions[i].permute_galois_action(src_part, dst_part, g))
         );
         return result;
     }
@@ -877,8 +896,9 @@ impl<NumberRing, A> DivisibilityRing for DoubleRNSRingBase<NumberRing, A>
     fn checked_left_div(&self, lhs: &Self::Element, rhs: &Self::Element) -> Option<Self::Element> {
         let failed = AtomicBool::new(false);
         let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
+        let outer_span = Span::current();
         CondIterator::new(self.rns_parts_mut(&mut result), is_parallel()).zip(self.rns_parts(&lhs.el_wrt_mult_basis)).zip(self.rns_parts(&rhs.el_wrt_mult_basis)).enumerate().for_each(|(i, ((dst_part, lhs_part), rhs_part))| 
-            span!(Level::INFO, "div_block").in_scope(|| dst_part.iter_mut().zip(lhs_part).zip(rhs_part).for_each(|((x, l), r)| if let Some(res) = self.rns_base.at(i).checked_div(l, r) {
+            span!(parent: &outer_span, Level::INFO, "div_block").in_scope(|| dst_part.iter_mut().zip(lhs_part).zip(rhs_part).for_each(|((x, l), r)| if let Some(res) = self.rns_base.at(i).checked_div(l, r) {
                 *x = res;
             } else {
                 failed.store(true, SeqCst);

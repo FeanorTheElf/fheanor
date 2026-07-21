@@ -1,11 +1,9 @@
-use std::alloc::Global;
 
 use feanor_math::matrix::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::ring::*;
 use tracing::instrument;
 
-use crate::FheanorAllocator;
 use crate::rns_conv::UsedBaseConversion;
 
 use super::RNSOperation;
@@ -25,10 +23,8 @@ use super::RNSOperation;
 /// 
 /// [`RNSBaseConversion`]: crate::rns_conv::bconv::RNSBaseConversion
 /// 
-pub struct RNSSharedBaseConversion<A = Global>
-    where A: FheanorAllocator
-{
-    conversion: UsedBaseConversion<A>,
+pub struct RNSSharedBaseConversion {
+    conversion: UsedBaseConversion,
     out_moduli: Vec<Zn>
 }
 
@@ -45,27 +41,9 @@ impl RNSSharedBaseConversion {
     /// additional moduli are appended at the end to the shared moduli.
     /// 
     pub fn new(shared_moduli: Vec<Zn>, additional_in_moduli: Vec<Zn>, additional_out_moduli: Vec<Zn>) -> Self {
-        Self::new_with_alloc(shared_moduli, additional_in_moduli, additional_out_moduli, Global)
-    }
-}
-impl<A> RNSSharedBaseConversion<A>
-    where A: FheanorAllocator
-{
-    ///
-    /// Creates a new [`RNSSharedBaseConversion`], where
-    ///  - `a` is the product of `shared_moduli`
-    ///  - `q` is the product of `additional_in_moduli`
-    ///  - `a'` is the product of `additional_out_moduli`
-    /// 
-    /// The input resp. output moduli are ordered as in `shared_moduli`, followed
-    /// by `additional_in_moduli` resp. `additional_out_moduli`. In other words, the
-    /// additional moduli are appended at the end to the shared moduli.
-    /// 
-    #[instrument(skip_all)]
-    pub fn new_with_alloc(shared_moduli: Vec<Zn>, additional_in_moduli: Vec<Zn>, additional_out_moduli: Vec<Zn>, allocator: A) -> Self {
         let in_moduli = shared_moduli.iter().cloned().chain(additional_in_moduli.into_iter()).collect::<Vec<_>>();
         let out_moduli = shared_moduli.into_iter().chain(additional_out_moduli.iter().cloned()).collect::<Vec<_>>();
-        let conversion = UsedBaseConversion::new_with_alloc(in_moduli, additional_out_moduli, allocator);
+        let conversion = UsedBaseConversion::new(in_moduli, additional_out_moduli);
         Self {
             out_moduli: out_moduli,
             conversion: conversion
@@ -77,9 +55,8 @@ impl<A> RNSSharedBaseConversion<A>
     }
 }
 
-impl<A> RNSOperation for RNSSharedBaseConversion<A>
-    where A: FheanorAllocator
-{
+impl RNSOperation for RNSSharedBaseConversion {
+
     type Ring = Zn;
     type RingType = ZnBase;
 
@@ -93,8 +70,8 @@ impl<A> RNSOperation for RNSSharedBaseConversion<A>
 
     #[instrument(skip_all)]
     fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, mut output: SubmatrixMut<V2, El<Self::Ring>>)
-        where V1: AsPointerToSlice<El<Self::Ring>>,
-            V2: AsPointerToSlice<El<Self::Ring>>
+        where V1: Sync + AsPointerToSlice<El<Self::Ring>>,
+            V2: Sync + AsPointerToSlice<El<Self::Ring>>
     {
         assert_eq!(input.col_count(), output.col_count());
         assert_eq!(input.row_count(), self.input_rings().len());
@@ -119,7 +96,7 @@ fn test_rns_shared_base_conversion() {
     feanor_tracing::DelayedLogger::init_test();
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
-    let table = RNSSharedBaseConversion::new_with_alloc(from.clone(), Vec::new(), vec![to[3]], Global);
+    let table = RNSSharedBaseConversion::new(from.clone(), Vec::new(), vec![to[3]]);
 
     for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
         let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();

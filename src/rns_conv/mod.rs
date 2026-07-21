@@ -62,8 +62,8 @@ pub trait RNSOperation {
     /// resp. `self.output_rings().at(i)`.
     ///
     fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<V2, El<Self::Ring>>)
-        where V1: AsPointerToSlice<El<Self::Ring>>,
-            V2: AsPointerToSlice<El<Self::Ring>>;
+        where V1: Sync + AsPointerToSlice<El<Self::Ring>>,
+            V2: Sync + AsPointerToSlice<El<Self::Ring>>;
 }
 
-pub(crate) type UsedBaseConversion<A> = bconv::RNSBaseConversion<A>;
+pub(crate) type UsedBaseConversion = bconv::RNSBaseConversion;
