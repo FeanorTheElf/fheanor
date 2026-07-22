@@ -1,6 +1,6 @@
 use std::alloc::Global;
 use std::marker::PhantomData;
-use std::ops::{Deref, Range};
+use std::ops::Range;
 use std::sync::Arc;
 
 use feanor_math::algorithms::convolution::*;
@@ -467,50 +467,6 @@ impl<NumberRing, A, C> NumberRingRNSQuotient for SingleRNSRingBase<NumberRing, A
             dst.copy_from_slice(src);
         }
         return result;
-    }
-
-    #[instrument(skip_all)]
-    fn two_by_two_convolution(&self, lhs: [&Self::Element; 2], rhs: [&Self::Element; 2]) -> [Self::Element; 3] {
-        enum OwnedOrBorrowed<'a, T> {
-            Owned(T),
-            Borrowed(&'a T)
-        }
-        impl<'a, T> Deref for OwnedOrBorrowed<'a, T> {
-            type Target = T;
-            fn deref(&self) -> &Self::Target {
-                match self {
-                    Self::Owned(x) => x,
-                    Self::Borrowed(x) => *x
-                }
-            }
-        }
-        let lhs0_prepared = self.prepare_multiplicant(lhs[0]);
-        let lhs1_prepared = if std::ptr::eq(lhs[0], lhs[1]) {
-            OwnedOrBorrowed::Borrowed(&lhs0_prepared)
-        } else {
-            OwnedOrBorrowed::Owned(self.prepare_multiplicant(lhs[1]))
-        };
-        let rhs0_prepared = if std::ptr::eq(lhs[0], rhs[0]) {
-            OwnedOrBorrowed::Borrowed(&lhs0_prepared)
-        } else if std::ptr::eq(lhs[1], rhs[0]) {
-            OwnedOrBorrowed::Borrowed(&*lhs1_prepared)
-        } else {
-            OwnedOrBorrowed::Owned(self.prepare_multiplicant(rhs[0]))
-        };
-        let rhs1_prepared = if std::ptr::eq(lhs[0], rhs[1]) {
-            OwnedOrBorrowed::Borrowed(&lhs0_prepared)
-        } else if std::ptr::eq(lhs[1], rhs[1]) {
-            OwnedOrBorrowed::Borrowed(&*lhs1_prepared)
-        } else if std::ptr::eq(rhs[0], rhs[1]) {
-            OwnedOrBorrowed::Borrowed(&*rhs0_prepared)
-        } else {
-            OwnedOrBorrowed::Owned(self.prepare_multiplicant(rhs[1]))
-        };
-        return [
-            self.mul_prepared(lhs[0], Some(&lhs0_prepared), rhs[0], Some(&*rhs0_prepared)),
-            self.inner_product_prepared([(lhs[0], Some(&lhs0_prepared), rhs[1], Some(&*rhs1_prepared)), (lhs[1], Some(&*lhs1_prepared), rhs[0], Some(&*rhs0_prepared))]),
-            self.mul_prepared(lhs[1], Some(&*lhs1_prepared), rhs[1], Some(&*rhs1_prepared))
-        ];
     }
 }
 
@@ -1179,7 +1135,7 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
     for a in &elements {
         for b in &elements {
             for c in &elements {
-                let actual = ring.get_ring().two_by_two_convolution([a, b], [c, &ring.one()]);
+                let actual = ring.get_ring().two_by_two_convolution([ring.clone_el(a), ring.clone_el(b)], [ring.clone_el(c), ring.one()]);
                 assert_el_eq!(&ring, ring.mul_ref(a, c), &actual[0]);
                 assert_el_eq!(&ring, ring.add_ref_snd(ring.mul_ref(b, c), a), &actual[1]);
                 assert_el_eq!(&ring, b, &actual[2]);
@@ -1293,7 +1249,7 @@ fn test_two_by_two_convolution() {
         for lhs1 in [&a, &b, &c, &d] {
             for rhs0 in [&a, &b, &c, &d] {
                 for rhs1 in [&a, &b, &c, &d] {
-                    let [res0, res1, res2] = ring.get_ring().two_by_two_convolution([lhs0, lhs1], [rhs0, rhs1]);
+                    let [res0, res1, res2] = ring.get_ring().two_by_two_convolution([ring.clone_el(lhs0), ring.clone_el(lhs1)], [ring.clone_el(rhs0), ring.clone_el(rhs1)]);
                     assert_el_eq!(&ring, ring.mul_ref(lhs0, rhs0), res0);
                     assert_el_eq!(&ring, ring.add(ring.mul_ref(lhs0, rhs1), ring.mul_ref(lhs1, rhs0)), res1);
                     assert_el_eq!(&ring, ring.mul_ref(lhs1, rhs1), res2);

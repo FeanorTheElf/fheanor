@@ -1,4 +1,6 @@
 
+use std::mem::MaybeUninit;
+
 use feanor_math::matrix::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::ring::*;
@@ -69,27 +71,27 @@ impl RNSOperation for RNSSharedBaseConversion {
     }
 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, mut output: SubmatrixMut<V2, El<Self::Ring>>)
+    fn apply<'a, V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, mut output: SubmatrixMut<'a, V2, MaybeUninit<El<Self::Ring>>>) -> SubmatrixMut<'a, V2, El<Self::Ring>>
         where V1: Sync + AsPointerToSlice<El<Self::Ring>>,
-            V2: Sync + AsPointerToSlice<El<Self::Ring>>
+            V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>
     {
         assert_eq!(input.col_count(), output.col_count());
         assert_eq!(input.row_count(), self.input_rings().len());
         assert_eq!(output.row_count(), self.output_rings().len());
 
-        self.conversion.apply(input, output.reborrow().restrict_rows(self.a_moduli_count()..self.output_rings().len()));
+        _ = self.conversion.apply(input, output.reborrow().restrict_rows(self.a_moduli_count()..self.output_rings().len()));
         for i in 0..self.a_moduli_count() {
             for j in 0..input.col_count() {
-                *output.at_mut(i, j) = self.output_rings()[i].clone_el(input.at(i, j));
+                *output.at_mut(i, j) = MaybeUninit::new(self.output_rings()[i].clone_el(input.at(i, j)));
             }
         }
+        // SAFETY: we just initialized it
+        return unsafe { output.assume_init() };
     }
 }
 
 #[cfg(test)]
 use feanor_math::homomorphism::*;
-#[cfg(test)]
-use feanor_math::seq::*;
 
 #[test]
 fn test_rns_shared_base_conversion() {
@@ -101,15 +103,15 @@ fn test_rns_shared_base_conversion() {
     for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
         let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
         let y = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        table.apply(
+        let actual = table.apply(
             Submatrix::from_1d(&x, 3, 1), 
             SubmatrixMut::from_1d(&mut actual, 4, 1)
         );
         
         for i in 0..y.len() {
-            assert!(to[i].eq_el(&y[i], actual.at(i)));
+            assert!(to[i].eq_el(&y[i], actual.at(i, 0)));
         }
     }
 }

@@ -404,7 +404,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     pub fn clone_el_non_fft(&self, val: &SmallBasisEl<NumberRing, A>) -> SmallBasisEl<NumberRing, A> {
         assert_eq!(self.element_len(), val.el_wrt_small_basis.len());
         let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
-        result.extend((0..self.element_len()).map(|i| self.base_ring().at(i / self.rank()).clone_el(&val.el_wrt_small_basis[i])));
+        result.extend_from_slice(&val.el_wrt_small_basis);
         SmallBasisEl {
             el_wrt_small_basis: result,
             number_ring: PhantomData,
@@ -695,12 +695,58 @@ impl<NumberRing, A> NumberRingRNSQuotient for DoubleRNSRingBase<NumberRing, A>
         self.do_fft(self.from_representation_wrt_small_generating_set_non_fft(data))
     }
 
-    fn two_by_two_convolution(&self, lhs: [&Self::Element; 2], rhs: [&Self::Element; 2]) -> [Self::Element; 3] {
-        [
-            self.mul_ref(&lhs[0], &rhs[0]),
-            self.fma(&lhs[0], &rhs[1], self.mul_ref(&lhs[1], &rhs[0])),
-            self.mul_ref(&lhs[1], &rhs[1])
-        ]
+    #[instrument(skip_all)]
+    fn two_by_two_convolution(&self, lhs: [Self::Element; 2], rhs: [Self::Element; 2]) -> [Self::Element; 3] {
+        assert_eq!(self.element_len(), lhs[0].el_wrt_mult_basis.len());
+        assert_eq!(self.element_len(), lhs[1].el_wrt_mult_basis.len());
+        assert_eq!(self.element_len(), rhs[0].el_wrt_mult_basis.len());
+        assert_eq!(self.element_len(), rhs[1].el_wrt_mult_basis.len());
+
+        let [mut lhs0, mut lhs1] = lhs;
+        let [mut rhs0, rhs1] = rhs;
+
+        let outer_span = Span::current();
+        CondIterator::new(self.rns_parts_mut(&mut lhs0.el_wrt_mult_basis), is_parallel())
+            .zip(self.rns_parts_mut(&mut lhs1.el_wrt_mult_basis))
+            .zip(self.rns_parts_mut(&mut rhs0.el_wrt_mult_basis))
+            .zip(self.rns_parts(&rhs1.el_wrt_mult_basis))
+            .enumerate()
+            .for_each(|(i, (((lhs0, lhs1), rhs0), rhs1))| 
+                span!(parent: &outer_span, Level::INFO, "conv_block").in_scope(|| lhs0.iter_mut().zip(lhs1).zip(rhs0).zip(rhs1).for_each(|(((l0, l1), r0), r1)| {
+                    let Zp = &self.rns_base.at(i);
+                    let l0_val = *l0;
+                    Zp.mul_assign(l0, *r0);
+                    *r0 = Zp.fma(r0, l1, Zp.mul(l0_val, *r1));
+                    Zp.mul_assign(l1, *r1);
+                }))
+        );
+        return [lhs0, rhs0, lhs1];
+    }
+
+    #[instrument(skip_all)]
+    fn two_by_two_convolution_square(&self, lhs: [Self::Element; 2]) -> [Self::Element; 3] {
+        assert_eq!(self.element_len(), lhs[0].el_wrt_mult_basis.len());
+        assert_eq!(self.element_len(), lhs[1].el_wrt_mult_basis.len());
+
+        let mut res = self.zero();
+        let [mut lhs0, mut lhs1] = lhs;
+
+        let outer_span = Span::current();
+        CondIterator::new(self.rns_parts_mut(&mut lhs0.el_wrt_mult_basis), is_parallel())
+            .zip(self.rns_parts_mut(&mut lhs1.el_wrt_mult_basis))
+            .zip(self.rns_parts_mut(&mut res.el_wrt_mult_basis))
+            .enumerate()
+            .for_each(|(i, ((lhs0, lhs1), res))| 
+                span!(parent: &outer_span, Level::INFO, "conv_square_block").in_scope(|| lhs0.iter_mut().zip(lhs1).zip(res).for_each(|((l0, l1), r)| {
+                    let Zp = &self.rns_base.at(i);
+                    let l0_val = *l0;
+                    Zp.mul_assign(l0, l0_val);
+                    *r = Zp.mul(*l1, *l1);
+                    let half_l1 = Zp.mul(l0_val, *l1);
+                    *l1 = Zp.add(half_l1, half_l1);
+                }))
+        );
+        return [lhs0, lhs1, res];
     }
 }
 
@@ -723,7 +769,7 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     fn clone_el(&self, val: &Self::Element) -> Self::Element {
         assert_eq!(self.element_len(), val.el_wrt_mult_basis.len());
         let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
-        result.extend((0..self.element_len()).map(|i| self.base_ring().at(i / self.rank()).clone_el(&val.el_wrt_mult_basis[i])));
+        result.extend_from_slice(&val.el_wrt_mult_basis);
         DoubleRNSEl {
             el_wrt_mult_basis: result,
             number_ring: PhantomData,

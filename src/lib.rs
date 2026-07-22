@@ -21,6 +21,7 @@
 
 use std::alloc::Allocator;
 use std::alloc::Global;
+use std::ptr::Alignment;
 
 use feanor_math::integer::*;
 use feanor_math::primitive_int::*;
@@ -29,6 +30,7 @@ use feanor_math::serialization::SerializableElementRing;
 use feanor_math::algorithms::linsolve::LinSolveRing;
 use feanor_math::rings::zn::{ZnRing, FromModulusCreateableZnRing};
 use feanor_math::ring::*;
+use feanor_mempool::dynsize::DynLayoutMempool;
 
 extern crate feanor_math;
 #[cfg(feature = "use_hexl")]
@@ -56,6 +58,12 @@ fn ring_literal<R>(ring: R, data: &[i32]) -> El<R>
 fn is_parallel() -> bool {
     cfg!(feature = "parallel")
 }
+
+#[repr(align(64))]
+#[allow(unused)]
+struct HighlyAlignedData([u64; 4]);
+
+static SCRATCH_ALLOCATOR: DynLayoutMempool = DynLayoutMempool::new_in(Alignment::of::<HighlyAlignedData>(), Global);
 
 pub trait FheanorAllocator: Send + Sync + Clone + Allocator {}
 

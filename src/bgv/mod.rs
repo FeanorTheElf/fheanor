@@ -808,11 +808,11 @@ pub trait BGVInstantiation {
     /// For more details, see [`BGVInstantiation::key_switch()`].
     /// 
     #[instrument(skip_all)]
-    fn hom_mul(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, lhs: &Ciphertext<Self>, rhs: &Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
+    fn hom_mul(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&lhs.implicit_scale));
         assert!(P.base_ring().is_unit(&rhs.implicit_scale));
 
-        let [res0, res1, res2] = C.get_ring().two_by_two_convolution([&lhs.c0, &lhs.c1], [&rhs.c0, &rhs.c1]);
+        let [res0, res1, res2] = C.get_ring().two_by_two_convolution([lhs.c0, lhs.c1], [rhs.c0, rhs.c1]);
         
         let mut result = Self::key_switch(P, C, C_special, Ciphertext {
             c0: res0,
@@ -838,8 +838,19 @@ pub trait BGVInstantiation {
     /// For more details, see [`BGVInstantiation::key_switch()`].
     /// 
     #[instrument(skip_all)]
-    fn hom_square(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, val: &Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
-        Self::hom_mul(P, C, C_special, val, val, rk)
+    fn hom_square(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
+        assert!(P.base_ring().is_unit(&val.implicit_scale));
+
+        let [res0, res1, res2] = C.get_ring().two_by_two_convolution_square([val.c0, val.c1]);
+        
+        let mut result = Self::key_switch(P, C, C_special, Ciphertext {
+            c0: res0,
+            c1: res2,
+            implicit_scale: P.base_ring().pow(val.implicit_scale, 2)
+        }, rk);
+        C.add_assign(&mut result.c1, res1);
+        assert!(P.base_ring().is_unit(&result.implicit_scale));
+        return result;
     }
     
     ///
@@ -993,9 +1004,9 @@ pub trait BGVInstantiation {
             let x_dropped = C_dropped.get_ring().drop_rns_factor_element(Cold.get_ring(), &kept_rns_factors, &x);
             let mut x_dropped_matrix = OwnedMatrix::zero(C_dropped.base_ring().len(), Cold.get_ring().small_generating_set_len(), Cold.base_ring().at(0));
             C_dropped.get_ring().as_representation_wrt_small_generating_set(&x_dropped, x_dropped_matrix.data_mut());
-            let mut delta = OwnedMatrix::zero(Cnew.base_ring().len(), Cnew.get_ring().small_generating_set_len(), Cnew.base_ring().at(0));
-            compute_delta.apply(x_dropped_matrix.data(), delta.data_mut());
-            let delta = Cnew.get_ring().from_representation_wrt_small_generating_set(delta.data());
+            let mut delta = OwnedMatrix::uninit(Cnew.base_ring().len(), Cnew.get_ring().small_generating_set_len());
+            let delta = compute_delta.apply(x_dropped_matrix.data(), delta.data_mut());
+            let delta = Cnew.get_ring().from_representation_wrt_small_generating_set(delta.as_const());
 
             return Cnew.inclusion().mul_ref_snd_map(
                 Cnew.sub(map_kept_factors(x), delta),
@@ -1557,7 +1568,7 @@ fn test_pow2_bgv_mul() {
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = Pow2BGV::hom_mul(&P, &C, &C, &ctxt, &ctxt, &rk);
+    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C, ctxt, &rk);
     let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
     assert_el_eq!(&P, P.int_hom().map(4), result);
 }
@@ -1592,10 +1603,11 @@ fn test_pow2_bgv_hybrid_key_switch() {
     let sk_current = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk_current, 3.2);
-    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, &ctxt, &rk);
+    let original_critical_quantity_size = critical_quantity_size(&ctxt, &sk);
+    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, ctxt, &rk);
     let result = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &result_ctxt), &sk_current);
     assert_el_eq!(&P, P.int_hom().map(4), result);
-    assert!(critical_quantity_size(&result_ctxt, &sk) <= critical_quantity_size(&ctxt, &sk) + 20, "critical quantity size increased too much; {} increased to {}", critical_quantity_size(&ctxt, &sk), critical_quantity_size(&result_ctxt, &sk));
+    assert!(critical_quantity_size(&result_ctxt, &sk) <= original_critical_quantity_size + 20, "critical quantity size increased too much; {} increased to {}", original_critical_quantity_size, critical_quantity_size(&result_ctxt, &sk));
 
     let special_modulus_factors = RNSFactorIndexList::from(vec![0, 1], C_special.base_ring().len());
     let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);
@@ -1604,10 +1616,10 @@ fn test_pow2_bgv_hybrid_key_switch() {
     let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()), 3.2);
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C_special, &mut rng, &input, &sk, 3.2);
-    let first_mul_ctxt = Pow2BGV::hom_square(&P, &C_special, &C_special, &ctxt, &rk);
+    let first_mul_ctxt = Pow2BGV::hom_square(&P, &C_special, &C_special, ctxt, &rk);
     let modswitched_ctxt = Pow2BGV::mod_switch_ct(&P, &C, &C_special, first_mul_ctxt);
     let sk = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
-    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, &modswitched_ctxt, &rk);
+    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, modswitched_ctxt, &rk);
     let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
     assert_el_eq!(&P, P.int_hom().map(16), result);
 }
@@ -1714,8 +1726,8 @@ fn test_pow2_bgv_modulus_switch_rk() {
             &P,
             &C1,
             &C1,
-            &Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt)),
-            &ctxt2,
+            Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt)),
+            ctxt2,
             &new_rk
         );
         let result = Pow2BGV::dec(&P, &C1, result_ctxt, &new_sk);
@@ -1786,7 +1798,7 @@ fn measure_time_pow2_bgv_basic_ops() {
     );
     let ct2 = Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
     let res = log_time("HomMul", |[]| 
-        Pow2BGV::hom_mul(&P, &C, &C, &ct, &ct2, &rk)
+        Pow2BGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &res), &sk));
 
@@ -1841,7 +1853,7 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
     );
     let ct2 = CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
     let res = log_time("HomMul", |[]|
-        CompositeBGV::hom_mul(&P, &C, &C, &ct, &ct2, &rk)
+        CompositeBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &res), &sk));
 
@@ -1896,7 +1908,7 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
     );
     let ct2 = CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
     let res = log_time("HomMul", |[]| 
-        CompositeSingleRNSBGV::hom_mul(&P, &C, &C, &ct, &ct2, &rk)
+        CompositeSingleRNSBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &res), &sk));
 

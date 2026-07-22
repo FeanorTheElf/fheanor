@@ -2,6 +2,7 @@
 #![allow(non_upper_case_globals)]
 
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::ops::Range;
 use std::fmt::Display;
 
@@ -507,7 +508,7 @@ pub trait BFVInstantiation {
         let c10_lifted = lift(&c10);
         let c11_lifted = lift(&c11);
 
-        let [lifted0, lifted1, lifted2] = C_mul.get_ring().two_by_two_convolution([&c00_lifted, &c01_lifted], [&c10_lifted, &c11_lifted]);
+        let [lifted0, lifted1, lifted2] = C_mul.get_ring().two_by_two_convolution([c00_lifted, c01_lifted], [c10_lifted, c11_lifted]);
 
         let mut scale_down = Self::rescale_to_C(P, C, C_mul);
         let res0 = scale_down(&lifted0);
@@ -539,7 +540,7 @@ pub trait BFVInstantiation {
         let c0_lifted = lift(&c0);
         let c1_lifted = lift(&c1);
 
-        let [lifted0, lifted1, lifted2] = C_mul.get_ring().two_by_two_convolution([&c0_lifted, &c1_lifted], [&c0_lifted, &c1_lifted]);
+        let [lifted0, lifted1, lifted2] = C_mul.get_ring().two_by_two_convolution_square([c0_lifted, c1_lifted]);
 
         let mut scale_down = Self::rescale_to_C(P, C, C_mul);
         let res0 = scale_down(&lifted0);
@@ -1250,7 +1251,7 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
         C_mul.base_ring().as_iter().skip(C.base_ring().len()).cloned().collect::<Vec<_>>(),
     );
     let mut tmp_in = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
-    let mut tmp_out = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+    let mut tmp_out = OwnedMatrix::uninit(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len());
 
     #[instrument(skip_all)]
     fn lift_to_Cmul_impl<R, F>(
@@ -1258,7 +1259,7 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
         C_mul: &R, 
         C_delta: &RingValue<R::Type>, 
         tmp_in: &mut OwnedMatrix<El<Zn>>,
-        tmp_out: &mut OwnedMatrix<El<Zn>>,
+        tmp_out: &mut OwnedMatrix<MaybeUninit<El<zn_64::Zn>>>,
         lift: &UsedBaseConversion,
         c: &El<R>,
         prepare_delta: &F
@@ -1268,8 +1269,8 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
             F: Fn(&RingValue<R::Type>, El<R>) -> El<R>
     {
         C.get_ring().as_representation_wrt_small_generating_set(&c, tmp_in.data_mut());
-        lift.apply(tmp_in.data(), tmp_out.data_mut());
-        let delta = prepare_delta(C_delta, C_delta.get_ring().from_representation_wrt_small_generating_set(tmp_out.data()));
+        let tmp_out = lift.apply(tmp_in.data(), tmp_out.data_mut());
+        let delta = prepare_delta(C_delta, C_delta.get_ring().from_representation_wrt_small_generating_set(tmp_out.as_const()));
         return C_mul.add(
             C_mul.get_ring().add_rns_factor_element(C.get_ring(), &RNSFactorIndexList::from(C.base_ring().len()..C_mul.base_ring().len(), C_mul.base_ring().len()), &c),
             C_mul.get_ring().add_rns_factor_element(&C_delta.get_ring(), &RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len()), &delta)
@@ -1323,32 +1324,34 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + BFVInstantiation>(
             (0..C.base_ring().len()).collect(),
         );
         let t_mod_extended = to_extended.output_rings().iter().map(|ring| ring.coerce(ZZ, ZZ.clone_el(P.base_ring().modulus()))).collect::<Vec<_>>();
-        let mut tmp_in_out = OwnedMatrix::from_fn(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), |i, _| C_mul.base_ring().at(i).zero());
-        let mut tmp_extended = OwnedMatrix::from_fn(to_extended.output_rings().len(), C_mul.get_ring().small_generating_set_len(), |i, _| to_extended.output_rings().at(i).zero());
+        let mut tmp_in = OwnedMatrix::from_fn(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), |i, _| C_mul.base_ring().at(i).zero());
+        let mut tmp_out = OwnedMatrix::uninit(C.base_ring().len(), C_mul.get_ring().small_generating_set_len());
+        let mut tmp_extended = OwnedMatrix::uninit(to_extended.output_rings().len(), C_mul.get_ring().small_generating_set_len());
 
         #[instrument(skip_all)]
         fn rescale_to_C_impl_large_t<Inst: ?Sized + BFVInstantiation>(
             C: &CiphertextRing<Inst>, 
             C_mul: &CiphertextRing<Inst>, 
-            tmp_in_out: &mut OwnedMatrix<El<Zn>>,
-            tmp_extended: &mut OwnedMatrix<El<zn_64::Zn>>,
+            tmp_in: &mut OwnedMatrix<El<Zn>>,
+            tmp_out: &mut OwnedMatrix<MaybeUninit<El<Zn>>>,
+            tmp_extended: &mut OwnedMatrix<MaybeUninit<El<zn_64::Zn>>>,
             to_extended: &RNSSharedBaseConversion,
             t_mod_extended: &[El<zn_64::Zn>],
             rescale: &RNSRescalingConversion,
             c: &El<CiphertextRing<Inst>>
         ) -> El<CiphertextRing<Inst>> {
-            C_mul.get_ring().as_representation_wrt_small_generating_set(c, tmp_in_out.data_mut());
-            to_extended.apply(tmp_in_out.data(), tmp_extended.data_mut());
-            for (ring, (row, factor)) in to_extended.output_rings().iter().zip(tmp_extended.data_mut().row_iter().zip(t_mod_extended.iter())) {
+            C_mul.get_ring().as_representation_wrt_small_generating_set(c, tmp_in.data_mut());
+            let mut tmp_extended = to_extended.apply(tmp_in.data(), tmp_extended.data_mut());
+            for (ring, (row, factor)) in to_extended.output_rings().iter().zip(tmp_extended.reborrow().row_iter().zip(t_mod_extended.iter())) {
                 for x in row {
                     ring.mul_assign_ref(x, factor);
                 }
             }
-            let mut tmp = tmp_in_out.data_mut().restrict_rows(0..C.base_ring().len());
-            rescale.apply(tmp_extended.data(), tmp.reborrow());
+            let mut tmp = tmp_out.data_mut();
+            let tmp = rescale.apply(tmp_extended.as_const(), tmp.reborrow());
             return C.get_ring().from_representation_wrt_small_generating_set(tmp.as_const());
         }
-        Box::new(move |c| rescale_to_C_impl_large_t::<Inst>(C, C_mul, &mut tmp_in_out, &mut tmp_extended, &to_extended, &t_mod_extended, &rescale, c))
+        Box::new(move |c| rescale_to_C_impl_large_t::<Inst>(C, C_mul, &mut tmp_in, &mut tmp_out, &mut tmp_extended, &to_extended, &t_mod_extended, &rescale, c))
     }
 }
 
@@ -1458,12 +1461,15 @@ fn test_pow2_huge_t() {
 #[test]
 #[ignore]
 fn measure_time_pow2_bfv_basic_ops() {
-    feanor_tracing::DelayedLogger::init_test();
+    // feanor_tracing::DelayedLogger::init_test();
+    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer, tracing_subscriber::filter::filter_fn(|metadata| ![].contains(&metadata.name())));
+    tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
 
     let mut rng = rand::rng();
     
     let params = Pow2BFV::new(1 << 16);
-    
+
     let P = log_time("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64))
     );
@@ -1499,8 +1505,11 @@ fn measure_time_pow2_bfv_basic_ops() {
         Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2)
     );
     let ct2 = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
+    for _ in 0..10 {
+        _ = Pow2BFV::hom_mul(&P, &C, &C_mul, Pow2BFV::clone_ct(&C, &ct), Pow2BFV::clone_ct(&C, &ct2), &rk);
+    }
     let res = log_time("HomMul", |[]| 
-        Pow2BFV::hom_mul(&P, &C, &C_mul, ct, ct2, &rk)
+        Pow2BFV::hom_mul(&P, &C, &C_mul, Pow2BFV::clone_ct(&C, &ct), Pow2BFV::clone_ct(&C, &ct2), &rk)
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BFV::dec(&P, &C, res, &sk));
 }

@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use feanor_math::matrix::*;
 use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_64::*;
@@ -5,11 +7,18 @@ use feanor_math::integer::*;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::ring::*;
 use feanor_math::seq::*;
+use rayon_cond::CondIterator;
+use tracing::Level;
+use tracing::Span;
 use tracing::instrument;
 
 #[allow(unused)] // this import is used in test or debug_assertion builds
 use feanor_math::homomorphism::*;
+use tracing::span;
 
+use crate::SCRATCH_ALLOCATOR;
+use crate::is_parallel;
+use crate::rns_conv::matmul_kernel::BLOCK;
 use crate::rns_conv::{UsedBaseConversion, RNSOperation};
 use crate::ZZbig;
 
@@ -78,9 +87,9 @@ impl RNSOperation for RNSRescalingConversion {
     }
 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<V2, El<Self::Ring>>)
-            where V1: Sync + AsPointerToSlice<El<Self::Ring>>,
-                V2: Sync + AsPointerToSlice<El<Self::Ring>>
+    fn apply<'a, V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<'a, V2, MaybeUninit<El<Self::Ring>>>) -> SubmatrixMut<'a, V2, El<Self::Ring>>
+        where V1: Sync + AsPointerToSlice<El<Self::Ring>>,
+            V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>
     {
         assert_eq!(input.col_count(), output.col_count());
         #[cfg(debug_assertions)] {
@@ -98,10 +107,9 @@ impl RNSOperation for RNSRescalingConversion {
             }
         }
 
-        let mut tmp = (0..(self.rescaling.output_rings().len() * input.col_count())).map(|idx| self.rescaling.output_rings().at(idx  / input.col_count()).zero()).collect::<Vec<_>>();
-        let mut tmp = SubmatrixMut::from_1d(&mut tmp, self.rescaling.output_rings().len(), input.col_count());
-        self.rescaling.apply(input, tmp.reborrow());
-        self.convert.apply(tmp.as_const(), output);
+        let mut tmp = OwnedMatrix::uninit_in(self.rescaling.output_rings().len(), input.col_count(), &SCRATCH_ALLOCATOR);
+        let tmp = self.rescaling.apply(input, tmp.data_mut());
+        return self.convert.apply(tmp.as_const(), output);
     }
 }
 
@@ -162,6 +170,9 @@ impl RNSOperation for RNSRescalingConversion {
 pub struct RNSRescaling {
     /// the `i`-th element is the position of `in_moduli[i]` in `out_moduli + b_moduli`
     in_moduli_in_out_b_moduli: Vec<usize>,
+    /// indices into `out_moduli` of the `a` moduli, i.e. the output rows that are not
+    /// written when computing `x := el * a mod aq`
+    a_moduli_in_out_moduli: Vec<usize>,
     in_moduli: Vec<Zn>,
     b_to_out_moduli_lift: UsedBaseConversion,
     /// `a` as an element of each modulus of `in_moduli`
@@ -197,10 +208,15 @@ impl RNSRescaling {
             .map(|Zn| int_cast(*Zn.modulus(), ZZbig, Zn.integer_ring())));
         let b = ZZbig.prod(b_moduli.iter().map(|Zn| int_cast(*Zn.modulus(), ZZbig, Zn.integer_ring())));
 
+        let a_moduli_in_out_moduli = (0..out_moduli.len())
+            .filter(|idx| !in_moduli_in_out_b_moduli.iter().any(|hit| hit == idx))
+            .collect();
+
         RNSRescaling {
             a: in_moduli.iter().map(|Zn| Zn.coerce(&ZZbig, ZZbig.clone_el(&a))).collect(),
             b_inv: out_moduli.iter().map(|Zn| Zn.invert(&Zn.coerce(&ZZbig, ZZbig.clone_el(&b))).unwrap()).collect(),
             b_to_out_moduli_lift: UsedBaseConversion::new(b_moduli, out_moduli),
+            a_moduli_in_out_moduli: a_moduli_in_out_moduli,
             in_moduli_in_out_b_moduli: in_moduli_in_out_b_moduli,
             in_moduli: in_moduli,
             a_bigint: a,
@@ -234,9 +250,9 @@ impl RNSOperation for RNSRescaling {
     }
 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<V2, El<Self::Ring>>)
-        where V1: AsPointerToSlice<El<Self::Ring>>,
-            V2: AsPointerToSlice<El<Self::Ring>>
+    fn apply<'a, V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<'a, V2, MaybeUninit<El<Self::Ring>>>) -> SubmatrixMut<'a, V2, El<Self::Ring>>
+        where V1: Sync + AsPointerToSlice<El<Self::Ring>>,
+            V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>
     {
         assert_eq!(input.row_count(), self.input_rings().len());
         assert_eq!(output.row_count(), self.output_rings().len());
@@ -244,45 +260,85 @@ impl RNSOperation for RNSRescaling {
         let col_count = input.col_count();
 
         // Allocate `x_mod_b` and `x_mod_aq_over_b`
-        let mut x_mod_b = Vec::with_capacity(self.b_moduli().len() * col_count);
-        x_mod_b.extend(self.b_moduli().iter().flat_map(|Zn| (0..col_count).map(|_| Zn.zero())));
-        let mut x_mod_b = SubmatrixMut::from_1d(&mut x_mod_b, self.b_moduli().len(), col_count);
+        let mut x_mod_b = OwnedMatrix::uninit_in(self.b_moduli().len(), col_count, &SCRATCH_ALLOCATOR);
+        let mut x_mod_b = x_mod_b.data_mut();
 
         let mut x_mod_aq_over_b = output;
 
-        // Compute `x := el * a mod aq`, store it in `x_mod_b` and `x_mod_aq_over_b`
-        for (i, (Zn, a)) in self.input_rings().iter().zip(self.a.iter()).enumerate() {
-            let target_idx = self.in_moduli_in_out_b_moduli[i];
-            let source = input.row_at(i);
-            let target = if target_idx >= self.output_rings().len() {
-                x_mod_b.row_mut_at(target_idx - self.output_rings().len())
-            } else {
-                x_mod_aq_over_b.row_mut_at(target_idx)
-            };
-            for j in 0..col_count {
-                *target.at_mut(j) = Zn.mul_ref(source.at(j), a);
-            }
+        let mut tasks = Vec::with_capacity(col_count.div_ceil(BLOCK));
+        let mut x_mod_b_current = x_mod_b.reborrow();
+        let mut x_mod_aq_over_b_current = x_mod_aq_over_b.reborrow();
+        while x_mod_aq_over_b_current.col_count() > BLOCK {
+            let fst_col_count = x_mod_b_current.col_count();
+            let (fst_part, fst_rest) = x_mod_b_current.split_cols(0..BLOCK, BLOCK..fst_col_count);
+            let (snd_part, snd_rest) = x_mod_aq_over_b_current.split_cols(0..BLOCK, BLOCK..fst_col_count);
+            tasks.push((fst_part, snd_part));
+            x_mod_b_current = fst_rest;
+            x_mod_aq_over_b_current = snd_rest;
         }
+        tasks.push((x_mod_b_current, x_mod_aq_over_b_current));
+        
+        // Compute `x := el * a mod aq`, store it in `x_mod_b` and `x_mod_aq_over_b`
+        let outer_span = Span::current();
+        CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(j_base, (mut x_mod_b, mut x_mod_aq_over_b))| 
+            span!(parent: &outer_span, Level::INFO, "rescale_stage1_block").in_scope(|| {
+                let col_count = x_mod_b.col_count();
+                for (i, (Zn, a)) in self.input_rings().iter().zip(self.a.iter()).enumerate() {
+                    let target_idx = self.in_moduli_in_out_b_moduli[i];
+                    let source = input.row_at(i);
+                    let target = if target_idx >= self.output_rings().len() {
+                        x_mod_b.row_mut_at(target_idx - self.output_rings().len())
+                    } else {
+                        x_mod_aq_over_b.row_mut_at(target_idx)
+                    };
+                    for j in 0..col_count {
+                        *target.at_mut(j) = MaybeUninit::new(Zn.mul_ref(source.at(j_base * BLOCK + j), a));
+                    }
+                }
+                for &out_idx in self.a_moduli_in_out_moduli.iter() {
+                    let Zn = self.output_rings().at(out_idx);
+                    let target = x_mod_aq_over_b.row_mut_at(out_idx);
+                    for j in 0..col_count {
+                        *target.at_mut(j) = MaybeUninit::new(Zn.zero());
+                    }
+                }
+            })
+        );
+        // SAFETY: we just initialized it
+        let x_mod_b = unsafe { x_mod_b.assume_init() };
+        // SAFETY: we just initialized it
+        let mut x_mod_aq_over_b = unsafe { x_mod_aq_over_b.assume_init() };
 
         // Compute the shortest lift of `x mod b` to `aq/b`; Here we might introduce an error of `+/- b`
         // that will later be rescaled to `+/- 1`.
-        let mut x_mod_b_lift = Vec::with_capacity(self.output_rings().len() * col_count);
-        x_mod_b_lift.extend(self.output_rings().iter().flat_map(|Zn| (0..col_count).map(|_| Zn.zero())));
-        let mut x_mod_b_lift = SubmatrixMut::from_1d(&mut x_mod_b_lift, self.output_rings().len(), col_count);
-        self.b_to_out_moduli_lift.apply(x_mod_b.as_const(), x_mod_b_lift.reborrow());
+        let mut x_mod_b_lift = OwnedMatrix::uninit_in(self.output_rings().len(), col_count, &SCRATCH_ALLOCATOR);
+        let x_mod_b_lift = self.b_to_out_moduli_lift.apply(x_mod_b.as_const(), x_mod_b_lift.data_mut());
 
         // compute the result
-        let mut result = x_mod_aq_over_b;
-        for (i, (Zn, b_inv)) in self.output_rings().iter().zip(self.b_inv.iter()).enumerate() {
-            let result_row = result.row_mut_at(i);
-            let delta_row = x_mod_b_lift.row_at(i);
-            for j in 0..col_count {
-                // Subtract `lift(x mod b) mod aq/b` from `result`
-                let divisble_by_b = Zn.sub_ref(result_row.at(j), delta_row.at(j));
-                // Now `result - lift(x mod b)` is divisibible by b
-                *result_row.at_mut(j) = Zn.mul_ref_snd(divisble_by_b, b_inv);
-            }
+        let mut tasks = Vec::with_capacity(col_count.div_ceil(BLOCK));
+        let mut current_out = x_mod_aq_over_b.reborrow();
+        while current_out.col_count() > BLOCK {
+            let out_col_count = current_out.col_count();
+            let (part, rest) = current_out.split_cols(0..BLOCK, BLOCK..out_col_count);
+            tasks.push(part);
+            current_out = rest;
         }
+        tasks.push(current_out);
+        
+        let outer_span = Span::current();
+        CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(j_base, mut out)| 
+            span!(parent: &outer_span, Level::INFO, "rescale_stage2_block").in_scope(|| {
+                for (i, (Zn, b_inv)) in self.output_rings().iter().zip(self.b_inv.iter()).enumerate() {
+                    for j in 0..out.col_count() {
+                        // Subtract `lift(x mod b) mod aq/b` from `result`
+                        let divisble_by_b = Zn.sub_ref(out.at(i, j), x_mod_b_lift.at(i, j + j_base * BLOCK));
+                        // Now `result - lift(x mod b)` is divisibible by b
+                        *out.at_mut(i, j) = Zn.mul_ref_snd(divisble_by_b, b_inv);
+                    }
+                }
+            })
+        );
+        return x_mod_aq_over_b;
     }
 
 }
@@ -302,15 +358,15 @@ fn test_rescale_partial() {
     for i in -(q/2)..=(q/2) {
         let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
         let expected = to.iter().map(|Zn| Zn.int_hom().map((i as f64 * 257. / 17. / 97.).round() as i32)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        rescaling.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
+        let actual = rescaling.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
 
         for j in 0..expected.len() {
             assert!(
-                to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j))).abs() <= 1,
+                to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0))).abs() <= 1,
                 "Expected {} to be {} +/- 1",
-                to.at(j).format(actual.at(j)),
+                to.at(j).format(actual.at(j, 0)),
                 to.at(j).format(expected.at(j))
             );
         }
@@ -332,15 +388,15 @@ fn test_rescale_larger_unordered() {
     for i in (-(q/2)..=(q/2)).step_by(2907) {
         let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
         let expected = to.iter().map(|Zn| Zn.int_hom().map((i as f64 * 5. / 31. / 29.).round() as i32)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        rescaling.apply(Submatrix::from_1d(&input, 5, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
+        let actual = rescaling.apply(Submatrix::from_1d(&input, 5, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
 
         for j in 0..expected.len() {
             assert!(
-                to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j))).abs() <= 1,
+                to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0))).abs() <= 1,
                 "Expected {} to be {} +/- 1",
-                to.at(j).format(actual.at(j)),
+                to.at(j).format(actual.at(j, 0)),
                 to.at(j).format(expected.at(j))
             );
         }
@@ -362,15 +418,15 @@ fn test_rescale_larger() {
     for i in (-(q/2)..=(q/2)).step_by(2907) {
         let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
         let expected = to.iter().map(|Zn| Zn.int_hom().map((i as f64 * 5. / 31. / 29.).round() as i32)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        rescaling.apply(Submatrix::from_1d(&input, 5, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
+        let actual = rescaling.apply(Submatrix::from_1d(&input, 5, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
 
         for j in 0..expected.len() {
             assert!(
-                to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j))).abs() <= 1,
+                to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0))).abs() <= 1,
                 "Expected {} to be {} +/- 1",
-                to.at(j).format(actual.at(j)),
+                to.at(j).format(actual.at(j, 0)),
                 to.at(j).format(expected.at(j))
             );
         }
@@ -395,9 +451,9 @@ fn test_rescale_convert() {
         // `q/4` is quite large, so group stuff into matrices here
         let input = OwnedMatrix::from_fn(from.len(), 512, |k, j| from.at(k).int_hom().map(i + j as i32));
         let expected = OwnedMatrix::from_fn(to.len(), 512, |k, j| to.at(k).int_hom().map(((i + j as i32) as f64 * 5. / 31. / 29.).round() as i32));
-        let mut actual = OwnedMatrix::from_fn(to.len(), 512, |k, _j| to.at(k).zero());
+        let mut actual = OwnedMatrix::uninit(to.len(), 512);
 
-        rescaling.apply(input.data(), actual.data_mut());
+        let actual = rescaling.apply(input.data(), actual.data_mut());
 
         for k in 0..expected.row_count() {
             for j in 0..expected.col_count() {
@@ -427,15 +483,15 @@ fn test_rescale_small_num() {
     for i in -(q/2)..=(q/2) {
         let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
         let expected = to.iter().map(|Zn| Zn.int_hom().map((i as f64 * 19. * 23. / 17. / 97.).round() as i32)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        rescaling.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
+        let actual = rescaling.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
 
         for j in 0..expected.len() {
             assert!(
-                to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j))).abs() <= 1,
+                to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0))).abs() <= 1,
                 "Expected {} to be {} +/- 1",
-                to.at(j).format(actual.at(j)),
+                to.at(j).format(actual.at(j, 0)),
                 to.at(j).format(expected.at(j))
             );
         }
@@ -458,14 +514,14 @@ fn test_rescale_small() {
     for i in -(q/2)..=(q/2) {
         let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
         let output = to.iter().map(|Zn| Zn.int_hom().map((i as f64 * 29. / q as f64).round() as i32)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        rescaling.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 1, 1));
+        let actual = rescaling.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 1, 1));
 
         let Zk = to.at(0);
-        assert!(Zk.eq_el(output.at(0), actual.at(0)) ||
-            Zk.eq_el(output.at(0), &Zk.add_ref_fst(actual.at(0), Zk.one())) ||
-            Zk.eq_el(output.at(0), &Zk.sub_ref_fst(actual.at(0), Zk.one()))
+        assert!(Zk.eq_el(output.at(0), actual.at(0, 0)) ||
+            Zk.eq_el(output.at(0), &Zk.add_ref_fst(actual.at(0, 0), Zk.one())) ||
+            Zk.eq_el(output.at(0), &Zk.sub_ref_fst(actual.at(0, 0), Zk.one()))
         );
     }
 }

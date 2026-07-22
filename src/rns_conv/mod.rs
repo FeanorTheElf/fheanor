@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use feanor_math::ring::*;
 use feanor_math::rings::zn::{ZnRing, ZnRingStore};
 use feanor_math::matrix::*;
@@ -61,9 +63,9 @@ pub trait RNSOperation {
     /// of `output`. The entries of the `i`-th row are considered to be elements of `self.input_rings().at(i)`
     /// resp. `self.output_rings().at(i)`.
     ///
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<V2, El<Self::Ring>>)
+    fn apply<'a, V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<'a, V2, MaybeUninit<El<Self::Ring>>>) -> SubmatrixMut<'a, V2, El<Self::Ring>>
         where V1: Sync + AsPointerToSlice<El<Self::Ring>>,
-            V2: Sync + AsPointerToSlice<El<Self::Ring>>;
+            V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>;
 }
 
 pub(crate) type UsedBaseConversion = bconv::RNSBaseConversion;

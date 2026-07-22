@@ -763,6 +763,21 @@ impl<NumberRing, A> NumberRingRNSQuotient for ManagedDoubleRNSRingBase<NumberRin
     {
         self.from_small_basis(self.base.from_representation_wrt_small_generating_set_non_fft(data))
     }
+
+    fn two_by_two_convolution(&self, lhs: [Self::Element; 2], rhs: [Self::Element; 2]) -> [Self::Element; 3] {
+        let res = self.base.two_by_two_convolution(
+            lhs.map(|x| self.into_doublerns(x).unwrap_or_else(|| self.base.zero())), 
+            rhs.map(|x| self.into_doublerns(x).unwrap_or_else(|| self.base.zero()))
+        );
+        return res.map(|x| self.from_doublerns(x));
+    }
+
+    fn two_by_two_convolution_square(&self, val: [Self::Element; 2]) -> [Self::Element; 3] {
+        let res = self.base.two_by_two_convolution_square(
+            val.map(|x| self.into_doublerns(x).unwrap_or_else(|| self.base.zero())), 
+        );
+        return res.map(|x| self.from_doublerns(x));
+    }
 }
 
 impl<NumberRing, A> NumberRingQuotient for ManagedDoubleRNSRingBase<NumberRing, A> 

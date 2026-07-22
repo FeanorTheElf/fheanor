@@ -1,5 +1,6 @@
 
 use std::alloc::Global;
+use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
@@ -396,7 +397,7 @@ pub trait CLPXInstantiation {
         let c10_lifted = lift(&c10);
         let c11_lifted = lift(&c11);
 
-        let [mut lifted0, mut lifted1, mut lifted2] = C_mul.get_ring().two_by_two_convolution([&c00_lifted, &c01_lifted], [&c10_lifted, &c11_lifted]);
+        let [mut lifted0, mut lifted1, mut lifted2] = C_mul.get_ring().two_by_two_convolution([c00_lifted, c01_lifted], [c10_lifted, c11_lifted]);
         
         let (t_in_C_mul, t_coeff_inf_norm)  = Self::create_t_in_C_mul(P, C_mul);
         C_mul.mul_assign_ref(&mut lifted0, &t_in_C_mul);
@@ -429,7 +430,7 @@ pub trait CLPXInstantiation {
         let c0_lifted = lift(&c0);
         let c1_lifted = lift(&c1);
 
-        let [mut lifted0, mut lifted1, mut lifted2] = C_mul.get_ring().two_by_two_convolution([&c0_lifted, &c1_lifted], [&c0_lifted, &c1_lifted]);
+        let [mut lifted0, mut lifted1, mut lifted2] = C_mul.get_ring().two_by_two_convolution_square([c0_lifted, c1_lifted]);
 
         let (t_in_C_mul, t_coeff_inf_norm) = Self::create_t_in_C_mul(P, C_mul);
         C_mul.mul_assign_ref(&mut lifted0, &t_in_C_mul);
@@ -696,20 +697,20 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + CLPXInstantiation>(
         (0..C.base_ring().len()).collect()
     );
     let mut tmp_in = OwnedMatrix::from_fn(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), |i, _| C_mul.base_ring().at(i).zero());
-    let mut tmp_out = OwnedMatrix::from_fn(C.base_ring().len(), C.get_ring().small_generating_set_len(), |i, _| C.base_ring().at(i).zero());
+    let mut tmp_out = OwnedMatrix::uninit(C.base_ring().len(), C.get_ring().small_generating_set_len());
     
     #[instrument(skip_all)]
     fn rescale_to_C_impl<Inst: ?Sized + CLPXInstantiation>(
         C: &CiphertextRing<Inst>, 
         C_mul: &CiphertextRing<Inst>, 
         tmp_in: &mut OwnedMatrix<El<Zn>>,
-        tmp_out: &mut OwnedMatrix<El<zn_64::Zn>>,
+        tmp_out: &mut OwnedMatrix<MaybeUninit<El<zn_64::Zn>>>,
         rescale: &RNSRescalingConversion,
         c: &El<CiphertextRing<Inst>>
     ) -> El<CiphertextRing<Inst>> {
         C_mul.get_ring().as_representation_wrt_small_generating_set(c, tmp_in.data_mut());
-        rescale.apply(tmp_in.data(), tmp_out.data_mut());
-        return C.get_ring().from_representation_wrt_small_generating_set(tmp_out.data());
+        let tmp_out = rescale.apply(tmp_in.data(), tmp_out.data_mut());
+        return C.get_ring().from_representation_wrt_small_generating_set(tmp_out.as_const());
     }
     Box::new(move |c| rescale_to_C_impl::<Inst>(C, C_mul, &mut tmp_in, &mut tmp_out, &rescale, c))
 }

@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::homomorphism::*;
 use feanor_math::matrix::*;
@@ -5,13 +7,19 @@ use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::integer::int_cast;
 use feanor_math::ring::*;
-use feanor_math::seq::*;
+use rayon_cond::CondIterator;
+use tracing::Level;
+use tracing::Span;
 use tracing::instrument;
+use tracing::span;
 
+use crate::SCRATCH_ALLOCATOR;
 use crate::ZZi64;
+use crate::is_parallel;
 use crate::rns_conv::UsedBaseConversion;
 use crate::ZZbig;
 use crate::rns_conv::RNSOperation;
+use crate::rns_conv::matmul_kernel::BLOCK;
 
 ///
 /// Computes the base conversion that preserves the congruence modulo some `t` in a certain sense,
@@ -95,9 +103,9 @@ impl RNSOperation for RNSCongruencePreservingBaseConversion {
     }
 
     #[instrument(skip_all)]
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, mut output: SubmatrixMut<V2, El<Self::Ring>>)
+    fn apply<'a, V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, mut output: SubmatrixMut<'a, V2, MaybeUninit<El<Self::Ring>>>) -> SubmatrixMut<'a, V2, El<Self::Ring>>
         where V1: Sync + AsPointerToSlice<El<Self::Ring>>,
-            V2: Sync + AsPointerToSlice<El<Self::Ring>>
+            V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>
     {
         // `input` is ordered as in `b_moduli`
         assert_eq!(input.row_count(), self.input_rings().len());
@@ -106,10 +114,8 @@ impl RNSOperation for RNSCongruencePreservingBaseConversion {
         let Zt = self.t_modulus();
 
         // Compute `lift(x) mod intermediate`
-        let mut x_lift = Vec::with_capacity(self.intermediate_moduli.len() * input.col_count());
-        x_lift.extend((0..(self.intermediate_moduli.len() * input.col_count())).map(|idx| self.intermediate_moduli.at(idx / input.col_count()).zero()));
-        let mut x_lift = SubmatrixMut::from_1d(&mut x_lift, self.intermediate_moduli.len(), input.col_count());
-        self.b_to_intermediate_lift.apply(input, x_lift.reborrow());
+        let mut x_lift = OwnedMatrix::uninit_in(self.intermediate_moduli.len(), input.col_count(), &SCRATCH_ALLOCATOR);
+        let x_lift = self.b_to_intermediate_lift.apply(input, x_lift.data_mut());
 
         // now compute `lift(x_lift b^-1 mod t)`, which we use to take care of the congruence modulo `t` later;
         // because of the helper moduli, this is small enough not to cause any error
@@ -120,37 +126,56 @@ impl RNSOperation for RNSCongruencePreservingBaseConversion {
         }
         let mod_t_correction = x_mod_t;
 
-        // compute the result as `x_mod_q - b * mod_t_correction`
-        for i in 0..self.q_moduli_count {
-            debug_assert!(self.intermediate_moduli[i].get_ring() == self.output_rings()[i].get_ring());
-            let Zp = &self.intermediate_moduli[i];
-            let b_mod_p = self.b_mod_q[i];
-
-            if Zt.modulus() <= Zp.modulus() {
-                let t = *Zt.modulus();
-                let neg_t_Zp = Zp.coerce(&ZZi64, -t);
-                for j in 0..output.col_count() {
-                    let val = Zt.smallest_lift(*mod_t_correction.at(0, j));
-                    let correction = if val < 0 {
-                        Zp.add(Zp.get_ring().from_int_promise_reduced(val + t), neg_t_Zp)
-                    } else {
-                        Zp.get_ring().from_int_promise_reduced(val)
-                    };
-                    *output.at_mut(i, j) = Zp.sub(*x_mod_q.at(i, j), Zp.mul(correction, b_mod_p));
-                }
-            } else {
-                let mod_p = Zp.can_hom(&ZZi64).unwrap();
-                for j in 0..output.col_count() {
-                    let correction = mod_p.map(Zt.smallest_lift(*mod_t_correction.at(0, j)));
-                    *output.at_mut(i, j) = Zp.sub(*x_mod_q.at(i, j), Zp.mul(correction, b_mod_p));
-                }
-            }
+        let mut tasks = Vec::with_capacity(input.col_count().div_ceil(BLOCK));
+        let mut out_current = output.reborrow();
+        while out_current.col_count() > BLOCK {
+            let fst_col_count = out_current.col_count();
+            let (part, rest) = out_current.split_cols(0..BLOCK, BLOCK..fst_col_count);
+            tasks.push(part);
+            out_current = rest;
         }
+        tasks.push(out_current);
+        
+        // compute the result as `x_mod_q - b * mod_t_correction`
+        let outer_span = Span::current();
+        CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(j_base, mut out)| 
+            span!(parent: &outer_span, Level::INFO, "rescale_stage1_block").in_scope(|| {
+                for i in 0..self.q_moduli_count {
+                    debug_assert!(self.intermediate_moduli[i].get_ring() == self.output_rings()[i].get_ring());
+                    let Zp = &self.intermediate_moduli[i];
+                    let b_mod_p = self.b_mod_q[i];
+
+                    if Zt.modulus() <= Zp.modulus() {
+                        let t = *Zt.modulus();
+                        let neg_t_Zp = Zp.coerce(&ZZi64, -t);
+                        for j in 0..out.col_count() {
+                            let val = Zt.smallest_lift(*mod_t_correction.at(0, j + j_base * BLOCK));
+                            let correction = if val < 0 {
+                                Zp.add(Zp.get_ring().from_int_promise_reduced(val + t), neg_t_Zp)
+                            } else {
+                                Zp.get_ring().from_int_promise_reduced(val)
+                            };
+                            *out.at_mut(i, j) = MaybeUninit::new(Zp.sub(*x_mod_q.at(i, j + j_base * BLOCK), Zp.mul(correction, b_mod_p)));
+                        }
+                    } else {
+                        let mod_p = Zp.can_hom(&ZZi64).unwrap();
+                        for j in 0..out.col_count() {
+                            let correction = mod_p.map(Zt.smallest_lift(*mod_t_correction.at(0, j + j_base * BLOCK)));
+                            *out.at_mut(i, j) = MaybeUninit::new(Zp.sub(*x_mod_q.at(i, j + j_base * BLOCK), Zp.mul(correction, b_mod_p)));
+                        }
+                    }
+                }
+            })
+        );
+        // SAFETY: we just initialized it
+        return unsafe { output.assume_init() };
     }
 }
 
 #[cfg(test)]
 use feanor_math::assert_el_eq;
+#[cfg(test)]
+use feanor_math::seq::*;
 
 #[test]
 fn test_congruence_preserving_baseconv_small() {
@@ -181,13 +206,13 @@ fn test_congruence_preserving_baseconv_small() {
 
         let input = from.iter().map(|Zn| Zn.int_hom().map(input)).collect::<Vec<_>>();
         let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        baseconv.apply(Submatrix::from_1d(&input, 1, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
+        let actual = baseconv.apply(Submatrix::from_1d(&input, 1, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
         
         for j in 0..expected.len() {
             // we currently assume no error happens
-            assert_el_eq!(to.at(j), expected.at(j), actual.at(j));
+            assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
         }
     }
 }
@@ -221,13 +246,13 @@ fn test_congruence_preserving_baseconv_two_denominators() {
 
         let input = from.iter().map(|Zn| Zn.int_hom().map(input)).collect::<Vec<_>>();
         let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        baseconv.apply(Submatrix::from_1d(&input, 2, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
+        let actual = baseconv.apply(Submatrix::from_1d(&input, 2, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
         
         for j in 0..expected.len() {
             // we currently assume no error happens
-            assert_el_eq!(to.at(j), expected.at(j), actual.at(j));
+            assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
         }
     }
 }
@@ -261,13 +286,13 @@ fn test_congruence_preserving_baseconv_unordered() {
 
         let input = from.iter().map(|Zn| Zn.int_hom().map(input)).collect::<Vec<_>>();
         let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        baseconv.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
+        let actual = baseconv.apply(Submatrix::from_1d(&input, 3, 1), SubmatrixMut::from_1d(&mut actual, 3, 1));
         
         for j in 0..expected.len() {
             // we currently assume no error happens
-            assert_el_eq!(to.at(j), expected.at(j), actual.at(j));
+            assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
         }
     }
 }

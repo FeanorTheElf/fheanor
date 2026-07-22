@@ -1,6 +1,7 @@
 use std::array::from_fn;
 use std::convert::identity;
 
+use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::BigIntRing;
 use feanor_math::matrix::*;
 use feanor_math::ring::*;
@@ -214,14 +215,30 @@ pub trait NumberRingRNSQuotient: NumberRingQuotient + PreparedMultiplicationRing
     /// faster than the naive way of evaluating this.
     /// 
     #[instrument(skip_all)]
-    fn two_by_two_convolution(&self, lhs: [&Self::Element; 2], rhs: [&Self::Element; 2]) -> [Self::Element; 3] {
-        let lhs_prep: [_; 2] = from_fn(|i| self.prepare_multiplicant(lhs[i]));
-        let rhs_prep: [_; 2] = from_fn(|i| self.prepare_multiplicant(rhs[i]));
+    fn two_by_two_convolution(&self, lhs: [Self::Element; 2], rhs: [Self::Element; 2]) -> [Self::Element; 3] {
+        let lhs_prep: [_; 2] = from_fn(|i| self.prepare_multiplicant(&lhs[i]));
+        let rhs_prep: [_; 2] = from_fn(|i| self.prepare_multiplicant(&rhs[i]));
         [
-            self.mul_prepared(lhs[0], Some(&lhs_prep[0]), rhs[0], Some(&rhs_prep[0])),
-            self.inner_product_prepared([(lhs[0], Some(&lhs_prep[0]), rhs[1], Some(&rhs_prep[1])), (lhs[1], Some(&lhs_prep[1]), rhs[0], Some(&rhs_prep[0]))]),
-            self.mul_prepared(lhs[1], Some(&lhs_prep[1]), rhs[1], Some(&rhs_prep[1]))
+            self.mul_prepared(&lhs[0], Some(&lhs_prep[0]), &rhs[0], Some(&rhs_prep[0])),
+            self.inner_product_prepared([(&lhs[0], Some(&lhs_prep[0]), &rhs[1], Some(&rhs_prep[1])), (&lhs[1], Some(&lhs_prep[1]), &rhs[0], Some(&rhs_prep[0]))]),
+            self.mul_prepared(&lhs[1], Some(&lhs_prep[1]), &rhs[1], Some(&rhs_prep[1]))
         ]
+    }
+
+    ///
+    /// Computes `[val[0] * val[0], 2 * val[0] * val[1], val[1] * val[1]]`, but might be
+    /// faster than the naive way of evaluating this.
+    /// 
+    #[instrument(skip_all)]
+    fn two_by_two_convolution_square(&self, val: [Self::Element; 2]) -> [Self::Element; 3] {
+        let val_prep: [_; 2] = from_fn(|i| self.prepare_multiplicant(&val[i]));
+        let mut result = [
+            self.mul_prepared(&val[0], Some(&val_prep[0]), &val[0], Some(&val_prep[0])),
+            self.mul_prepared(&val[0], Some(&val_prep[0]), &val[1], Some(&val_prep[1])),
+            self.mul_prepared(&val[1], Some(&val_prep[1]), &val[1], Some(&val_prep[1]))
+        ];
+        RingRef::new(self).int_hom().mul_assign_map(&mut result[1], 2);
+        return result;
     }
 }
 
@@ -246,10 +263,8 @@ pub fn perform_rns_op<R, Op>(to: &R, from: &R, el: &R::Element, op: &Op) -> R::E
 
     let mut el_repr = OwnedMatrix::zero(from.base_ring().len(), from.small_generating_set_len(), from.base_ring().at(0));
     from.as_representation_wrt_small_generating_set(el, el_repr.data_mut());
-    let mut res_repr = Vec::with_capacity(el_repr.col_count() * to.base_ring().len());
-    res_repr.resize(el_repr.col_count() * to.base_ring().len(), to.base_ring().at(0).zero());
-    let mut res_repr = SubmatrixMut::from_1d(&mut res_repr, to.base_ring().len(), el_repr.col_count());
-    op.apply(el_repr.data(), res_repr.reborrow());
+    let mut res_repr = OwnedMatrix::uninit(to.base_ring().len(), el_repr.col_count());
+    let res_repr = op.apply(el_repr.data(), res_repr.data_mut());
     return to.from_representation_wrt_small_generating_set(res_repr.as_const());
 }
 

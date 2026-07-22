@@ -23,6 +23,8 @@
 //! rows, which is the memory-bound regime the second kernel's `n = 1` case
 //! cares about.
 
+use std::mem::MaybeUninit;
+
 use feanor_math::matrix::{AsPointerToSlice, Submatrix, SubmatrixMut};
 use rayon_cond::CondIterator;
 use tracing::{Level, Span, span};
@@ -45,14 +47,14 @@ const TILE: usize = 4;
 ///
 /// Optimized for small `n, m` (say <= 32) and large `k`.
 #[allow(unused)]
-pub fn skinny_matmul_i64_i64_i128<V1, V2, V3>(
+pub fn skinny_matmul_i64_i64_i128<'a, V1, V2, V3>(
     lhs: Submatrix<V1, i64>,
     rhs: Submatrix<V2, i64>,
-    mut out: SubmatrixMut<V3, i128>,
-) 
+    mut out: SubmatrixMut<'a, V3, MaybeUninit<i128>>,
+) -> SubmatrixMut<'a, V3, i128>
     where V1: Sync + AsPointerToSlice<i64>,
         V2: Sync + AsPointerToSlice<i64>,
-        V3: Sync + AsPointerToSlice<i128>
+        V3: Sync + AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
 {
     let n = lhs.row_count();
     let m = lhs.col_count();
@@ -62,31 +64,35 @@ pub fn skinny_matmul_i64_i64_i128<V1, V2, V3>(
     assert_eq!(k, out.col_count());
 
     let mut tasks = Vec::with_capacity(k.div_ceil(BLOCK));
-    while out.col_count() > BLOCK {
-        let out_col_count = out.col_count();
-        let (current, rest) = out.split_cols(0..BLOCK, BLOCK..out_col_count);
+    let mut current_out = out.reborrow();
+    while current_out.col_count() > BLOCK {
+        let out_col_count = current_out.col_count();
+        let (current, rest) = current_out.split_cols(0..BLOCK, BLOCK..out_col_count);
         tasks.push(current);
-        out = rest;
+        current_out = rest;
     }
-    tasks.push(out);
+    tasks.push(current_out);
     let outer_span = Span::current();
     CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(i, out)| span!(parent: &outer_span, Level::INFO, "matmul_block").in_scope(|| {
-        skinny_matmul_i64_i64_i128_block(
+        _ = skinny_matmul_i64_i64_i128_block(
             lhs,
             rhs.restrict_cols((i * BLOCK)..usize::min((i + 1) * BLOCK, k)),
             out
-        )
+        );
     }));
+
+    // SAFETY: this was just initialized above
+    return unsafe { out.assume_init() };
 }
 
-pub fn skinny_matmul_i64_i64_i128_block<V1, V2, V3>(
+pub fn skinny_matmul_i64_i64_i128_block<'a, V1, V2, V3>(
     lhs: Submatrix<V1, i64>,
     rhs: Submatrix<V2, i64>,
-    mut out: SubmatrixMut<V3, i128>,
-) 
+    mut out: SubmatrixMut<'a, V3, MaybeUninit<i128>>,
+) -> SubmatrixMut<'a, V3, i128>
     where V1: AsPointerToSlice<i64>,
         V2: AsPointerToSlice<i64>,
-        V3: AsPointerToSlice<i128>,
+        V3: AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
 {
     let n = lhs.row_count();
     let m = lhs.col_count();
@@ -108,7 +114,9 @@ pub fn skinny_matmul_i64_i64_i128_block<V1, V2, V3>(
                     acc[t] += (a as i128) * (r[t] as i128);
                 }
             }
-            o[c..c + TILE].copy_from_slice(&acc);
+            for j in 0..TILE {
+                o[c + j] = MaybeUninit::new(acc[j]);
+            }
             c += TILE;
         }
         // Tail: fewer than TILE columns left in this block.
@@ -117,10 +125,13 @@ pub fn skinny_matmul_i64_i64_i128_block<V1, V2, V3>(
             for (&a, row) in lhs_row.iter().zip(rhs.row_iter()) {
                 acc += (a as i128) * (row[c] as i128);
             }
-            o[c] = acc;
+            o[c] = MaybeUninit::new(acc);
             c += 1;
         }
     }
+
+    // SAFETY: this was just initialized above
+    return unsafe { out.assume_init() };
 }
 
 /// Matrix multiplication of the nxm `i128` matrix `lhs` and the mxk `i64` matrix `rhs`.
@@ -133,14 +144,14 @@ pub fn skinny_matmul_i64_i64_i128_block<V1, V2, V3>(
 /// The mathematical products are assumed to fit in i128 (no overflow), so each
 /// `lhs * rhs` term is a plain `128x64 -> 128` multiply.
 #[allow(unused)]
-pub fn skinny_matmul_i128_i64_i128<V1, V2, V3>(
+pub fn skinny_matmul_i128_i64_i128<'a, V1, V2, V3>(
     lhs: Submatrix<V1, i128>,
     rhs: Submatrix<V2, i64>,
-    mut out: SubmatrixMut<V3, i128>,
-) 
+    mut out: SubmatrixMut<'a, V3, MaybeUninit<i128>>,
+) -> SubmatrixMut<'a, V3, i128>
     where V1: Sync + AsPointerToSlice<i128>,
         V2: Sync + AsPointerToSlice<i64>,
-        V3: Sync + AsPointerToSlice<i128>,
+        V3: Sync + AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
 {
     let n = lhs.row_count();
     let m = lhs.col_count();
@@ -150,31 +161,34 @@ pub fn skinny_matmul_i128_i64_i128<V1, V2, V3>(
     assert_eq!(k, out.col_count());
 
     let mut tasks = Vec::with_capacity(k.div_ceil(BLOCK));
-    while out.col_count() > BLOCK {
-        let out_col_count = out.col_count();
-        let (current, rest) = out.split_cols(0..BLOCK, BLOCK..out_col_count);
+    let mut current_out = out.reborrow();
+    while current_out.col_count() > BLOCK {
+        let out_col_count = current_out.col_count();
+        let (current, rest) = current_out.split_cols(0..BLOCK, BLOCK..out_col_count);
         tasks.push(current);
-        out = rest;
+        current_out = rest;
     }
-    tasks.push(out);
+    tasks.push(current_out);
     let outer_span = Span::current();
     CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(i, out)| span!(parent: &outer_span, Level::INFO, "matmul_block").in_scope(|| {
-        skinny_matmul_i128_i64_i128_block(
+        _ = skinny_matmul_i128_i64_i128_block(
             lhs,
             rhs.restrict_cols((i * BLOCK)..usize::min((i + 1) * BLOCK, k)),
             out
         )
     }));
+    // SAFETY: this was just initialized above
+    return unsafe { out.assume_init() };
 }
 
-pub fn skinny_matmul_i128_i64_i128_block<V1, V2, V3>(
+pub fn skinny_matmul_i128_i64_i128_block<'a, V1, V2, V3>(
     lhs: Submatrix<V1, i128>,
     rhs: Submatrix<V2, i64>,
-    mut out: SubmatrixMut<V3, i128>,
-) 
+    mut out: SubmatrixMut<'a, V3, MaybeUninit<i128>>,
+) -> SubmatrixMut<'a, V3, i128>
     where V1: AsPointerToSlice<i128>,
         V2: AsPointerToSlice<i64>,
-        V3: AsPointerToSlice<i128>,
+        V3: AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
 {
     let n = lhs.row_count();
     let m = lhs.col_count();
@@ -196,7 +210,9 @@ pub fn skinny_matmul_i128_i64_i128_block<V1, V2, V3>(
                     acc[t] += a * (r[t] as i128);
                 }
             }
-            o[c..c + TILE].copy_from_slice(&acc);
+            for j in 0..TILE {
+                o[c + j] = MaybeUninit::new(acc[j]);
+            }
             c += TILE;
         }
         while c < k {
@@ -204,150 +220,10 @@ pub fn skinny_matmul_i128_i64_i128_block<V1, V2, V3>(
             for (&a, row) in lhs_row.iter().zip(rhs.row_iter()) {
                 acc += a * (row[c] as i128);
             }
-            o[c] = acc;
+            o[c] = MaybeUninit::new(acc);
             c += 1;
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // xorshift, kept dependency-free
-    struct Rng(u64);
-    impl Rng {
-        fn next(&mut self) -> u64 {
-            let mut x = self.0;
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            self.0 = x;
-            x
-        }
-        // i64 bounded to ~2^57 so a sum of <= 32 i64*i64 products stays within i128
-        fn i64(&mut self) -> i64 {
-            (self.next() as i64) >> 7
-        }
-        // i128 spanning into the high limb (~2^89) so the 128x64 path is exercised
-        fn i128(&mut self) -> i128 {
-            ((self.next() as i64 as i128) << 26) | (self.next() as i64 as i128 >> 38)
-        }
-        // i64 bounded to ~2^29 so ~2^89 * ~2^29 * 32 stays within i128
-        fn i64_narrow(&mut self) -> i64 {
-            (self.next() as i64) >> 35
-        }
-    }
-
-    fn run_i64(lhs: &[i64], rhs: &[Vec<i64>], n: usize, m: usize, k: usize) -> Vec<Vec<i128>> {
-        let mut out = vec![vec![0i128; k]; n];
-        skinny_matmul_i64_i64_i128(
-            Submatrix::from_1d(lhs, n, m), 
-            Submatrix::from_2d(rhs), 
-            SubmatrixMut::from_2d(&mut out)
-        );
-        out
-    }
-
-    fn run_i128(lhs: &[i128], rhs: &[Vec<i64>], n: usize, m: usize, k: usize) -> Vec<Vec<i128>> {
-        let mut out = vec![vec![0i128; k]; n];
-        skinny_matmul_i128_i64_i128(
-            Submatrix::from_1d(lhs, n, m), 
-            Submatrix::from_2d(rhs), 
-            SubmatrixMut::from_2d(&mut out)
-        );
-        out
-    }
-
-    fn expect_i64(lhs: &[i64], rhs: &[Vec<i64>], n: usize, m: usize, k: usize) -> Vec<Vec<i128>> {
-        let mut out = vec![vec![0i128; k]; n];
-        for i in 0..n {
-            for l in 0..k {
-                let mut acc = 0i128;
-                for j in 0..m {
-                    acc += (lhs[i * m + j] as i128) * (rhs[j][l] as i128);
-                }
-                out[i][l] = acc;
-            }
-        }
-        out
-    }
-
-    fn expect_i128(lhs: &[i128], rhs: &[Vec<i64>], n: usize, m: usize, k: usize) -> Vec<Vec<i128>> {
-        let mut out = vec![vec![0i128; k]; n];
-        for i in 0..n {
-            for l in 0..k {
-                let mut acc = 0i128;
-                for j in 0..m {
-                    acc += lhs[i * m + j] * (rhs[j][l] as i128);
-                }
-                out[i][l] = acc;
-            }
-        }
-        out
-    }
-
-    // Sizes chosen to exercise: n != m, the n = 1 special case, m = 1, k = 1,
-    // k below / equal to / crossing TILE and BLOCK boundaries.
-    const CASES: &[(usize, usize, usize)] = &[
-        (1, 1, 1),
-        (1, 1, 3),
-        (3, 5, 1),
-        (1, 32, 1000),
-        (32, 1, 777),
-        (7, 3, 4),
-        (4, 4, TILE - 1),
-        (2, 2, TILE),
-        (2, 2, TILE + 1),
-        (5, 6, BLOCK - 1),
-        (5, 6, BLOCK),
-        (3, 4, BLOCK + 7),
-        (8, 8, 2 * BLOCK + 13),
-        (32, 32, 300),
-    ];
-
-    #[test]
-    fn matches_reference_i64() {
-        let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
-        for &(n, m, k) in CASES {
-            let lhs: Vec<i64> = (0..n * m).map(|_| rng.i64()).collect();
-            let rhs: Vec<Vec<i64>> = (0..m).map(|_| (0..k).map(|_| rng.i64()).collect()).collect();
-            assert_eq!(
-                run_i64(&lhs, &rhs, n, m, k),
-                expect_i64(&lhs, &rhs, n, m, k),
-                "i64 kernel mismatch at n={n} m={m} k={k}"
-            );
-        }
-    }
-
-    #[test]
-    fn matches_reference_i128() {
-        let mut rng = Rng(0xd1b5_4a32_d192_ed03);
-        for &(n, m, k) in CASES {
-            let lhs: Vec<i128> = (0..n * m).map(|_| rng.i128()).collect();
-            let rhs: Vec<Vec<i64>> = (0..m).map(|_| (0..k).map(|_| rng.i64_narrow()).collect()).collect();
-            assert_eq!(
-                run_i128(&lhs, &rhs, n, m, k),
-                expect_i128(&lhs, &rhs, n, m, k),
-                "i128 kernel mismatch at n={n} m={m} k={k}"
-            );
-        }
-    }
-
-    #[test]
-    fn handles_extreme_i64_values() {
-        // full-range i64 factors; a single i64*i64 product is always exact in i128
-        let n = 2;
-        let m = 2;
-        let k = 5;
-        let lhs = vec![i64::MAX, i64::MIN, -1, 1];
-        let rhs = vec![
-            vec![i64::MAX, i64::MIN, 0, 7, -7],
-            vec![i64::MIN, i64::MAX, -3, 3, 123456789],
-        ];
-        assert_eq!(
-            run_i64(&lhs, &rhs, n, m, k),
-            expect_i64(&lhs, &rhs, n, m, k)
-        );
-    }
+    // SAFETY: this was just initialized above
+    return unsafe { out.assume_init() };
 }

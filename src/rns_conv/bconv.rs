@@ -13,8 +13,10 @@ use tracing::Span;
 use tracing::instrument;
 use tracing::span;
 
+use std::mem::MaybeUninit;
 use std::slice::from_ref;
 
+use crate::SCRATCH_ALLOCATOR;
 use crate::is_parallel;
 use crate::rns_conv::matmul_kernel::BLOCK;
 use crate::rns_conv::matmul_kernel::skinny_matmul_i64_i64_i128_block;
@@ -60,8 +62,7 @@ struct GeneralRNSMatrixBaseConversion {
     Q_over_q_downscaled: Vec<i128>,
     log2_gamma: usize,
     /// `Q mod q'` for every RNS factor q' of Q' (ordered as `to_summands`)
-    Q_mod_q: Vec<ZnEl>
-
+    Q_mod_q: Vec<ZnEl>,
 }
 
 struct SingleInRNSMatrixBaseConversion {
@@ -137,20 +138,20 @@ impl GeneralRNSMatrixBaseConversion {
             Q_mod_q: (0..out_rings.len()).map(|i| out_rings.at(i).coerce(&ZZbig, ZZbig.clone_el(&Q))).collect(),
             log2_gamma: log2_gamma,
             from_moduli: in_rings,
-            to_moduli: out_rings
+            to_moduli: out_rings,
         }
     }
 
-    fn stage1<V1, V2, V3>(
+    fn stage1<'a, 'b, 'c, V1, V2, V3>(
         &self,
         input: Submatrix<V1, ZnEl>,
-        mut lifts: SubmatrixMut<V2, i64>,
-        mut out: SubmatrixMut<V3, i128>,
-        mut correction: &mut [i128]
-    ) 
+        mut lifts: SubmatrixMut<'a, V2, MaybeUninit<i64>>,
+        mut out: SubmatrixMut<'b, V3, MaybeUninit<i128>>,
+        correction: &'c mut [MaybeUninit<i128>]
+    ) -> (SubmatrixMut<'b, V3, i128>, &'c mut [i128])
         where V1: Sync + AsPointerToSlice<ZnEl>,
-            V2: Sync + AsPointerToSlice<i64>,
-            V3: Sync + AsPointerToSlice<i128>
+            V2: Sync + AsPointerToSlice<i64> + AsPointerToSlice<MaybeUninit<i64>>,
+            V3: Sync + AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>
     {
         let in_len = lifts.row_count();
         assert_eq!(in_len, input.row_count());
@@ -158,26 +159,32 @@ impl GeneralRNSMatrixBaseConversion {
         assert_eq!(col_count, out.col_count());
 
         let mut tasks = Vec::with_capacity(col_count.div_ceil(BLOCK));
-        while out.col_count() > BLOCK {
-            let out_col_count = out.col_count();
-            let (out_part, out_rest) = out.split_cols(0..BLOCK, BLOCK..out_col_count);
-            let (lifts_part, lifts_rest) = lifts.split_cols(0..BLOCK, BLOCK..out_col_count);
-            let (correction_part, correction_rest) = correction.split_at_mut(BLOCK);
+        let mut current_lifts = lifts.reborrow();
+        let mut current_out = out.reborrow();
+        let mut current_correction = &mut *correction;
+        while current_out.col_count() > BLOCK {
+            let out_col_count = current_out.col_count();
+            let (out_part, out_rest) = current_out.split_cols(0..BLOCK, BLOCK..out_col_count);
+            let (lifts_part, lifts_rest) = current_lifts.split_cols(0..BLOCK, BLOCK..out_col_count);
+            let (correction_part, correction_rest) = current_correction.split_at_mut(BLOCK);
             tasks.push((lifts_part, out_part, correction_part));
-            out = out_rest;
-            lifts = lifts_rest;
-            correction = correction_rest;
+            current_out = out_rest;
+            current_lifts = lifts_rest;
+            current_correction = correction_rest;
         }
-        tasks.push((lifts, out, correction));
+        tasks.push((current_lifts, current_out, current_correction));
 
         let outer_span = Span::current();
         CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(j_base, (mut lifts, out, correction))| span!(parent: &outer_span, Level::INFO, "bconv_stage1_block").in_scope(|| {
             for i in 0..in_len {
                 for j in 0..lifts.col_count() {
-                    *lifts.at_mut(i, j) = self.from_moduli[i].any_lift(self.from_moduli[i].mul_ref(input.at(i, j + j_base * BLOCK), self.q_over_Q.at(i)));
-                    debug_assert!(*lifts.at(i, 0) >= 0 && *lifts.at(i, 0) as i128 <= ZN_ANY_LIFT_FACTOR as i128 * *self.from_moduli[i].modulus() as i128);
+                    let new_val = self.from_moduli[i].any_lift(self.from_moduli[i].mul_ref(input.at(i, j + j_base * BLOCK), self.q_over_Q.at(i)));
+                    debug_assert!(new_val >= 0 && new_val as i128 <= ZN_ANY_LIFT_FACTOR as i128 * *self.from_moduli[i].modulus() as i128);
+                    *lifts.at_mut(i, j) = MaybeUninit::new(new_val);
                 }
             }
+            // SAFETY: we just initialized it
+            let lifts = unsafe { lifts.assume_init() };
             skinny_matmul_i64_i64_i128_block(
                 self.Q_over_q_mod.data(),
                 lifts.as_const(),
@@ -189,16 +196,18 @@ impl GeneralRNSMatrixBaseConversion {
                 SubmatrixMut::from_1d(correction, 1, lifts.col_count()) 
             );
         }));
+        // SAFETY: we initialized this above
+        return unsafe { (out.assume_init(), correction.assume_init_mut()) };
     }
 
-    fn stage2<V1, V2>(
+    fn stage2<'a, V1, V2>(
         &self,
         correction: &[i128],
         output_unreduced: Submatrix<V1, i128>,
-        mut out: SubmatrixMut<V2, ZnEl>,
-    ) 
+        mut out: SubmatrixMut<'a, V2, MaybeUninit<ZnEl>>,
+    ) -> SubmatrixMut<'a, V2, ZnEl>
         where V1: Sync + AsPointerToSlice<i128>,
-            V2: Sync + AsPointerToSlice<ZnEl>
+            V2: Sync + AsPointerToSlice<ZnEl> + AsPointerToSlice<MaybeUninit<ZnEl>>
     {
         let out_len = output_unreduced.row_count();
         assert_eq!(out_len, out.row_count());
@@ -209,27 +218,29 @@ impl GeneralRNSMatrixBaseConversion {
         let i64_to_homs = (0..self.to_moduli.len()).map(|k| self.to_moduli.at(k).can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
 
         let mut tasks = Vec::with_capacity(col_count.div_ceil(BLOCK));
-        while out.col_count() > BLOCK {
-            let out_col_count = out.col_count();
-            let (current, rest) = out.split_cols(0..BLOCK, BLOCK..out_col_count);
+        let mut current_out = out.reborrow();
+        while current_out.col_count() > BLOCK {
+            let out_col_count = current_out.col_count();
+            let (current, rest) = current_out.split_cols(0..BLOCK, BLOCK..out_col_count);
             tasks.push(current);
-            out = rest;
+            current_out = rest;
         }
-        tasks.push(out);
+        tasks.push(current_out);
 
         let outer_span = Span::current();
         CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(j_base, mut out)| span!(parent: &outer_span, Level::INFO, "bconv_stage2_block").in_scope(|| {
             for j in 0..out.col_count() {
                 let correction = i64::try_from((correction.at(j_base * BLOCK + j) + half) >> &self.log2_gamma).unwrap();
                 for i in 0..out_len {
-                    *out.at_mut(i, j) = self.to_moduli[i].sub(
+                    *out.at_mut(i, j) = MaybeUninit::new(self.to_moduli[i].sub(
                         i128_to_homs.at(i).map_ref(output_unreduced.at(i, j + j_base * BLOCK)), 
                         self.to_moduli[i].mul_ref_snd(i64_to_homs[i].map(correction), &self.Q_mod_q[i])
-                    );
+                    ));
                 }
             }
         }));
-        
+        // SAFETY: we just initialized it
+        return unsafe { out.assume_init() };
     }
 
     ///
@@ -243,9 +254,9 @@ impl GeneralRNSMatrixBaseConversion {
     /// then the result is guaranteed to be exact.
     /// 
     #[instrument(skip_all)]
-    fn convert_base<V1, V2>(&self, input: Submatrix<V1, El<Zn>>, output: SubmatrixMut<V2, El<Zn>>)
+    fn convert_base<'a, V1, V2>(&self, input: Submatrix<V1, El<Zn>>, output: SubmatrixMut<'a, V2, MaybeUninit<El<Zn>>>) -> SubmatrixMut<'a, V2, El<Zn>>
         where V1: Sync + AsPointerToSlice<El<Zn>>,
-            V2: Sync + AsPointerToSlice<El<Zn>>
+            V2: Sync + AsPointerToSlice<El<Zn>> + AsPointerToSlice<MaybeUninit<El<Zn>>>
     {
         assert_eq!(input.row_count(), self.from_moduli.len());
         assert_eq!(output.row_count(), self.to_moduli.len());
@@ -254,51 +265,54 @@ impl GeneralRNSMatrixBaseConversion {
         let in_len = input.row_count();
         let out_len = output.row_count();
         let col_count = input.col_count();
-        let mut lifts = OwnedMatrix::zero(in_len, col_count, ZZi64);
-        let mut output_unreduced = OwnedMatrix::zero(out_len, col_count, ZZi128);
-        let mut corrections: Vec<i128> = (0..col_count).map(|_| 0).collect();
+        let mut lifts = OwnedMatrix::uninit_in(in_len, col_count, &SCRATCH_ALLOCATOR);
+        let mut output_unreduced = OwnedMatrix::uninit_in(out_len, col_count, &SCRATCH_ALLOCATOR);
+        let mut corrections = Vec::with_capacity_in(col_count, &SCRATCH_ALLOCATOR);
+        corrections.resize_with(col_count, MaybeUninit::uninit);
 
-        self.stage1(input, lifts.data_mut(), output_unreduced.data_mut(), &mut corrections);
+        let (output_unreduced, corrections) = self.stage1(input, lifts.data_mut(), output_unreduced.data_mut(), &mut corrections);
 
-        self.stage2(&corrections, output_unreduced.data(), output);
+        return self.stage2(&corrections, output_unreduced.as_const(), output);
     }
 }
 
 impl SingleInRNSMatrixBaseConversion {
 
     #[instrument(skip_all)]
-    fn convert_base<V1, V2>(&self, input: Submatrix<V1, El<Zn>>, mut output: SubmatrixMut<V2, El<Zn>>)
-        where V1: AsPointerToSlice<El<Zn>>,
-            V2: AsPointerToSlice<El<Zn>>
+    fn convert_base<'a, V1, V2>(&self, input: Submatrix<V1, El<Zn>>, mut out: SubmatrixMut<'a, V2, MaybeUninit<El<Zn>>>) -> SubmatrixMut<'a, V2, El<Zn>>
+        where V1: Sync + AsPointerToSlice<El<Zn>>,
+            V2: Sync + AsPointerToSlice<El<Zn>> + AsPointerToSlice<MaybeUninit<El<Zn>>>
     {
         assert_eq!(input.row_count(), 1);
-        assert_eq!(output.row_count(), self.to_moduli.len());
-        assert_eq!(input.col_count(), output.col_count());
+        assert_eq!(out.row_count(), self.to_moduli.len());
+        assert_eq!(input.col_count(), out.col_count());
 
-        let mut lifts = Vec::with_capacity(output.col_count());
+        let mut lifts = Vec::with_capacity(out.col_count());
         lifts.extend(input.row_at(0).iter().map(|x| self.from_modulus.smallest_lift(*x)));
 
-        for i in 0..output.row_count() {
+        for i in 0..out.row_count() {
             let Zp = &self.to_moduli[i];
             if self.from_modulus.modulus() <= Zp.modulus() {
                 let from_modulus = *self.from_modulus.modulus();
                 let neg_from_modulus_Zp = Zp.coerce(&ZZi64, -from_modulus);
-                for j in 0..output.col_count() {
+                for j in 0..out.col_count() {
                     let val = lifts[j];
-                    *output.at_mut(i, j) = if val < 0 {
+                    *out.at_mut(i, j) = MaybeUninit::new(if val < 0 {
                         Zp.add(Zp.get_ring().from_int_promise_reduced(val + from_modulus), neg_from_modulus_Zp)
                     } else {
                         Zp.get_ring().from_int_promise_reduced(val)
-                    }
+                    });
                 }
             } else {
                 let mod_p = Zp.can_hom(&ZZi64).unwrap();
-                for j in 0..output.col_count() {
+                for j in 0..out.col_count() {
                     let val = lifts[j];
-                    *output.at_mut(i, j) = mod_p.map(val);
+                    *out.at_mut(i, j) = MaybeUninit::new(mod_p.map(val));
                 }
             }
         }
+        // SAFETY: we just initialized it
+        return unsafe { out.assume_init() };
     }
 }
 
@@ -322,9 +336,9 @@ impl RNSOperation for RNSBaseConversion {
         }
     }
 
-    fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<V2, El<Self::Ring>>)
+    fn apply<'a, V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, output: SubmatrixMut<'a, V2, MaybeUninit<El<Self::Ring>>>) -> SubmatrixMut<'a, V2, El<Self::Ring>>
         where V1: Sync + AsPointerToSlice<El<Self::Ring>>,
-            V2: Sync + AsPointerToSlice<El<Self::Ring>>
+            V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>
     {
         match &self.0 {
             RNSMatrixBaseConversionEnum::General(rns_conv) => rns_conv.convert_base(input, output),
@@ -345,7 +359,9 @@ use feanor_math::rings::finite::FiniteRingStore;
 use feanor_math::primitive_int::StaticRing;
 
 #[cfg(test)]
-fn check_almost_exact_result(to: &[Zn], k: i32, q: i32, actual: &[ZnEl], expected: &[ZnEl]) {
+fn check_almost_exact_result<V>(to: &[Zn], k: i32, q: i32, actual: Column<V, ZnEl>, expected: &[ZnEl])
+    where V: AsPointerToSlice<ZnEl>
+{
     for j in 0..to.len() {
         assert!(
             to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), actual.at(j))) || 
@@ -367,16 +383,15 @@ fn test_empty_rns_base_conversion() {
     let to = vec![Zn::new(17), Zn::new(257)];
 
     let table = RNSBaseConversion::new(from.clone(), to.clone());
+    let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-    let mut actual = to.iter().map(|Zn| Zn.one()).collect::<Vec<_>>();
-    table.apply(Submatrix::from_1d(&[], from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+    let actual = table.apply(Submatrix::from_1d(&[], from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
     for j in 0..to.len() {
-        assert_el_eq!(to.at(j), to.at(j).zero(), actual.at(j));
+        assert_el_eq!(to.at(j), to.at(j).zero(), actual.at(j, 0));
     }
 
     let from = vec![Zn::new(17), Zn::new(257)];
     let to = vec![];
-
     let table = RNSBaseConversion::new(from.clone(), to.clone());
 
     let input = from.iter().map(|Zn| Zn.one()).collect::<Vec<_>>();
@@ -395,22 +410,22 @@ fn test_rns_base_conversion() {
     for k in (-q/2)..=(q/2) {
         let input = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
         let expected = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+        let actual = table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
 
-        check_almost_exact_result(&to, k, q, &actual, &expected);
+        check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
     }
     
     for k in -(q/4)..=(q/4) {
         let input = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
         let expected = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+        let actual = table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
 
         for j in 0..to.len() {
-            assert_el_eq!(to.at(j), expected.at(j), actual.at(j));
+            assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
         }
     }
 }
@@ -426,11 +441,11 @@ fn test_rns_base_conversion_both_unordered() {
     for k in -(q/2)..=(q/2) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+        let actual = table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
 
-        check_almost_exact_result(&to, k, q, &actual, &expected);
+        check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
     }
 }
 
@@ -446,11 +461,11 @@ fn test_rns_base_conversion_small() {
     for k in -(q/2)..=(q/2) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+        let actual = table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
 
-        check_almost_exact_result(&to, k, q, &actual, &expected);
+        check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
     }
 }
 
@@ -466,12 +481,12 @@ fn test_rns_base_conversion_not_coprime() {
     for k in -(q/4)..=(q/4) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+        let actual = table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
 
         for i in 0..to.len() {
-            assert_el_eq!(to[i], expected[i], actual.at(i));
+            assert_el_eq!(to[i], expected[i], actual.at(i, 0));
         }
     }
 }
@@ -488,12 +503,12 @@ fn test_rns_base_conversion_not_coprime_from_unordered() {
     for k in -(q/4)..=(q/4) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+        let actual = table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
 
         for i in 0..to.len() {
-            assert_el_eq!(to[i], expected[i], actual.at(i));
+            assert_el_eq!(to[i], expected[i], actual.at(i, 0));
         }
     }
 }
@@ -510,12 +525,12 @@ fn test_rns_base_conversion_coprime() {
     for k in -(q/4)..=(q/4) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+        let actual = table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
 
         for i in 0..to.len() {
-            assert_el_eq!(to[i], expected[i], actual.at(i));
+            assert_el_eq!(to[i], expected[i], actual.at(i, 0));
         }
     }
 }
@@ -534,7 +549,7 @@ fn bench_rns_base_conversion(bencher: &mut Bencher) {
     let mut rng = oorandom::Rand64::new(1);
     let mut in_data = (0..(in_moduli_count * cols)).map(|idx| in_moduli[idx / cols].zero()).collect::<Vec<_>>();
     let mut in_matrix = SubmatrixMut::from_1d(&mut in_data, in_moduli_count, cols);
-    let mut out_data = (0..(out_moduli_count * cols)).map(|idx| out_moduli[idx / cols].zero()).collect::<Vec<_>>();
+    let mut out_data = (0..(out_moduli_count * cols)).map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
     let mut out_matrix = SubmatrixMut::from_1d(&mut out_data, out_moduli_count, cols);
 
     bencher.iter(|| {
@@ -543,10 +558,10 @@ fn bench_rns_base_conversion(bencher: &mut Bencher) {
                 *in_matrix.at_mut(i, j) = in_moduli[i].random_element(|| rng.rand_u64());
             }
         }
-        conv.apply(in_matrix.as_const(), out_matrix.reborrow());
+        let result = conv.apply(in_matrix.as_const(), out_matrix.reborrow());
         for i in 0..out_moduli_count {
             for j in 0..cols {
-                std::hint::black_box(out_matrix.at(i, j));
+                std::hint::black_box(result.at(i, j));
             }
         }
     });
@@ -604,16 +619,16 @@ fn test_base_conversion_large() {
 
     let input = (0..in_len).map(|i| conversion.input_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();
     let expected = (0..(primes.len() - in_len)).map(|i| conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();
-    let mut output = (0..(primes.len() - in_len)).map(|i| conversion.output_rings().at(i).zero()).collect::<Vec<_>>();
-    conversion.apply(Submatrix::from_1d(&input, in_len, 1), SubmatrixMut::from_1d(&mut output, primes.len() - in_len, 1));
+    let mut output = (0..(primes.len() - in_len)).map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+    let output = conversion.apply(Submatrix::from_1d(&input, in_len, 1), SubmatrixMut::from_1d(&mut output, primes.len() - in_len, 1));
 
     for j in 0..to.len() {
         assert!(
-            to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), output.at(j))) || 
-                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), output.at(j)), &to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod))) ||
-                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), output.at(j)), &to.at(j).negate(to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod)))),
+            to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), output.at(j, 0))) || 
+                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), output.at(j, 0)), &to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod))) ||
+                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), output.at(j, 0)), &to.at(j).negate(to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod)))),
             "Expected {} to be {} +/- {}",
-            to.at(j).format(output.at(j)),
+            to.at(j).format(output.at(j, 0)),
             to.at(j).format(expected.at(j)),
             ZZbig.format(&from_prod)
         );

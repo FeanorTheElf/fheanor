@@ -108,7 +108,7 @@ impl<NumberRing, A> RNSGadgetProductLhsOperand<DoubleRNSRingBase<NumberRing, A>>
     /// 
     pub fn from_double_rns_ring_with(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: &RNSGadgetVectorDigitIndices) -> Self {
         assert!(digits.iter().all(|digit| digit.end > digit.start));
-        let decomposition = gadget_decompose_doublerns(ring, el, digits.iter()).into_iter().map(Some).collect();
+        let decomposition = gadget_decompose_doublerns(ring, el, digits.iter(), ring).into_iter().map(Some).collect();
         return Self {
             element_decomposition: decomposition
         };
@@ -296,9 +296,7 @@ fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S)
     ring.as_representation_wrt_small_generating_set(el, el_as_matrix.data_mut());
     
     let homs = out_ring.base_ring().as_iter().map(|Zp| Zp.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
-    let mut current_row = Vec::new();
-    current_row.resize_with(homs.len() * el_as_matrix.col_count(), || out_ring.base_ring().at(0).zero());
-    let mut current_row = SubmatrixMut::from_1d(&mut current_row[..], homs.len(), el_as_matrix.col_count());
+    let mut current_row = OwnedMatrix::uninit(homs.len(), el_as_matrix.col_count());
     
     for digit in digits {
 
@@ -307,9 +305,9 @@ fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S)
             homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>()
         );
         
-        conversion.apply(
+        let current_row = conversion.apply(
             el_as_matrix.data().restrict_rows(digit.clone()),
-            current_row.reborrow()
+            current_row.data_mut()
         );
 
         let decomposition_part = out_ring.from_representation_wrt_small_generating_set(current_row.as_const());
@@ -322,14 +320,17 @@ fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S)
 }
 
 #[instrument(skip_all)]
-fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: I) -> Vec<(<DoubleRNSRingBase<NumberRing, A> as PreparedMultiplicationRing>::PreparedMultiplicant, El<DoubleRNSRing<NumberRing, A>>)>
+fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: I, out_ring: &DoubleRNSRingBase<NumberRing, A>) -> Vec<((), El<DoubleRNSRing<NumberRing, A>>)>
     where NumberRing: NumberRingDescriptor,
         A: FheanorAllocator,
         I: Iterator<Item = Range<usize>>
 {
     let mut result = Vec::new();
-    let el_as_matrix = ring.as_matrix_wrt_small_basis(el);
-    let homs = ring.base_ring().as_iter().map(|Zp| Zp.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
+    let mut el_as_matrix = OwnedMatrix::zero(ring.base_ring().len(), ring.small_generating_set_len(), ring.base_ring().at(0));
+    ring.as_representation_wrt_small_generating_set_non_fft(el, el_as_matrix.data_mut());
+    
+    let homs = out_ring.base_ring().as_iter().map(|Zp| Zp.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
+    let mut current_row = OwnedMatrix::uninit(homs.len(), el_as_matrix.col_count());
     
     for digit in digits {
 
@@ -338,15 +339,14 @@ fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberR
             homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>()
         );
         
-        let mut decomposition_part = ring.zero_non_fft();
-        conversion.apply(
-            el_as_matrix.restrict_rows(digit.clone()),
-            ring.as_matrix_wrt_small_basis_mut(&mut decomposition_part)
+        let current_row = conversion.apply(
+            el_as_matrix.data().restrict_rows(digit.clone()),
+            current_row.data_mut()
         );
 
-        let decomposition_part = ring.do_fft(decomposition_part);
+        let decomposition_part = out_ring.from_representation_wrt_small_generating_set(current_row.as_const());
         result.push((
-            ring.prepare_multiplicant(&decomposition_part),
+            out_ring.prepare_multiplicant(&decomposition_part),
             decomposition_part
         ));
     }
