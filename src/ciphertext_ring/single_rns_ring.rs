@@ -29,7 +29,7 @@ use serde::de::DeserializeSeed;
 use tracing::instrument;
 
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::RNSFactorCongruence;
+use crate::ciphertext_ring::{AsSubmatrix, RNSFactorCongruence};
 use crate::number_ring::galois::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 use crate::{FheanorAllocator, number_ring::*};
@@ -442,16 +442,8 @@ impl<NumberRing, A, C> NumberRingRNSQuotient for SingleRNSRingBase<NumberRing, A
         self.m()
     }
 
-    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, ZnEl>)
-        where V: AsPointerToSlice<ZnEl>
-    {
-        let matrix = self.coefficients_as_matrix(x);
-        assert_eq!(output.row_count(), matrix.row_count());
-        assert_eq!(output.col_count(), matrix.col_count());
-
-        for (dst, src) in output.row_iter().zip(matrix.row_iter()) {
-            dst.copy_from_slice(src);
-        }
+    fn as_representation_wrt_small_generating_set<'a>(&'a self, x: &'a Self::Element) -> impl 'a + AsSubmatrix<El<Zn>> {
+        self.coefficients_as_matrix(x)
     }
 
     #[instrument(skip_all)]

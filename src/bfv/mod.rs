@@ -23,6 +23,7 @@ use feanor_math::group::*;
 use feanor_math::rings::finite::FiniteRingStore;
 use tracing::instrument;
 
+use crate::ciphertext_ring::AsSubmatrix;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::perform_rns_op;
 use crate::ciphertext_ring::NumberRingRNSQuotient;
@@ -1250,7 +1251,6 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
         C.base_ring().as_iter().cloned().collect::<Vec<_>>(),
         C_mul.base_ring().as_iter().skip(C.base_ring().len()).cloned().collect::<Vec<_>>(),
     );
-    let mut tmp_in = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
     let mut tmp_out = OwnedMatrix::uninit(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len());
 
     #[instrument(skip_all)]
@@ -1258,7 +1258,6 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
         C: &R, 
         C_mul: &R, 
         C_delta: &RingValue<R::Type>, 
-        tmp_in: &mut OwnedMatrix<El<Zn>>,
         tmp_out: &mut OwnedMatrix<MaybeUninit<El<zn_64::Zn>>>,
         lift: &UsedBaseConversion,
         c: &El<R>,
@@ -1268,15 +1267,16 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
             R::Type: Sized + NumberRingRNSQuotient,
             F: Fn(&RingValue<R::Type>, El<R>) -> El<R>
     {
-        C.get_ring().as_representation_wrt_small_generating_set(&c, tmp_in.data_mut());
-        let tmp_out = lift.apply(tmp_in.data(), tmp_out.data_mut());
+        let c_repr = C.get_ring().as_representation_wrt_small_generating_set(&c);
+        let c_repr = c_repr.as_submatrix();
+        let tmp_out = lift.apply(c_repr, tmp_out.data_mut());
         let delta = prepare_delta(C_delta, C_delta.get_ring().from_representation_wrt_small_generating_set(tmp_out.as_const()));
         return C_mul.add(
             C_mul.get_ring().add_rns_factor_element(C.get_ring(), &RNSFactorIndexList::from(C.base_ring().len()..C_mul.base_ring().len(), C_mul.base_ring().len()), &c),
             C_mul.get_ring().add_rns_factor_element(&C_delta.get_ring(), &RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len()), &delta)
         );
     }
-    return Box::new(move |c| lift_to_Cmul_impl::<R, F>(C, C_mul, RingValue::from_ref(&C_delta), &mut tmp_in, &mut tmp_out, &lift, c, &prepare_delta));
+    return Box::new(move |c| lift_to_Cmul_impl::<R, F>(C, C_mul, RingValue::from_ref(&C_delta), &mut tmp_out, &lift, c, &prepare_delta));
 }
 
 ///
@@ -1324,7 +1324,6 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + BFVInstantiation>(
             (0..C.base_ring().len()).collect(),
         );
         let t_mod_extended = to_extended.output_rings().iter().map(|ring| ring.coerce(ZZ, ZZ.clone_el(P.base_ring().modulus()))).collect::<Vec<_>>();
-        let mut tmp_in = OwnedMatrix::from_fn(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), |i, _| C_mul.base_ring().at(i).zero());
         let mut tmp_out = OwnedMatrix::uninit(C.base_ring().len(), C_mul.get_ring().small_generating_set_len());
         let mut tmp_extended = OwnedMatrix::uninit(to_extended.output_rings().len(), C_mul.get_ring().small_generating_set_len());
 
@@ -1332,7 +1331,6 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + BFVInstantiation>(
         fn rescale_to_C_impl_large_t<Inst: ?Sized + BFVInstantiation>(
             C: &CiphertextRing<Inst>, 
             C_mul: &CiphertextRing<Inst>, 
-            tmp_in: &mut OwnedMatrix<El<Zn>>,
             tmp_out: &mut OwnedMatrix<MaybeUninit<El<Zn>>>,
             tmp_extended: &mut OwnedMatrix<MaybeUninit<El<zn_64::Zn>>>,
             to_extended: &RNSSharedBaseConversion,
@@ -1340,8 +1338,9 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + BFVInstantiation>(
             rescale: &RNSRescalingConversion,
             c: &El<CiphertextRing<Inst>>
         ) -> El<CiphertextRing<Inst>> {
-            C_mul.get_ring().as_representation_wrt_small_generating_set(c, tmp_in.data_mut());
-            let mut tmp_extended = to_extended.apply(tmp_in.data(), tmp_extended.data_mut());
+            let c_repr = C_mul.get_ring().as_representation_wrt_small_generating_set(c);
+            let c_repr = c_repr.as_submatrix();
+            let mut tmp_extended = to_extended.apply(c_repr, tmp_extended.data_mut());
             for (ring, (row, factor)) in to_extended.output_rings().iter().zip(tmp_extended.reborrow().row_iter().zip(t_mod_extended.iter())) {
                 for x in row {
                     ring.mul_assign_ref(x, factor);
@@ -1351,7 +1350,7 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + BFVInstantiation>(
             let tmp = rescale.apply(tmp_extended.as_const(), tmp.reborrow());
             return C.get_ring().from_representation_wrt_small_generating_set(tmp.as_const());
         }
-        Box::new(move |c| rescale_to_C_impl_large_t::<Inst>(C, C_mul, &mut tmp_in, &mut tmp_out, &mut tmp_extended, &to_extended, &t_mod_extended, &rescale, c))
+        Box::new(move |c| rescale_to_C_impl_large_t::<Inst>(C, C_mul, &mut tmp_out, &mut tmp_extended, &to_extended, &t_mod_extended, &rescale, c))
     }
 }
 

@@ -23,6 +23,7 @@ use tracing::instrument;
 
 use crate::bfv::default_impl_lift_to_Cmul;
 use crate::bfv::force_double_rns_repr;
+use crate::ciphertext_ring::AsSubmatrix;
 use crate::ciphertext_ring::NumberRingRNSQuotient;
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::gadget_product::*;
@@ -696,23 +697,22 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + CLPXInstantiation>(
         Vec::new(), 
         (0..C.base_ring().len()).collect()
     );
-    let mut tmp_in = OwnedMatrix::from_fn(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), |i, _| C_mul.base_ring().at(i).zero());
     let mut tmp_out = OwnedMatrix::uninit(C.base_ring().len(), C.get_ring().small_generating_set_len());
     
     #[instrument(skip_all)]
     fn rescale_to_C_impl<Inst: ?Sized + CLPXInstantiation>(
         C: &CiphertextRing<Inst>, 
         C_mul: &CiphertextRing<Inst>, 
-        tmp_in: &mut OwnedMatrix<El<Zn>>,
         tmp_out: &mut OwnedMatrix<MaybeUninit<El<zn_64::Zn>>>,
         rescale: &RNSRescalingConversion,
         c: &El<CiphertextRing<Inst>>
     ) -> El<CiphertextRing<Inst>> {
-        C_mul.get_ring().as_representation_wrt_small_generating_set(c, tmp_in.data_mut());
-        let tmp_out = rescale.apply(tmp_in.data(), tmp_out.data_mut());
+        let c_repr = C_mul.get_ring().as_representation_wrt_small_generating_set(c);
+        let c_repr = c_repr.as_submatrix();
+        let tmp_out = rescale.apply(c_repr, tmp_out.data_mut());
         return C.get_ring().from_representation_wrt_small_generating_set(tmp_out.as_const());
     }
-    Box::new(move |c| rescale_to_C_impl::<Inst>(C, C_mul, &mut tmp_in, &mut tmp_out, &rescale, c))
+    Box::new(move |c| rescale_to_C_impl::<Inst>(C, C_mul, &mut tmp_out, &rescale, c))
 }
 
 #[cfg(test)]

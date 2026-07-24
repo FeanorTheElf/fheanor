@@ -27,7 +27,7 @@ use crate::boo::Boo;
 use crate::ciphertext_ring::double_rns_managed::ManagedDoubleRNSRingBase;
 use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::{perform_rns_op, single_rns_ring::*, RNSFactorCongruence};
+use crate::ciphertext_ring::{AsSubmatrix, RNSFactorCongruence, perform_rns_op, single_rns_ring::*};
 use crate::ciphertext_ring::NumberRingRNSQuotient;
 use crate::circuit::CircuitEvaluatorCosts;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
@@ -1002,10 +1002,10 @@ pub trait BGVInstantiation {
             Cold.inclusion().mul_assign_ref_map(&mut x, &a);
 
             let x_dropped = C_dropped.get_ring().drop_rns_factor_element(Cold.get_ring(), &kept_rns_factors, &x);
-            let mut x_dropped_matrix = OwnedMatrix::zero(C_dropped.base_ring().len(), Cold.get_ring().small_generating_set_len(), Cold.base_ring().at(0));
-            C_dropped.get_ring().as_representation_wrt_small_generating_set(&x_dropped, x_dropped_matrix.data_mut());
+            let x_dropped_matrix = C_dropped.get_ring().as_representation_wrt_small_generating_set(&x_dropped);
+            let x_dropped_matrix = x_dropped_matrix.as_submatrix();
             let mut delta = OwnedMatrix::uninit(Cnew.base_ring().len(), Cnew.get_ring().small_generating_set_len());
-            let delta = compute_delta.apply(x_dropped_matrix.data(), delta.data_mut());
+            let delta = compute_delta.apply(x_dropped_matrix, delta.data_mut());
             let delta = Cnew.get_ring().from_representation_wrt_small_generating_set(delta.as_const());
 
             return Cnew.inclusion().mul_ref_snd_map(

@@ -11,7 +11,7 @@ use tracing::instrument;
 
 use crate::ciphertext_ring::double_rns_ring::{DoubleRNSRing, DoubleRNSRingBase, SmallBasisEl};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::NumberRingRNSQuotient;
+use crate::ciphertext_ring::{AsSubmatrix, NumberRingRNSQuotient};
 use crate::number_ring::galois::*;
 use crate::number_ring::{NumberRingDescriptor, NumberRingQuotient};
 use crate::prepared_mul::PreparedMultiplicationRing;
@@ -292,8 +292,8 @@ fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S)
         I: Iterator<Item = Range<usize>>
 {
     let mut result = Vec::new();
-    let mut el_as_matrix = OwnedMatrix::zero(ring.base_ring().len(), ring.small_generating_set_len(), ring.base_ring().at(0));
-    ring.as_representation_wrt_small_generating_set(el, el_as_matrix.data_mut());
+    let el_as_matrix = ring.as_representation_wrt_small_generating_set(el);
+    let el_as_matrix = el_as_matrix.as_submatrix();
     
     let homs = out_ring.base_ring().as_iter().map(|Zp| Zp.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
     let mut current_row = OwnedMatrix::uninit(homs.len(), el_as_matrix.col_count());
@@ -306,7 +306,7 @@ fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S)
         );
         
         let current_row = conversion.apply(
-            el_as_matrix.data().restrict_rows(digit.clone()),
+            el_as_matrix.restrict_rows(digit.clone()),
             current_row.data_mut()
         );
 
@@ -326,8 +326,8 @@ fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberR
         I: Iterator<Item = Range<usize>>
 {
     let mut result = Vec::new();
-    let mut el_as_matrix = OwnedMatrix::zero(ring.base_ring().len(), ring.small_generating_set_len(), ring.base_ring().at(0));
-    ring.as_representation_wrt_small_generating_set_non_fft(el, el_as_matrix.data_mut());
+    let el_as_matrix = ring.as_representation_wrt_small_generating_set_non_fft(el);
+    let el_as_matrix = el_as_matrix.as_submatrix();
     
     let homs = out_ring.base_ring().as_iter().map(|Zp| Zp.can_hom(&ZZi64).unwrap()).collect::<Vec<_>>();
     let mut current_row = OwnedMatrix::uninit(homs.len(), el_as_matrix.col_count());
@@ -340,7 +340,7 @@ fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberR
         );
         
         let current_row = conversion.apply(
-            el_as_matrix.data().restrict_rows(digit.clone()),
+            el_as_matrix.restrict_rows(digit.clone()),
             current_row.data_mut()
         );
 

@@ -43,6 +43,7 @@ use tracing::instrument;
 use tracing::span;
 
 use crate::FheanorAllocator;
+use crate::ciphertext_ring::AsSubmatrix;
 use crate::is_parallel;
 use crate::number_ring::galois::*;
 use crate::ciphertext_ring::{add_rns_factor_list_of_congruences, drop_rns_factor_list_of_congruences};
@@ -494,15 +495,8 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     }
 
     #[instrument(skip_all)]
-    pub fn as_representation_wrt_small_generating_set_non_fft<V>(&self, x: &SmallBasisEl<NumberRing, A>, output: SubmatrixMut<V, ZnEl>)
-        where V: AsPointerToSlice<ZnEl>
-    {
-        assert_eq!(output.row_count(), self.base_ring().len());
-        assert_eq!(self.small_generating_set_len(), output.col_count());
-
-        for (dst, src) in output.row_iter().zip(self.as_matrix_wrt_small_basis(&x).row_iter()) {
-            dst.copy_from_slice(src);
-        }
+    pub fn as_representation_wrt_small_generating_set_non_fft<'a>(&'a self, x: &'a SmallBasisEl<NumberRing, A>) -> impl 'a + AsSubmatrix<El<Zn>> {
+        self.as_matrix_wrt_small_basis(x)
     }
 
     #[instrument(skip_all)]
@@ -682,10 +676,9 @@ impl<NumberRing, A> NumberRingRNSQuotient for DoubleRNSRingBase<NumberRing, A>
     }
 
     #[instrument(skip_all)]
-    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, ZnEl>)
-        where V: AsPointerToSlice<ZnEl>
-    {
-        self.as_representation_wrt_small_generating_set_non_fft(&self.undo_fft(self.clone_el(x)), output);
+    fn as_representation_wrt_small_generating_set<'a>(&'a self, x: &'a Self::Element) -> impl 'a + AsSubmatrix<El<Zn>> {
+        let result = self.undo_fft(self.clone_el(x));
+        return OwnedMatrix::new(result.el_wrt_small_basis, self.rank());
     }
 
     #[instrument(skip_all)]

@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde::de::DeserializeSeed;
 use tracing::instrument;
 
+use crate::ciphertext_ring::AsSubmatrix;
 use crate::{FheanorAllocator, ZZbig};
 use crate::boo::{Boo, MappedRwLockReadGuardType};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
@@ -751,10 +752,8 @@ impl<NumberRing, A> NumberRingRNSQuotient for ManagedDoubleRNSRingBase<NumberRin
     }
 
     #[instrument(skip_all)]
-    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, El<Zn>>)
-        where V: AsPointerToSlice<El<Zn>>
-    {
-        self.base.as_representation_wrt_small_generating_set_non_fft(self.to_small_basis(x).unwrap_or(&self.zero), output);
+    fn as_representation_wrt_small_generating_set<'a>(&'a self, x: &'a Self::Element) -> impl 'a + AsSubmatrix<El<Zn>> {
+        self.base.as_representation_wrt_small_generating_set_non_fft(self.to_small_basis(x).unwrap_or(&self.zero))
     }
 
     #[instrument(skip_all)]

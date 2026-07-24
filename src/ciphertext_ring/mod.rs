@@ -1,3 +1,4 @@
+use std::alloc::Allocator;
 use std::array::from_fn;
 use std::convert::identity;
 
@@ -70,6 +71,27 @@ pub fn add_rns_factor_list_of_congruences<'a, R, E>(to: &'a R, from: &'a R, adde
             return Some(RNSFactorCongruence::CongruentTo(from, *from_factor_idx - 1, element));
         }
     })
+}
+
+pub trait AsSubmatrix<T> {
+
+    type V: Sync + AsPointerToSlice<T>;
+
+    fn as_submatrix<'a>(&'a self) -> Submatrix<'a, Self::V, T>;
+}
+
+impl<'a, V: Sync + AsPointerToSlice<T>, T> AsSubmatrix<T> for Submatrix<'a, V, T> {
+    
+    type V = V;
+
+    fn as_submatrix<'b>(&'b self) -> Submatrix<'b, Self::V, T> { *self }
+}
+
+impl<T: Sync, A: Allocator> AsSubmatrix<T> for OwnedMatrix<T, A> {
+    
+    type V = AsFirstElement<T>;
+
+    fn as_submatrix<'b>(&'b self) -> Submatrix<'b, Self::V, T> { self.data() }
 }
 
 ///
@@ -188,8 +210,7 @@ pub trait NumberRingRNSQuotient: NumberRingQuotient + PreparedMultiplicationRing
     /// [`FreeAlgebra::from_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()
     /// [`FreeAlgebra::wrt_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()
     /// 
-    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, ZnEl>)
-        where V: AsPointerToSlice<ZnEl>;
+    fn as_representation_wrt_small_generating_set<'a>(&'a self, x: &'a Self::Element) -> impl 'a + AsSubmatrix<ZnEl>;
 
     ///
     /// Creates a ring element from its underlying representation.
@@ -261,10 +282,11 @@ pub fn perform_rns_op<R, Op>(to: &R, from: &R, el: &R::Element, op: &Op) -> R::E
     assert!(op.input_rings().iter().zip(from.base_ring().as_iter()).all(|(l, r)| l.get_ring() == r.get_ring()));
     assert!(op.output_rings().iter().zip(to.base_ring().as_iter()).all(|(l, r)| l.get_ring() == r.get_ring()));
 
-    let mut el_repr = OwnedMatrix::zero(from.base_ring().len(), from.small_generating_set_len(), from.base_ring().at(0));
-    from.as_representation_wrt_small_generating_set(el, el_repr.data_mut());
+    // let mut el_repr = OwnedMatrix::zero(from.base_ring().len(), from.small_generating_set_len(), from.base_ring().at(0));
+    let el_repr = from.as_representation_wrt_small_generating_set(el);
+    let el_repr = el_repr.as_submatrix();
     let mut res_repr = OwnedMatrix::uninit(to.base_ring().len(), el_repr.col_count());
-    let res_repr = op.apply(el_repr.data(), res_repr.data_mut());
+    let res_repr = op.apply(el_repr, res_repr.data_mut());
     return to.from_representation_wrt_small_generating_set(res_repr.as_const());
 }
 
