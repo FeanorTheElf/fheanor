@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::algorithms::miller_rabin::prev_prime;
 use feanor_math::divisibility::DivisibilityRingStore;
@@ -110,13 +111,15 @@ pub trait BFVInstantiation {
     type NumberRing: NumberRingDescriptor;
 
     /// Type of the ciphertext ring `R/qR`.
-    type CiphertextRing: NumberRingRNSQuotient<NumberRing = Self::NumberRing> + FiniteRing;
+    type CiphertextRing: Sync + Send + NumberRingRNSQuotient<NumberRing = Self::NumberRing> + FiniteRing;
 
     /// Type of the plaintext base ring `Z/tZ`.
     type PlaintextZnRing: NiceZn;
 
     /// Type of the plaintext ring `R/tR`.
-    type PlaintextRing: NumberRingQuotient<BaseRing = RingValue<Self::PlaintextZnRing>, NumberRing = Self::NumberRing>
+    type PlaintextRing: Sync
+        + Send
+        + NumberRingQuotient<BaseRing = RingValue<Self::PlaintextZnRing>, NumberRing = Self::NumberRing>
         + SelfIso;
 
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
@@ -905,7 +908,7 @@ pub trait BFVInstantiation {
     fn lift_to_Cmul<'a>(
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Sync + Send + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |_, delta| delta)
     }
 
@@ -922,7 +925,7 @@ pub trait BFVInstantiation {
         P: &PlaintextRing<Self>,
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Sync + Send + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_rescale_to_C::<Self>(P, C, C_mul)
     }
 }
@@ -1021,7 +1024,7 @@ impl<A: FheanorAllocator, C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Pow2
     fn lift_to_Cmul<'a>(
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Sync + Send + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |C_delta, delta| {
             force_double_rns_repr(C_delta, delta)
         })
@@ -1107,7 +1110,7 @@ impl<A: FheanorAllocator, C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Pow2
     fn lift_to_Cmul<'a>(
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Sync + Send + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |C_delta, delta| {
             force_double_rns_repr(C_delta, delta)
         })
@@ -1205,7 +1208,7 @@ impl<A: FheanorAllocator> BFVInstantiation for CompositeBFV<A> {
     fn lift_to_Cmul<'a>(
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Sync + Send + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |C_delta, delta| {
             force_double_rns_repr(C_delta, delta)
         })
@@ -1275,7 +1278,11 @@ pub const SINGLE_RNS_BFV_COST: CircuitEvaluatorCosts = CircuitEvaluatorCosts {
     cost_hoisted_gal: 0.6,
 };
 
-impl<A: FheanorAllocator, C: FheanorConvolution<Zn>> BFVInstantiation for CompositeSingleRNSBFV<A, C> {
+impl<A: FheanorAllocator, C: FheanorConvolution<Zn>> BFVInstantiation for CompositeSingleRNSBFV<A, C>
+where
+    C: ConvolutionAlgorithm<ZnBase>,
+    <C as ConvolutionAlgorithm<ZnBase>>::PreparedConvolutionOperand: Send + Sync,
+{
     type NumberRing = TensorProductNumberRing;
     type CiphertextRing = SingleRNSRingBase<TensorProductNumberRing, A, C>;
     type PlaintextRing = NumberRingQuotientByIntBase<TensorProductNumberRing, Zn>;
@@ -1380,11 +1387,11 @@ pub fn default_impl_lift_to_Cmul<'a, R, F>(
     C: &'a R,
     C_mul: &'a R,
     prepare_delta: F,
-) -> Box<dyn 'a + for<'b> FnMut(&'b El<R>) -> El<R>>
+) -> Box<dyn 'a + Sync + Send + for<'b> FnMut(&'b El<R>) -> El<R>>
 where
-    R: RingStore,
-    R::Type: Sized + NumberRingRNSQuotient,
-    F: 'a + Fn(&RingValue<R::Type>, El<R>) -> El<R>,
+    R: Send + Sync + RingStore,
+    R::Type: Sized + Send + Sync + NumberRingRNSQuotient,
+    F: 'a + Send + Sync + Fn(&RingValue<R::Type>, El<R>) -> El<R>,
 {
     let C_delta = C_mul.get_ring().drop_rns_factor(&RNSFactorIndexList::from(
         0..C.base_ring().len(),
@@ -1450,7 +1457,7 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + BFVInstantiation>(
     P: &PlaintextRing<Inst>,
     C: &'a CiphertextRing<Inst>,
     C_mul: &'a CiphertextRing<Inst>,
-) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Inst>>) -> El<CiphertextRing<Inst>>> {
+) -> Box<dyn 'a + Sync + Send + for<'b> FnMut(&'b El<CiphertextRing<Inst>>) -> El<CiphertextRing<Inst>>> {
     assert!(C.number_ring() == C_mul.number_ring());
     assert_eq!(
         C.get_ring().small_generating_set_len(),

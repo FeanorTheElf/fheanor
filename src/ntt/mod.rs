@@ -17,7 +17,7 @@ use feanor_math::rings::zn::*;
 
 /// A convolution as in [`ConvolutionAlgorithm`], that can additionally be created for
 /// a given ring and length. This is required in many use cases within Fheanor.
-pub trait FheanorConvolution<R>: ConvolutionAlgorithm<R::Type>
+pub trait FheanorConvolution<R>: Sync + Send + ConvolutionAlgorithm<R::Type>
 where
     R: RingStore,
 {
@@ -28,7 +28,8 @@ where
 
 impl<R> FheanorConvolution<R> for NTTConvolution<R::Type, R::Type, Identity<R>>
 where
-    R: RingStore + Clone,
+    R: Sync + Send + RingStore + Clone,
+    El<R>: Sync + Send,
     R::Type: ZnRing,
 {
     fn new(ring: R, max_log2_len: usize) -> Self {

@@ -79,7 +79,7 @@ const SAMPLE_PRIMES_SIZE: usize = 57;
 /// For a few more details on how this works, see [`crate::examples::clpx_basics`].
 pub trait CLPXInstantiation {
     /// Type of the ciphertext ring `R/qR`.
-    type CiphertextRing: NumberRingRNSQuotient + FiniteRing;
+    type CiphertextRing: Send + Sync + NumberRingRNSQuotient + FiniteRing;
 
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
     /// the plaintext ring is `R/tR`.
@@ -694,7 +694,7 @@ pub trait CLPXInstantiation {
     fn lift_to_Cmul<'a>(
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Send + Sync + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_lift_to_Cmul(C, C_mul, |_, delta| delta)
     }
 
@@ -707,7 +707,7 @@ pub trait CLPXInstantiation {
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
         log2_t_coeff_inf_norm: usize,
-    ) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Send + Sync + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_rescale_to_C::<Self>(C, C_mul, log2_t_coeff_inf_norm)
     }
 }
@@ -749,7 +749,7 @@ impl<A: FheanorAllocator, C: FheanorNegacyclicNTT<Zn>> CLPXInstantiation for Pow
     fn lift_to_Cmul<'a>(
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Send + Sync + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_lift_to_Cmul(C, C_mul, |C_delta, delta| force_double_rns_repr(C_delta, delta))
     }
 }
@@ -791,7 +791,7 @@ impl<A: FheanorAllocator> CLPXInstantiation for CompositeCLPX<A> {
     fn lift_to_Cmul<'a>(
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Send + Sync + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_lift_to_Cmul(C, C_mul, |C_delta, delta| force_double_rns_repr(C_delta, delta))
     }
 }
@@ -806,7 +806,7 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + CLPXInstantiation>(
     C: &'a CiphertextRing<Inst>,
     C_mul: &'a CiphertextRing<Inst>,
     log2_t_coeff_inf_norm: usize,
-) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Inst>>) -> El<CiphertextRing<Inst>>> {
+) -> Box<dyn 'a + Send + Sync + for<'b> FnMut(&'b El<CiphertextRing<Inst>>) -> El<CiphertextRing<Inst>>> {
     assert!(C.number_ring() == C_mul.number_ring());
     assert_eq!(
         C.get_ring().small_generating_set_len(),
