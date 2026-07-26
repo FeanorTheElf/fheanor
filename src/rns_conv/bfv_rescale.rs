@@ -127,6 +127,7 @@ impl RNSOperation for RNSRescalingConversion {
 ///
 /// # Examples
 /// ```rust
+/// # use std::mem::MaybeUninit;
 /// # use feanor_math::ring::*;
 /// # use feanor_math::rings::zn::zn_64::*;
 /// # use feanor_math::assert_el_eq;
@@ -138,10 +139,10 @@ impl RNSOperation for RNSRescalingConversion {
 /// let from_modulus = 17 * 19 * 23;
 /// let to = vec![Zn::new(29)];
 /// let rescaling = RNSRescaling::new(from.clone(), to.clone());
-/// let mut output = [to[0].zero()];
+/// let mut output = [MaybeUninit::uninit()];
 ///
 /// let x = 1000;
-/// rescaling.apply(
+/// let initialized = rescaling.apply(
 ///     Submatrix::from_1d(
 ///         &[
 ///             from[0].int_hom().map(x),
@@ -159,11 +160,12 @@ impl RNSOperation for RNSRescalingConversion {
 ///         // rounded division
 ///         (x * 29 + from_modulus / 2) / from_modulus
 ///     ),
-///     &output[0]
+///     initialized.at(0, 0)
 /// );
 /// ```
 /// We sometimes get an error of `+/- 1`
 /// ```should_panic
+/// # use std::mem::MaybeUninit;
 /// # use feanor_math::ring::*;
 /// # use feanor_math::rings::zn::zn_64::*;
 /// # use feanor_math::assert_el_eq;
@@ -175,9 +177,9 @@ impl RNSOperation for RNSRescalingConversion {
 /// # let from_modulus = 17 * 19 * 23;
 /// # let to = vec![Zn::new(29)];
 /// # let rescaling = RNSRescaling::new(from.clone(), to.clone());
-/// # let mut output = [to[0].zero()];
+/// # let mut output = [MaybeUninit::uninit()];
 /// for x in 1000..2000 {
-///     rescaling.apply(
+///     let initialized = rescaling.apply(
 ///         Submatrix::from_1d(
 ///             &[
 ///                 from[0].int_hom().map(x),
@@ -195,7 +197,7 @@ impl RNSOperation for RNSRescalingConversion {
 ///             // rounded division
 ///             (x * 29 + from_modulus / 2) / from_modulus + 1
 ///         ),
-///         &output[0]
+///         initialized.at(0, 0)
 ///     );
 /// }
 /// ```

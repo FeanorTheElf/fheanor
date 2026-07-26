@@ -378,9 +378,9 @@ fn hom_mul_three_component(
     debug_assert!(lift_to_multiplication_ring_rnsconv.input_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     let lift_to_multiplication_ring = |x: &SmallBasisEl<_, _>| {
-        let mut result = multiplication_ring.get_ring().zero_non_fft();
-        lift_to_multiplication_ring_rnsconv.apply(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), multiplication_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
-        return multiplication_ring.get_ring().do_fft(result);
+        multiplication_ring.get_ring().from_representation_wrt_small_generating_set(|dst|
+            lift_to_multiplication_ring_rnsconv.apply(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), dst)
+        )
     };
 
     let unscaled_result = (
@@ -401,9 +401,9 @@ fn hom_mul_three_component(
     debug_assert!(scale_down_rnsconv.input_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     let scale_down = |x: El<CiphertextRing>| {
-        let mut result = ciphertext_ring.get_ring().zero_non_fft();
-        scale_down_rnsconv.apply(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), ciphertext_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
-        return result;
+        ciphertext_ring.get_ring().from_representation_wrt_small_generating_set_non_fft(|dst|
+            scale_down_rnsconv.apply(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), dst)
+        )
     };
 
     return (
@@ -618,9 +618,9 @@ Finally, let's test this implementation again!
 #     debug_assert!(lift_to_multiplication_ring_rnsconv.input_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     let lift_to_multiplication_ring = |x: &SmallBasisEl<_, _>| {
-#         let mut result = multiplication_ring.get_ring().zero_non_fft();
-#         lift_to_multiplication_ring_rnsconv.apply(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), multiplication_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
-#         return multiplication_ring.get_ring().do_fft(result);
+#         multiplication_ring.get_ring().from_representation_wrt_small_generating_set(|dst|
+#             lift_to_multiplication_ring_rnsconv.apply(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), dst)
+#         )
 #     };
 #     let unscaled_result = (
 #         multiplication_ring.mul(lift_to_multiplication_ring(&c0), lift_to_multiplication_ring(&c0_prime)),
@@ -639,9 +639,9 @@ Finally, let's test this implementation again!
 #     debug_assert!(scale_down_rnsconv.input_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     let scale_down = |x: El<CiphertextRing>| {
-#         let mut result = ciphertext_ring.get_ring().zero_non_fft();
-#         scale_down_rnsconv.apply(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), ciphertext_ring.get_ring().as_matrix_wrt_small_basis_mut(&mut result));
-#         return result;
+#         ciphertext_ring.get_ring().from_representation_wrt_small_generating_set_non_fft(|dst|
+#             scale_down_rnsconv.apply(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), dst)
+#         )
 #     };
 #     return (
 #         scale_down(unscaled_result.0),
