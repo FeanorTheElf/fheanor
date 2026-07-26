@@ -4,15 +4,13 @@
 //! and the number of output rows `n` are small (say `<= 32`) while the row
 //! length `k` is large. They share one layout:
 //!
-//! * The long `k` axis is split into cache blocks of `BLOCK` columns. For a
-//!   fixed block, the corresponding slice of every `rhs` row is reused across
-//!   all `n` output rows, so -- as long as the block stays resident in cache --
-//!   each `rhs` element is fetched from memory once and each `out` element is
-//!   written once, the minimum traffic this product allows.
-//! * Within a block, columns are handled in register tiles of `TILE`. The
-//!   `TILE` i128 accumulators stay in registers across the whole `m`-long
-//!   contraction, so the inner loop is a plain stream of multiply-accumulates
-//!   with no load/store of the accumulators until the tile is finished.
+//! * The long `k` axis is split into cache blocks of `BLOCK` columns. For a fixed block, the
+//!   corresponding slice of every `rhs` row is reused across all `n` output rows, so -- as long as
+//!   the block stays resident in cache -- each `rhs` element is fetched from memory once and each
+//!   `out` element is written once, the minimum traffic this product allows.
+//! * Within a block, columns are handled in register tiles of `TILE`. The `TILE` i128 accumulators
+//!   stay in registers across the whole `m`-long contraction, so the inner loop is a plain stream
+//!   of multiply-accumulates with no load/store of the accumulators until the tile is finished.
 //!
 //! Keeping the accumulators in registers is what makes the widening multiply
 //! fast: `(a as i128) * (b as i128)` with `i64` operands lowers to a single
@@ -52,9 +50,10 @@ pub fn skinny_matmul_i64_i64_i128<'a, V1, V2, V3>(
     rhs: Submatrix<V2, i64>,
     mut out: SubmatrixMut<'a, V3, MaybeUninit<i128>>,
 ) -> SubmatrixMut<'a, V3, i128>
-    where V1: Sync + AsPointerToSlice<i64>,
-        V2: Sync + AsPointerToSlice<i64>,
-        V3: Sync + AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
+where
+    V1: Sync + AsPointerToSlice<i64>,
+    V2: Sync + AsPointerToSlice<i64>,
+    V3: Sync + AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
 {
     let n = lhs.row_count();
     let m = lhs.col_count();
@@ -73,13 +72,17 @@ pub fn skinny_matmul_i64_i64_i128<'a, V1, V2, V3>(
     }
     tasks.push(current_out);
     let outer_span = Span::current();
-    CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(i, out)| span!(parent: &outer_span, Level::INFO, "matmul_block").in_scope(|| {
-        _ = skinny_matmul_i64_i64_i128_block(
-            lhs,
-            rhs.restrict_cols((i * BLOCK)..usize::min((i + 1) * BLOCK, k)),
-            out
-        );
-    }));
+    CondIterator::new(tasks, is_parallel())
+        .enumerate()
+        .for_each(|(i, out)| {
+            span!(parent: &outer_span, Level::INFO, "matmul_block").in_scope(|| {
+                _ = skinny_matmul_i64_i64_i128_block(
+                    lhs,
+                    rhs.restrict_cols((i * BLOCK)..usize::min((i + 1) * BLOCK, k)),
+                    out,
+                );
+            })
+        });
 
     // SAFETY: this was just initialized above
     return unsafe { out.assume_init() };
@@ -90,9 +93,10 @@ pub fn skinny_matmul_i64_i64_i128_block<'a, V1, V2, V3>(
     rhs: Submatrix<V2, i64>,
     mut out: SubmatrixMut<'a, V3, MaybeUninit<i128>>,
 ) -> SubmatrixMut<'a, V3, i128>
-    where V1: AsPointerToSlice<i64>,
-        V2: AsPointerToSlice<i64>,
-        V3: AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
+where
+    V1: AsPointerToSlice<i64>,
+    V2: AsPointerToSlice<i64>,
+    V3: AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
 {
     let n = lhs.row_count();
     let m = lhs.col_count();
@@ -149,9 +153,10 @@ pub fn skinny_matmul_i128_i64_i128<'a, V1, V2, V3>(
     rhs: Submatrix<V2, i64>,
     mut out: SubmatrixMut<'a, V3, MaybeUninit<i128>>,
 ) -> SubmatrixMut<'a, V3, i128>
-    where V1: Sync + AsPointerToSlice<i128>,
-        V2: Sync + AsPointerToSlice<i64>,
-        V3: Sync + AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
+where
+    V1: Sync + AsPointerToSlice<i128>,
+    V2: Sync + AsPointerToSlice<i64>,
+    V3: Sync + AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
 {
     let n = lhs.row_count();
     let m = lhs.col_count();
@@ -170,13 +175,17 @@ pub fn skinny_matmul_i128_i64_i128<'a, V1, V2, V3>(
     }
     tasks.push(current_out);
     let outer_span = Span::current();
-    CondIterator::new(tasks, is_parallel()).enumerate().for_each(|(i, out)| span!(parent: &outer_span, Level::INFO, "matmul_block").in_scope(|| {
-        _ = skinny_matmul_i128_i64_i128_block(
-            lhs,
-            rhs.restrict_cols((i * BLOCK)..usize::min((i + 1) * BLOCK, k)),
-            out
-        )
-    }));
+    CondIterator::new(tasks, is_parallel())
+        .enumerate()
+        .for_each(|(i, out)| {
+            span!(parent: &outer_span, Level::INFO, "matmul_block").in_scope(|| {
+                _ = skinny_matmul_i128_i64_i128_block(
+                    lhs,
+                    rhs.restrict_cols((i * BLOCK)..usize::min((i + 1) * BLOCK, k)),
+                    out,
+                )
+            })
+        });
     // SAFETY: this was just initialized above
     return unsafe { out.assume_init() };
 }
@@ -186,9 +195,10 @@ pub fn skinny_matmul_i128_i64_i128_block<'a, V1, V2, V3>(
     rhs: Submatrix<V2, i64>,
     mut out: SubmatrixMut<'a, V3, MaybeUninit<i128>>,
 ) -> SubmatrixMut<'a, V3, i128>
-    where V1: AsPointerToSlice<i128>,
-        V2: AsPointerToSlice<i64>,
-        V3: AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
+where
+    V1: AsPointerToSlice<i128>,
+    V2: AsPointerToSlice<i64>,
+    V3: AsPointerToSlice<i128> + AsPointerToSlice<MaybeUninit<i128>>,
 {
     let n = lhs.row_count();
     let m = lhs.col_count();

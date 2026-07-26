@@ -1,12 +1,7 @@
-
-use tracing::{Level, span};
-
 use std::fmt::Display;
 use std::fs;
 use std::fs::File;
-use std::io::BufReader;
-use std::io::BufWriter;
-use std::io::Read;
+use std::io::{BufReader, BufWriter, Read};
 use std::marker::PhantomData;
 use std::path::Path;
 
@@ -14,61 +9,63 @@ use feanor_math::integer::*;
 use feanor_math::ring::*;
 use feanor_math::rings::rust_bigint::RustBigint;
 use feanor_math::serialization::*;
-use serde::Deserializer;
-use serde::Serializer;
-use serde::de::DeserializeSeed;
-use serde::{Deserialize, Serialize};
 use feanor_serde::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};
+use serde::de::DeserializeSeed;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use tracing::{Level, span};
 
 use crate::circuit::CircuitEvaluatorCosts;
 use crate::{ZZbig, ZZi64};
 
 pub enum CachedDataKey {
     Integer(String, El<BigIntRing>),
-    String(String)
+    String(String),
 }
 
 impl PartialEq for CachedDataKey {
-
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Integer(s_k, s_v), Self::Integer(o_k, o_v)) => s_k == o_k && ZZbig.eq_el(s_v, o_v),
             (Self::String(s), Self::String(o)) => s == o,
-            _ => false
+            _ => false,
         }
     }
 }
 
 impl Serialize for CachedDataKey {
-
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: serde::Serializer
+    where
+        S: serde::Serializer,
     {
         #[derive(Serialize)]
         #[serde(rename = "KeyedInt", bound = "")]
         struct SerializableKeyedInteger<'a> {
             key: &'a str,
-            value: SerializeWithRing<'a, BigIntRing>
+            value: SerializeWithRing<'a, BigIntRing>,
         }
 
         #[derive(Serialize)]
         #[serde(rename = "Key", bound = "")]
         enum SerializableFilenameKey<'a> {
             Integer(SerializableKeyedInteger<'a>),
-            String(&'a str)
+            String(&'a str),
         }
 
         match self {
-            Self::Integer(key, value) => SerializableFilenameKey::Integer(SerializableKeyedInteger { key: key.as_str(), value: SerializeWithRing::new(value, ZZbig) }),
-            Self::String(val) => SerializableFilenameKey::String(val)
-        }.serialize(serializer)
+            Self::Integer(key, value) => SerializableFilenameKey::Integer(SerializableKeyedInteger {
+                key: key.as_str(),
+                value: SerializeWithRing::new(value, ZZbig),
+            }),
+            Self::String(val) => SerializableFilenameKey::String(val),
+        }
+        .serialize(serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for CachedDataKey {
-
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: serde::Deserializer<'de> 
+    where
+        D: serde::Deserializer<'de>,
     {
         struct DeserializeSeedKeyedInt;
 
@@ -90,31 +87,33 @@ impl<'de> Deserialize<'de> for CachedDataKey {
 
         DeserializeSeedKey.deserialize(deserializer).map(|x| match x {
             Key::Integer(data) => CachedDataKey::Integer(data.0.key, data.0.value),
-            Key::String(data) => CachedDataKey::String(data.0)
+            Key::String(data) => CachedDataKey::String(data.0),
         })
     }
 }
 
 impl Display for CachedDataKey {
-    
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self {
-            CachedDataKey::Integer(key, val) if ZZbig.abs_log2_ceil(val).unwrap_or(0) < 20 => write!(f, "{}{}", key, ZZbig.format(val)),
-            CachedDataKey::Integer(key, val) => write!(f, "{}{}bits", key, ZZbig.abs_log2_ceil(val).unwrap()),
-            CachedDataKey::String(x) => write!(f, "{}", x)
+            CachedDataKey::Integer(key, val) if ZZbig.abs_log2_ceil(val).unwrap_or(0) < 20 => {
+                write!(f, "{}{}", key, ZZbig.format(val))
+            }
+            CachedDataKey::Integer(key, val) => {
+                write!(f, "{}{}bits", key, ZZbig.abs_log2_ceil(val).unwrap())
+            }
+            CachedDataKey::String(x) => write!(f, "{}", x),
         }
     }
 }
 
 impl TryFrom<CachedDataKeyLiteral> for CachedDataKey {
-
     type Error = ();
 
     fn try_from(value: CachedDataKeyLiteral) -> Result<Self, Self::Error> {
         match value {
             CachedDataKeyLiteral::Integer(key, val) => Ok(Self::Integer(key, val)),
             CachedDataKeyLiteral::None => Err(()),
-            CachedDataKeyLiteral::String(key) => Ok(Self::String(key))
+            CachedDataKeyLiteral::String(key) => Ok(Self::String(key)),
         }
     }
 }
@@ -122,39 +121,26 @@ impl TryFrom<CachedDataKeyLiteral> for CachedDataKey {
 pub enum CachedDataKeyLiteral {
     Integer(String, El<BigIntRing>),
     String(String),
-    None
+    None,
 }
 
 impl<'a> From<&'a str> for CachedDataKeyLiteral {
-
-    fn from(value: &'a str) -> Self {
-        Self::String(value.to_owned())
-    }
+    fn from(value: &'a str) -> Self { Self::String(value.to_owned()) }
 }
 
 impl<'a> From<(&'a str, &'a RustBigint)> for CachedDataKeyLiteral {
-
-    fn from(value: (&'a str, &'a RustBigint)) -> Self {
-        Self::Integer(value.0.to_owned(), ZZbig.clone_el(value.1))
-    }
+    fn from(value: (&'a str, &'a RustBigint)) -> Self { Self::Integer(value.0.to_owned(), ZZbig.clone_el(value.1)) }
 }
 
 impl<'a> From<(&'a str, RustBigint)> for CachedDataKeyLiteral {
-
-    fn from(value: (&'a str, RustBigint)) -> Self {
-        Self::Integer(value.0.to_owned(), value.1)
-    }
+    fn from(value: (&'a str, RustBigint)) -> Self { Self::Integer(value.0.to_owned(), value.1) }
 }
 
 impl<'a> From<(&'a str, i64)> for CachedDataKeyLiteral {
-
-    fn from(value: (&'a str, i64)) -> Self {
-        Self::Integer(value.0.to_owned(), int_cast(value.1, ZZbig, ZZi64))
-    }
+    fn from(value: (&'a str, i64)) -> Self { Self::Integer(value.0.to_owned(), int_cast(value.1, ZZbig, ZZi64)) }
 }
 
 impl<'a> From<(&'a str, Option<i64>)> for CachedDataKeyLiteral {
-
     fn from(value: (&'a str, Option<i64>)) -> Self {
         if let Some(val) = value.1 {
             Self::from((value.0, val))
@@ -165,28 +151,18 @@ impl<'a> From<(&'a str, Option<i64>)> for CachedDataKeyLiteral {
 }
 
 impl<'a> From<(&'a str, i32)> for CachedDataKeyLiteral {
-
-    fn from(value: (&'a str, i32)) -> Self {
-        Self::Integer(value.0.to_owned(), int_cast(value.1 as i64, ZZbig, ZZi64))
-    }
+    fn from(value: (&'a str, i32)) -> Self { Self::Integer(value.0.to_owned(), int_cast(value.1 as i64, ZZbig, ZZi64)) }
 }
 
 impl<'a> From<(&'a str, usize)> for CachedDataKeyLiteral {
-
-    fn from(value: (&'a str, usize)) -> Self {
-        Self::from((value.0, TryInto::<i64>::try_into(value.1).unwrap()))
-    }
+    fn from(value: (&'a str, usize)) -> Self { Self::from((value.0, TryInto::<i64>::try_into(value.1).unwrap())) }
 }
 
 impl<'a> From<(&'a str, u64)> for CachedDataKeyLiteral {
-
-    fn from(value: (&'a str, u64)) -> Self {
-        Self::from((value.0, TryInto::<i64>::try_into(value.1).unwrap()))
-    }
+    fn from(value: (&'a str, u64)) -> Self { Self::from((value.0, TryInto::<i64>::try_into(value.1).unwrap())) }
 }
 
 impl<'a> From<(&'a str, &'a CircuitEvaluatorCosts)> for CachedDataKeyLiteral {
-
     fn from(value: (&'a str, &'a CircuitEvaluatorCosts)) -> Self {
         Self::String(format!("{}-{}", value.0, value.1.name))
     }
@@ -200,30 +176,30 @@ macro_rules! filename_keys {
 }
 
 pub trait SerializeDeserializeWith<Data>: Sized {
-
     fn serialize_with_data<S: Serializer>(&self, data: &Data, serializer: S) -> Result<S::Ok, S::Error>;
     fn deserialize_with_data<'de, D: Deserializer<'de>>(data: Data, deserializer: D) -> Result<Self, D::Error>;
 }
 
 pub struct RingElSerializeDeserializeWithRing<R: ?Sized + RingBase + SerializableElementRing> {
     value: R::Element,
-    ring: PhantomData<Box<R>>
+    ring: PhantomData<Box<R>>,
 }
 
 impl<R: ?Sized + RingBase + SerializableElementRing> RingElSerializeDeserializeWithRing<R> {
-
     pub const fn from(value: R::Element) -> Self {
-        Self { value: value, ring: PhantomData }
+        Self {
+            value,
+            ring: PhantomData,
+        }
     }
 
-    pub fn into(self) -> R::Element {
-        self.value
-    }
+    pub fn into(self) -> R::Element { self.value }
 }
 
 impl<R> SerializeDeserializeWith<R> for RingElSerializeDeserializeWithRing<R::Type>
-    where R: RingStore,
-        R::Type: SerializableElementRing
+where
+    R: RingStore,
+    R::Type: SerializableElementRing,
 {
     fn serialize_with_data<S: Serializer>(&self, data: &R, serializer: S) -> Result<S::Ok, S::Error> {
         SerializeWithRing::new(&self.value, data).serialize(serializer)
@@ -236,42 +212,41 @@ impl<R> SerializeDeserializeWith<R> for RingElSerializeDeserializeWithRing<R::Ty
 
 pub struct SerializeSerializableWithData<'a, D, T: SerializeDeserializeWith<D>> {
     data: &'a D,
-    value: &'a T
+    value: &'a T,
 }
 
 impl<'a, D, T: SerializeDeserializeWith<D>> SerializeSerializableWithData<'a, D, T> {
-
-    pub fn new(data: &'a D, value: &'a T) -> Self {
-        Self { data, value }
-    }
+    pub fn new(data: &'a D, value: &'a T) -> Self { Self { data, value } }
 }
 
 impl<'a, D, T: SerializeDeserializeWith<D>> Serialize for SerializeSerializableWithData<'a, D, T> {
-    
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         self.value.serialize_with_data(self.data, serializer)
     }
 }
 pub struct DeserializeSeedDeserializableWithData<D, T: SerializeDeserializeWith<D>> {
     data: D,
-    value: PhantomData<T>
+    value: PhantomData<T>,
 }
 
 impl<'a, D, T: SerializeDeserializeWith<D>> DeserializeSeedDeserializableWithData<D, T> {
-
     pub fn new(data: D) -> Self {
-        Self { data, value: PhantomData }
+        Self {
+            data,
+            value: PhantomData,
+        }
     }
 }
 
 impl<'de, D, T: SerializeDeserializeWith<D>> DeserializeSeed<'de> for DeserializeSeedDeserializableWithData<D, T> {
-        
     type Value = T;
 
     fn deserialize<S>(self, deserializer: S) -> Result<Self::Value, S::Error>
-        where S: Deserializer<'de>
+    where
+        S: Deserializer<'de>,
     {
         T::deserialize_with_data(self.data, deserializer)
     }
@@ -284,31 +259,41 @@ pub enum StoreAs {
     AlwaysJson,
     PostcardIfNotJson,
     JsonIfNotPostcard,
-    AlwaysBoth
+    AlwaysBoth,
 }
 
-// no instrumentation here, since we already create a span inside the function, and don't want to increase the span-tree depth even more
-pub fn create_cached<T, D, F>(data: D, create_fn: F, keys: &[CachedDataKey], dir: Option<&str>, store_format: StoreAs) -> T
-    where T: SerializeDeserializeWith<D>,
-        F: FnOnce() -> T,
-        D: Clone
+// no instrumentation here, since we already create a span inside the function, and don't want to
+// increase the span-tree depth even more
+pub fn create_cached<T, D, F>(
+    data: D,
+    create_fn: F,
+    keys: &[CachedDataKey],
+    dir: Option<&str>,
+    store_format: StoreAs,
+) -> T
+where
+    T: SerializeDeserializeWith<D>,
+    F: FnOnce() -> T,
+    D: Clone,
 {
     #[derive(Serialize)]
     #[serde(rename = "KeyedData", bound = "")]
     struct SerializeKeyedData<'a, T, D>
-        where T: 'a + SerializeDeserializeWith<D>,
-            D: 'a
+    where
+        T: 'a + SerializeDeserializeWith<D>,
+        D: 'a,
     {
         keys: &'a [CachedDataKey],
         data: SerializeSerializableWithData<'a, D, T>,
-        ignore: ()
+        ignore: (),
     }
 
     struct DeserializeSeedKeyedData<T, Data>
-        where T: SerializeDeserializeWith<Data>
+    where
+        T: SerializeDeserializeWith<Data>,
     {
         data: Data,
-        element: PhantomData<T>
+        element: PhantomData<T>,
     }
 
     impl_deserialize_seed_for_dependent_struct! {
@@ -320,7 +305,11 @@ pub fn create_cached<T, D, F>(data: D, create_fn: F, keys: &[CachedDataKey], dir
             Data: Clone
     }
 
-    let identifier_string = keys.iter().map(|key| format!("{}", key)).reduce(|l, r| format!("{}_{}", l, r)).unwrap();
+    let identifier_string = keys
+        .iter()
+        .map(|key| format!("{}", key))
+        .reduce(|l, r| format!("{}_{}", l, r))
+        .unwrap();
     if let Some(dir) = dir {
         let filename_postcard = format!("{}/{}.pcd", dir, identifier_string);
         let filename_json = format!("{}/{}.json", dir, identifier_string);
@@ -335,23 +324,47 @@ pub fn create_cached<T, D, F>(data: D, create_fn: F, keys: &[CachedDataKey], dir
                 drop(file);
                 let reader = postcard::de_flavors::Slice::new(&content);
                 let mut deserializer = postcard::Deserializer::from_flavor(reader);
-                let result = DeserializeSeedKeyedData { data: data.clone(), element: PhantomData }.deserialize(&mut deserializer).map_err(|e| e.to_string()).unwrap();
-                (check_result(result), store_format == StoreAs::AlwaysJson || store_format == StoreAs::AlwaysBoth, false)
+                let result = DeserializeSeedKeyedData {
+                    data: data.clone(),
+                    element: PhantomData,
+                }
+                .deserialize(&mut deserializer)
+                .map_err(|e| e.to_string())
+                .unwrap();
+                (
+                    check_result(result),
+                    store_format == StoreAs::AlwaysJson || store_format == StoreAs::AlwaysBoth,
+                    false,
+                )
             })
         } else if let Ok(file) = File::open(filename_json.as_str()) {
             span!(Level::INFO, "read", name = identifier_string).in_scope(|| {
                 let reader = serde_json::de::IoRead::new(BufReader::new(file));
                 let mut deserializer = serde_json::Deserializer::new(reader);
-                let result = DeserializeSeedKeyedData { data: data.clone(), element: PhantomData }.deserialize(&mut deserializer).map_err(|e| e.to_string()).unwrap();
-                (check_result(result), false, store_format == StoreAs::AlwaysPostcard || store_format == StoreAs::AlwaysBoth)
+                let result = DeserializeSeedKeyedData {
+                    data: data.clone(),
+                    element: PhantomData,
+                }
+                .deserialize(&mut deserializer)
+                .map_err(|e| e.to_string())
+                .unwrap();
+                (
+                    check_result(result),
+                    false,
+                    store_format == StoreAs::AlwaysPostcard || store_format == StoreAs::AlwaysBoth,
+                )
             })
         } else {
             span!(Level::INFO, "create", name = identifier_string).in_scope(|| {
                 let result = create_fn();
                 (
-                    result, 
-                    store_format == StoreAs::AlwaysJson || store_format == StoreAs::JsonIfNotPostcard || store_format == StoreAs::AlwaysBoth, 
-                    store_format == StoreAs::AlwaysPostcard || store_format == StoreAs::PostcardIfNotJson || store_format == StoreAs::AlwaysBoth
+                    result,
+                    store_format == StoreAs::AlwaysJson
+                        || store_format == StoreAs::JsonIfNotPostcard
+                        || store_format == StoreAs::AlwaysBoth,
+                    store_format == StoreAs::AlwaysPostcard
+                        || store_format == StoreAs::PostcardIfNotJson
+                        || store_format == StoreAs::AlwaysBoth,
                 )
             })
         };
@@ -364,20 +377,26 @@ pub fn create_cached<T, D, F>(data: D, create_fn: F, keys: &[CachedDataKey], dir
             let mut serializer = serde_json::Serializer::new(BufWriter::new(file));
             SerializeKeyedData::<T, D> {
                 data: SerializeSerializableWithData::new(&data, &result),
-                keys: keys,
-                ignore: ()
-            }.serialize(&mut serializer).unwrap();
+                keys,
+                ignore: (),
+            }
+            .serialize(&mut serializer)
+            .unwrap();
         }
         if store_postcard {
             if let Some(parent) = Path::new(filename_postcard.as_str()).parent() {
                 fs::create_dir_all(parent).unwrap();
             }
             let file = File::create(filename_postcard).unwrap();
-            postcard::to_io(&SerializeKeyedData::<T, D> {
-                data: SerializeSerializableWithData::new(&data, &result),
-                keys: keys,
-                ignore: ()
-            }, BufWriter::new(file)).unwrap();
+            postcard::to_io(
+                &SerializeKeyedData::<T, D> {
+                    data: SerializeSerializableWithData::new(&data, &result),
+                    keys,
+                    ignore: (),
+                },
+                BufWriter::new(file),
+            )
+            .unwrap();
         }
         return result;
     } else {

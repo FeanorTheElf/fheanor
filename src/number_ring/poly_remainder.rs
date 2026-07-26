@@ -13,48 +13,55 @@ use tracing::instrument;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum SmallCoeff {
-    Zero = 0, One = 1, NegOne = -1
+    Zero = 0,
+    One = 1,
+    NegOne = -1,
 }
 
 #[derive(Clone)]
 struct SparsePolyReducer<R>
-    where R: RingStore
+where
+    R: RingStore,
 {
     degree: usize,
     stride: usize,
     coefficients: Vec<SmallCoeff>,
-    ring: R
+    ring: R,
 }
 
 impl<R> SparsePolyReducer<R>
-    where R: RingStore
+where
+    R: RingStore,
 {
     #[instrument(skip_all)]
     fn new<P>(poly_ring: P, poly: &El<P>, ring: R, stride: usize) -> Self
-        where P: RingStore,
-            P::Type: PolyRing,
-            <P::Type as RingExtension>::BaseRing: RingStore<Type = R::Type>
+    where
+        P: RingStore,
+        P::Type: PolyRing,
+        <P::Type as RingExtension>::BaseRing: RingStore<Type = R::Type>,
     {
         assert!(poly_ring.base_ring().get_ring() == ring.get_ring());
         assert!(stride > 0);
         assert!(!poly_ring.is_zero(poly));
         assert!(poly_ring.base_ring().is_one(poly_ring.lc(poly).unwrap()));
-        let coefficients = (0..poly_ring.degree(poly).unwrap()).map(|i| {
-            let c = poly_ring.coefficient_at(poly, i);
-            if poly_ring.base_ring().is_zero(c) {
-                SmallCoeff::Zero
-            } else if poly_ring.base_ring().is_one(c) {
-                SmallCoeff::NegOne
-            } else {
-                assert!(poly_ring.base_ring().is_neg_one(c));
-                SmallCoeff::One
-            }
-        }).collect::<Vec<_>>();
+        let coefficients = (0..poly_ring.degree(poly).unwrap())
+            .map(|i| {
+                let c = poly_ring.coefficient_at(poly, i);
+                if poly_ring.base_ring().is_zero(c) {
+                    SmallCoeff::Zero
+                } else if poly_ring.base_ring().is_one(c) {
+                    SmallCoeff::NegOne
+                } else {
+                    assert!(poly_ring.base_ring().is_neg_one(c));
+                    SmallCoeff::One
+                }
+            })
+            .collect::<Vec<_>>();
         return Self {
             degree: poly_ring.degree(poly).unwrap() * stride,
-            stride: stride,
-            coefficients: coefficients,
-            ring: ring
+            stride,
+            coefficients,
+            ring,
         };
     }
 
@@ -66,12 +73,16 @@ impl<R> SparsePolyReducer<R>
             let (base, reduce) = data[(i - self.degree)..].split_at_mut(self.degree);
             for j in 0..self.coefficients.len() {
                 match self.coefficients[j] {
-                    SmallCoeff::Zero => {},
-                    SmallCoeff::One => for k in 0..stride {
-                        self.ring.add_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
-                    },
-                    SmallCoeff::NegOne => for k in 0..stride {
-                        self.ring.sub_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
+                    SmallCoeff::Zero => {}
+                    SmallCoeff::One => {
+                        for k in 0..stride {
+                            self.ring.add_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
+                        }
+                    }
+                    SmallCoeff::NegOne => {
+                        for k in 0..stride {
+                            self.ring.sub_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
+                        }
                     }
                 }
             }
@@ -80,12 +91,16 @@ impl<R> SparsePolyReducer<R>
             let (base, reduce) = data[(i - self.degree)..].split_at_mut(self.degree);
             for j in 0..self.coefficients.len() {
                 match self.coefficients[j] {
-                    SmallCoeff::Zero => {},
-                    SmallCoeff::One => for k in 0..self.stride {
-                        self.ring.add_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
-                    },
-                    SmallCoeff::NegOne => for k in 0..self.stride {
-                        self.ring.sub_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
+                    SmallCoeff::Zero => {}
+                    SmallCoeff::One => {
+                        for k in 0..self.stride {
+                            self.ring.add_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
+                        }
+                    }
+                    SmallCoeff::NegOne => {
+                        for k in 0..self.stride {
+                            self.ring.sub_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
+                        }
                     }
                 }
             }
@@ -94,8 +109,9 @@ impl<R> SparsePolyReducer<R>
 }
 
 pub struct BarettPolyReducer<R, C>
-    where R: RingStore,
-        C: ConvolutionAlgorithm<R::Type>
+where
+    R: RingStore,
+    C: ConvolutionAlgorithm<R::Type>,
 {
     /// degree of polynomial to reduce
     f_deg: usize,
@@ -106,12 +122,13 @@ pub struct BarettPolyReducer<R, C>
     q: Vec<El<R>>,
     q_prep: C::PreparedConvolutionOperand,
     ring: R,
-    convolution: C
+    convolution: C,
 }
 
 impl<R, C> BarettPolyReducer<R, C>
-    where R: RingStore,
-        C: ConvolutionAlgorithm<R::Type>
+where
+    R: RingStore,
+    C: ConvolutionAlgorithm<R::Type>,
 {
     #[instrument(skip_all)]
     pub fn new(poly_ring: DensePolyRing<R>, poly: &El<DensePolyRing<R>>, f_deg: usize, convolution: C) -> Self {
@@ -123,46 +140,44 @@ impl<R, C> BarettPolyReducer<R, C>
         let quo_deg = f_deg.checked_sub(q_deg);
         let Xn_over_q_deg = n - q_deg;
 
-        let q = (0..(q_deg + 1)).map(|i| ring.clone_el(poly_ring.coefficient_at(poly, i))).collect::<Vec<_>>();
+        let q = (0..(q_deg + 1))
+            .map(|i| ring.clone_el(poly_ring.coefficient_at(poly, i)))
+            .collect::<Vec<_>>();
         let q_prep = convolution.prepare_convolution_operand(&q, Some(quo_deg.unwrap_or(0) + q_deg + 1), &ring);
 
         let Xn_over_q = poly_ring.div_rem_monic(poly_ring.from_terms([(ring.one(), n)]), poly).0;
         assert_eq!(Xn_over_q_deg, poly_ring.degree(&Xn_over_q).unwrap());
-        let neg_Xn_over_q = (0..(Xn_over_q_deg + 1)).map(|i| ring.negate(ring.clone_el(poly_ring.coefficient_at(&Xn_over_q, i)))).collect::<Vec<_>>();
-        let neg_Xn_over_q_prep = convolution.prepare_convolution_operand(&neg_Xn_over_q, Some(Xn_over_q_deg + f_deg + 1), &ring);
+        let neg_Xn_over_q = (0..(Xn_over_q_deg + 1))
+            .map(|i| ring.negate(ring.clone_el(poly_ring.coefficient_at(&Xn_over_q, i))))
+            .collect::<Vec<_>>();
+        let neg_Xn_over_q_prep =
+            convolution.prepare_convolution_operand(&neg_Xn_over_q, Some(Xn_over_q_deg + f_deg + 1), &ring);
 
         return Self {
-            f_deg: f_deg,
-            q_deg: q_deg,
-            neg_Xn_over_q: neg_Xn_over_q,
-            neg_Xn_over_q_prep: neg_Xn_over_q_prep,
-            q: q,
-            q_prep: q_prep,
+            f_deg,
+            q_deg,
+            neg_Xn_over_q,
+            neg_Xn_over_q_prep,
+            q,
+            q_prep,
             ring: poly_ring.into().into_base_ring(),
-            convolution: convolution
+            convolution,
         };
     }
 
-    pub fn base_ring(&self) -> &R {
-        &self.ring
-    }
+    pub fn base_ring(&self) -> &R { &self.ring }
 
-    pub fn convolution(&self) -> &C {
-        &self.convolution
-    }
+    pub fn convolution(&self) -> &C { &self.convolution }
 
-    pub fn modulus_deg(&self) -> usize {
-        self.q_deg
-    }
+    pub fn modulus_deg(&self) -> usize { self.q_deg }
 
-    pub fn modulus_coefficients(&self) -> &[El<R>] {
-        &self.q
-    }
+    pub fn modulus_coefficients(&self) -> &[El<R>] { &self.q }
 
     pub fn modulus<P>(&self, poly_ring: P) -> El<P>
-        where P: RingStore,
-            P::Type: PolyRing,
-            <P::Type as RingExtension>::BaseRing: RingStore<Type = R::Type>
+    where
+        P: RingStore,
+        P::Type: PolyRing,
+        <P::Type as RingExtension>::BaseRing: RingStore<Type = R::Type>,
     {
         assert!(self.ring.get_ring() == poly_ring.base_ring().get_ring());
         poly_ring.from_terms(self.q.iter().enumerate().map(|(i, c)| (self.ring.clone_el(c), i)))
@@ -171,7 +186,7 @@ impl<R, C> BarettPolyReducer<R, C>
     #[instrument(skip_all)]
     pub fn remainder(&self, data: &mut [El<R>]) {
         assert!(data.len() >= self.f_deg + 2);
-        
+
         let f_deg = self.f_deg;
         let q_deg = self.q_deg;
         let n = f_deg + q_deg;
@@ -181,17 +196,32 @@ impl<R, C> BarettPolyReducer<R, C>
 
             let mut scaled_quotient = Vec::with_capacity_in(f_deg + Xn_over_q_deg + 2, Global);
             scaled_quotient.resize_with(f_deg + Xn_over_q_deg + 2, || self.ring.zero());
-            self.convolution.compute_convolution_prepared(&data[..(f_deg + 1)], None, &self.neg_Xn_over_q, Some(&self.neg_Xn_over_q_prep), &mut scaled_quotient, &self.ring);
+            self.convolution.compute_convolution_prepared(
+                &data[..(f_deg + 1)],
+                None,
+                &self.neg_Xn_over_q,
+                Some(&self.neg_Xn_over_q_prep),
+                &mut scaled_quotient,
+                &self.ring,
+            );
 
             let quotient = &scaled_quotient[n..(n + quo_deg + 1)];
-            self.convolution.compute_convolution_prepared(&quotient, None, &self.q, Some(&self.q_prep), data, &self.ring);
+            self.convolution.compute_convolution_prepared(
+                &quotient,
+                None,
+                &self.q,
+                Some(&self.q_prep),
+                data,
+                &self.ring,
+            );
         }
     }
 }
 
 impl<R, C> Clone for BarettPolyReducer<R, C>
-    where R: RingStore + Clone,
-        C: ConvolutionAlgorithm<R::Type> + Clone
+where
+    R: RingStore + Clone,
+    C: ConvolutionAlgorithm<R::Type> + Clone,
 {
     fn clone(&self) -> Self {
         let f_deg = self.f_deg;
@@ -203,29 +233,37 @@ impl<R, C> Clone for BarettPolyReducer<R, C>
             convolution: self.convolution.clone(),
             f_deg: self.f_deg,
             neg_Xn_over_q: self.neg_Xn_over_q.iter().map(|x| self.ring.clone_el(x)).collect(),
-            neg_Xn_over_q_prep: self.convolution.prepare_convolution_operand(&self.neg_Xn_over_q, Some(Xn_over_q_deg + f_deg + 1), &self.ring),
+            neg_Xn_over_q_prep: self.convolution.prepare_convolution_operand(
+                &self.neg_Xn_over_q,
+                Some(Xn_over_q_deg + f_deg + 1),
+                &self.ring,
+            ),
             q: self.q.iter().map(|x| self.ring.clone_el(x)).collect(),
             q_deg: self.q_deg,
-            q_prep: self.convolution.prepare_convolution_operand(&self.q, Some(quo_deg.unwrap_or(0) + q_deg + 1), &self.ring),
-            ring: self.ring.clone()
+            q_prep: self.convolution.prepare_convolution_operand(
+                &self.q,
+                Some(quo_deg.unwrap_or(0) + q_deg + 1),
+                &self.ring,
+            ),
+            ring: self.ring.clone(),
         }
     }
 }
 
-///
 /// Precomputed data to speed up polynomial division by a fixed cyclotomic polynomial.
-/// 
 pub struct CyclotomicPolyReducer<R, C = KaratsubaAlgorithm>
-    where R: RingStore + Clone,
-        C: ConvolutionAlgorithm<R::Type>
+where
+    R: RingStore + Clone,
+    C: ConvolutionAlgorithm<R::Type>,
 {
     sparse_reducers: Vec<SparsePolyReducer<R>>,
-    final_reducer: BarettPolyReducer<R, C>
+    final_reducer: BarettPolyReducer<R, C>,
 }
 
 impl<R, C> CyclotomicPolyReducer<R, C>
-    where R: RingStore + Clone,
-        C: ConvolutionAlgorithm<R::Type>
+where
+    R: RingStore + Clone,
+    C: ConvolutionAlgorithm<R::Type>,
 {
     #[instrument(skip_all)]
     pub fn new(ring: R, m: u64, convolution: C) -> Self {
@@ -238,8 +276,13 @@ impl<R, C> CyclotomicPolyReducer<R, C>
             let (p, e) = factorization[0];
             let trivial_poly = ring_poly_ring.indeterminate();
             return Self {
-                sparse_reducers: vec![SparsePolyReducer::new(&ring_poly_ring, &hom.map(cyclotomic_polynomial(&poly_ring, p as usize)), ring.clone(), StaticRing::<i64>::RING.pow(p, e - 1) as usize)],
-                final_reducer: BarettPolyReducer::new(ring_poly_ring, &trivial_poly, 0, convolution)
+                sparse_reducers: vec![SparsePolyReducer::new(
+                    &ring_poly_ring,
+                    &hom.map(cyclotomic_polynomial(&poly_ring, p as usize)),
+                    ring.clone(),
+                    StaticRing::<i64>::RING.pow(p, e - 1) as usize,
+                )],
+                final_reducer: BarettPolyReducer::new(ring_poly_ring, &trivial_poly, 0, convolution),
             };
         }
 
@@ -248,18 +291,28 @@ impl<R, C> CyclotomicPolyReducer<R, C>
         let mut current_stride = m as usize;
         for i in 0..factorization.len() {
             let cyclotomic_poly = cyclotomic_polynomial(&poly_ring, current_n);
-            sparse_reducers.push(SparsePolyReducer::new(&ring_poly_ring, &hom.map(cyclotomic_poly), ring.clone(), current_stride));
+            sparse_reducers.push(SparsePolyReducer::new(
+                &ring_poly_ring,
+                &hom.map(cyclotomic_poly),
+                ring.clone(),
+                current_stride,
+            ));
             let (p, _e) = factorization[i];
             current_n *= p as usize;
             current_stride /= p as usize;
         }
 
         let cyclotomic_poly = hom.map(cyclotomic_polynomial(&poly_ring, m as usize));
-        let final_reducer = BarettPolyReducer::new(ring_poly_ring, &cyclotomic_poly, sparse_reducers.last().unwrap().degree - 1, convolution);
+        let final_reducer = BarettPolyReducer::new(
+            ring_poly_ring,
+            &cyclotomic_poly,
+            sparse_reducers.last().unwrap().degree - 1,
+            convolution,
+        );
 
         return Self {
-            sparse_reducers: sparse_reducers,
-            final_reducer: final_reducer
+            sparse_reducers,
+            final_reducer,
         };
     }
 
@@ -276,35 +329,32 @@ impl<R, C> CyclotomicPolyReducer<R, C>
         self.final_reducer.remainder(&mut data[..(current_len + 1)]);
     }
 
-    pub fn base_ring(&self) -> &R {
-        self.final_reducer.base_ring()
-    }
+    pub fn base_ring(&self) -> &R { self.final_reducer.base_ring() }
 
-    pub fn convolution(&self) -> &C {
-        self.final_reducer.convolution()
-    }
+    pub fn convolution(&self) -> &C { self.final_reducer.convolution() }
 }
 
 impl<R, C> Clone for CyclotomicPolyReducer<R, C>
-    where R: RingStore + Clone,
-        C: ConvolutionAlgorithm<R::Type> + Clone
+where
+    R: RingStore + Clone,
+    C: ConvolutionAlgorithm<R::Type> + Clone,
 {
     fn clone(&self) -> Self {
         Self {
             sparse_reducers: self.sparse_reducers.clone(),
-            final_reducer: self.final_reducer.clone()
+            final_reducer: self.final_reducer.clone(),
         }
     }
 }
 
+#[cfg(test)]
+use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
 use feanor_math::rings::zn::zn_64::*;
 #[cfg(test)]
 use feanor_math::rings::zn::*;
-#[cfg(test)]
-use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 
 #[test]
 fn test_sparse_poly_remainder() {
@@ -322,7 +372,9 @@ fn test_sparse_poly_remainder() {
     let poly_ring = DensePolyRing::new(StaticRing::<i64>::RING, "X");
     let poly = poly_ring.sub(poly_ring.indeterminate(), poly_ring.one());
     let reducer = SparsePolyReducer::new(&poly_ring, &poly, StaticRing::<i64>::RING, 13);
-    let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25];
+    let mut data = [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    ];
     let expected = [15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 13];
 
     reducer.remainder(&mut data);
@@ -338,21 +390,40 @@ fn test_barett_poly_remainder() {
     let poly_ring = DensePolyRing::new(ring.clone(), "X");
     let poly = cyclotomic_polynomial(&poly_ring, 4 * 5 * 7);
     let reducer = BarettPolyReducer::new(poly_ring.clone(), &poly, 200, convolution);
-    let expected = poly_ring.div_rem_monic(poly_ring.from_terms((1..=201).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))), &poly).1;
+    let expected = poly_ring
+        .div_rem_monic(
+            poly_ring.from_terms((1..=201).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
+            &poly,
+        )
+        .1;
 
-    let mut actual = (1..=201).chain([0].into_iter()).map(|x| ring.int_hom().map(x)).collect::<Vec<_>>();
+    let mut actual = (1..=201)
+        .chain([0].into_iter())
+        .map(|x| ring.int_hom().map(x))
+        .collect::<Vec<_>>();
     reducer.remainder(&mut actual);
 
     for i in 0..48 {
         assert_el_eq!(&ring, poly_ring.coefficient_at(&expected, i), &actual[i]);
     }
 
-    let poly = poly_ring.add(cyclotomic_polynomial(&poly_ring, 25), cyclotomic_polynomial(&poly_ring, 23 * 5));
+    let poly = poly_ring.add(
+        cyclotomic_polynomial(&poly_ring, 25),
+        cyclotomic_polynomial(&poly_ring, 23 * 5),
+    );
     let convolution = NTTConvolution::new(ring.clone());
     let reducer = BarettPolyReducer::new(poly_ring.clone(), &poly, 150, convolution);
-    let expected = poly_ring.div_rem_monic(poly_ring.from_terms((1..=151).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))), &poly).1;
+    let expected = poly_ring
+        .div_rem_monic(
+            poly_ring.from_terms((1..=151).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
+            &poly,
+        )
+        .1;
 
-    let mut actual = (1..=151).chain([0].into_iter()).map(|x| ring.int_hom().map(x)).collect::<Vec<_>>();
+    let mut actual = (1..=151)
+        .chain([0].into_iter())
+        .map(|x| ring.int_hom().map(x))
+        .collect::<Vec<_>>();
     reducer.remainder(&mut actual);
 
     for i in 0..48 {
@@ -379,7 +450,12 @@ fn test_cyclotomic_poly_remainder() {
     let convolution = NTTConvolution::new(ring.clone());
     let poly = cyclotomic_polynomial(&poly_ring, 5);
     let reducer = CyclotomicPolyReducer::new(ring.clone(), 5, convolution);
-    let expected = poly_ring.div_rem_monic(poly_ring.from_terms((1..6).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))), &poly).1;
+    let expected = poly_ring
+        .div_rem_monic(
+            poly_ring.from_terms((1..6).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
+            &poly,
+        )
+        .1;
 
     let mut actual = (1..6).map(|x| ring.int_hom().map(x)).collect::<Vec<_>>();
     reducer.remainder(&mut actual);
@@ -391,7 +467,12 @@ fn test_cyclotomic_poly_remainder() {
     let poly = cyclotomic_polynomial(&poly_ring, 4 * 5 * 7);
     let convolution = NTTConvolution::new(ring.clone());
     let reducer = CyclotomicPolyReducer::new(ring.clone(), 4 * 5 * 7, convolution);
-    let expected = poly_ring.div_rem_monic(poly_ring.from_terms((1..200).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))), &poly).1;
+    let expected = poly_ring
+        .div_rem_monic(
+            poly_ring.from_terms((1..200).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
+            &poly,
+        )
+        .1;
 
     let mut actual = (1..200).map(|x| ring.int_hom().map(x)).collect::<Vec<_>>();
     reducer.remainder(&mut actual);

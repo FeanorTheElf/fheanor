@@ -2,16 +2,16 @@ use std::alloc::Global;
 use std::fmt::{Debug, Formatter};
 
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
-use feanor_math::algorithms::eea::{signed_eea, signed_gcd, signed_lcm};
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
+use feanor_math::algorithms::eea::{signed_eea, signed_gcd, signed_lcm};
 use feanor_math::algorithms::int_factor::factor;
-use feanor_math::integer::*;
-use feanor_math::rings::poly::*;
 use feanor_math::divisibility::*;
+use feanor_math::homomorphism::*;
+use feanor_math::integer::*;
 use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
-use feanor_math::homomorphism::*;
 use feanor_math::rings::poly::sparse_poly::SparsePolyRing;
+use feanor_math::rings::poly::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::subvector::SubvectorView;
@@ -20,32 +20,34 @@ use tracing::instrument;
 
 use crate::number_ring::galois::*;
 use crate::number_ring::general_cyclotomic::*;
-use crate::{FheanorAllocator, ZZi64};
-use crate::number_ring::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
+use crate::number_ring::*;
+use crate::{FheanorAllocator, ZZi64};
 
-///
 /// Represents `Z[𝝵_m]` for an odd, squarefree `m`, but uses of the tensor decomposition
 /// `Z[𝝵_m] = Z[𝝵_m1] ⊗ Z[𝝵_m2]` for various computational tasks (where `m = m1 * m2`
 /// is a factorization into coprime factors).
-/// 
-pub struct TensorProductNumberRing<L: NumberRingDescriptor = OddSquarefreeCyclotomicNumberRing, R: NumberRingDescriptor = OddSquarefreeCyclotomicNumberRing> {
+pub struct TensorProductNumberRing<
+    L: NumberRingDescriptor = OddSquarefreeCyclotomicNumberRing,
+    R: NumberRingDescriptor = OddSquarefreeCyclotomicNumberRing,
+> {
     left_factor: L,
     right_factor: R,
     joint_galois_group: CyclotomicGaloisGroup,
     powinf_to_coeffinf_expansion: f64,
-    coeffinf_to_powinf_expansion: f64
+    coeffinf_to_powinf_expansion: f64,
 }
 
 impl TensorProductNumberRing {
-
     pub fn new(m1: usize, m2: usize) -> Self {
-        Self::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(m1), OddSquarefreeCyclotomicNumberRing::new(m2))
+        Self::new_with_factors(
+            OddSquarefreeCyclotomicNumberRing::new(m1),
+            OddSquarefreeCyclotomicNumberRing::new(m2),
+        )
     }
 }
 
 impl<L: NumberRingDescriptor, R: NumberRingDescriptor> TensorProductNumberRing<L, R> {
-
     pub fn new_with_factors(left: L, right: R) -> Self {
         let m1 = left.galois_group().m();
         let m2 = right.galois_group().m();
@@ -57,70 +59,59 @@ impl<L: NumberRingDescriptor, R: NumberRingDescriptor> TensorProductNumberRing<L
             left_factor: left,
             right_factor: right,
             powinf_to_coeffinf_expansion: compute_powinf_to_coeffinf_expansion(m1 as i64 * m2 as i64),
-            coeffinf_to_powinf_expansion: compute_coeffinf_to_powinf_expansion(m1 as i64 * m2 as i64)
+            coeffinf_to_powinf_expansion: compute_coeffinf_to_powinf_expansion(m1 as i64 * m2 as i64),
         }
     }
 
-    pub fn m1(&self) -> u64 {
-        self.left_factor.galois_group().m()
-    }
+    pub fn m1(&self) -> u64 { self.left_factor.galois_group().m() }
 
-    pub fn m2(&self) -> u64 {
-        self.right_factor.galois_group().m()
-    }
+    pub fn m2(&self) -> u64 { self.right_factor.galois_group().m() }
 
-    pub fn m(&self) -> u64 {
-        self.m1() * self.m2()
-    }
+    pub fn m(&self) -> u64 { self.m1() * self.m2() }
 
-    ///
     /// Returns a bound on
     /// ```text
     ///   sup_(x, y in R \ {0}) | xy |_powinf / (|x|_powinf |y|_powinf)
     /// ```
     /// where `|x|_powinf` is the infinity norm w.r.t. the powerful
     /// basis representation.
-    /// 
+    ///
     /// Note that the powerful basis means the tensor product of the coefficient
     /// bases of all prime-power cyclotomic subfields. This is not always the
     /// same as the small basis! (it is if both `left` and `right` are prime
     /// power cyclotomics)
-    /// 
     fn powinf_basis_product_expansion_factor(&self) -> f64 {
         self.m() as f64 * 2f64.powi(factor(ZZi64, self.m() as i64).len() as i32)
     }
 }
 
 impl<L: NumberRingDescriptor, R: NumberRingDescriptor> Clone for TensorProductNumberRing<L, R> {
-    
     fn clone(&self) -> Self {
         Self {
             joint_galois_group: self.joint_galois_group.clone(),
             left_factor: self.left_factor.clone(),
             right_factor: self.right_factor.clone(),
             powinf_to_coeffinf_expansion: self.powinf_to_coeffinf_expansion,
-            coeffinf_to_powinf_expansion: self.coeffinf_to_powinf_expansion
+            coeffinf_to_powinf_expansion: self.coeffinf_to_powinf_expansion,
         }
     }
 }
 
 impl<L: NumberRingDescriptor + Debug, R: NumberRingDescriptor + Debug> Debug for TensorProductNumberRing<L, R> {
-    
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?} ⊗ {:?}", self.left_factor, self.right_factor)
     }
 }
 
 impl<L: NumberRingDescriptor, R: NumberRingDescriptor> PartialEq for TensorProductNumberRing<L, R> {
-
     fn eq(&self, other: &Self) -> bool {
         self.left_factor == other.left_factor && self.right_factor == other.right_factor
     }
 }
 
 impl<L: NumberRingDescriptor, R: NumberRingDescriptor> NumberRingDescriptor for TensorProductNumberRing<L, R> {
-
-    type NumberRingQuotientBases = CompositeCyclotomicNumberRingQuotientBases<L::NumberRingQuotientBases, R::NumberRingQuotientBases>;
+    type NumberRingQuotientBases =
+        CompositeCyclotomicNumberRingQuotientBases<L::NumberRingQuotientBases, R::NumberRingQuotientBases>;
 
     fn small_basis_product_expansion_factor(&self) -> f64 {
         // We use the tensor-product compatibility of the tensor product.
@@ -136,12 +127,16 @@ impl<L: NumberRingDescriptor, R: NumberRingDescriptor> NumberRingDescriptor for 
         //     = f_L f_R (sum_i |a_i|)(sum_j |a'_j|)
         //     = f_L f_R |sum_i e_i ⊗ a_i| |sum_j e_j ⊗ a_j|
         // ```
-        self.left_factor.small_basis_product_expansion_factor() * self.right_factor.small_basis_product_expansion_factor()
+        self.left_factor.small_basis_product_expansion_factor()
+            * self.right_factor.small_basis_product_expansion_factor()
     }
 
     fn coeff_basis_product_expansion_factor(&self) -> f64 {
         // see the argument in general_cyclotomic
-        self.coeffinf_to_powinf_expansion * self.coeffinf_to_powinf_expansion * self.powinf_basis_product_expansion_factor() * self.powinf_to_coeffinf_expansion
+        self.coeffinf_to_powinf_expansion
+            * self.coeffinf_to_powinf_expansion
+            * self.powinf_basis_product_expansion_factor()
+            * self.powinf_to_coeffinf_expansion
     }
 
     fn bases_mod_p(&self, Fp: Zn) -> Self::NumberRingQuotientBases {
@@ -155,7 +150,10 @@ impl<L: NumberRingDescriptor, R: NumberRingDescriptor> NumberRingDescriptor for 
         let poly_ring = &poly_ring;
         let Phi_m1 = self.left_factor.generating_poly(&poly_ring);
         let Phi_m2 = self.right_factor.generating_poly(&poly_ring);
-        let hom = Fp.can_hom(Fp.integer_ring()).unwrap().compose(Fp.integer_ring().can_hom(poly_ring.base_ring()).unwrap());
+        let hom = Fp
+            .can_hom(Fp.integer_ring())
+            .unwrap()
+            .compose(Fp.integer_ring().can_hom(poly_ring.base_ring()).unwrap());
         let hom_ref = &hom;
 
         let (s, t, d) = signed_eea(m1, m2, StaticRing::<i64>::RING);
@@ -172,56 +170,69 @@ impl<L: NumberRingDescriptor, R: NumberRingDescriptor> NumberRingDescriptor for 
         let mut coeff_to_tensorcoeff_conversion_matrix = (0..(r1 * r2)).map(|_| Vec::new()).collect::<Vec<_>>();
 
         for i in 0..(r1 * r2) {
-
             let i1 = ((t * i % m1) + m1) % m1;
             let i2 = ((s * i % m2) + m2) % m2;
             debug_assert_eq!(i, (i1 * m / m1 + i2 * m / m2) % m);
 
-            let X1_power_reduced = poly_ring.div_rem_monic(poly_ring.pow(poly_ring.indeterminate(), i1 as usize), &Phi_m1).1;
-            let X2_power_reduced = poly_ring.div_rem_monic(poly_ring.pow(poly_ring.indeterminate(), i2 as usize), &Phi_m2).1;
+            let X1_power_reduced = poly_ring
+                .div_rem_monic(poly_ring.pow(poly_ring.indeterminate(), i1 as usize), &Phi_m1)
+                .1;
+            let X2_power_reduced = poly_ring
+                .div_rem_monic(poly_ring.pow(poly_ring.indeterminate(), i2 as usize), &Phi_m2)
+                .1;
 
-            coeff_to_tensorcoeff_conversion_matrix[i as usize] = poly_ring.terms(&X1_power_reduced).flat_map(|(c1, j1)| poly_ring.terms(&X2_power_reduced).map(move |(c2, j2)| 
-                (j1 + j2 * r1 as usize, hom_ref.map(poly_ring.base_ring().mul_ref(c1, c2))
-            ))).collect::<Vec<_>>();
+            coeff_to_tensorcoeff_conversion_matrix[i as usize] = poly_ring
+                .terms(&X1_power_reduced)
+                .flat_map(|(c1, j1)| {
+                    poly_ring.terms(&X2_power_reduced).map(move |(c2, j2)| {
+                        (
+                            j1 + j2 * r1 as usize,
+                            hom_ref.map(poly_ring.base_ring().mul_ref(c1, c2)),
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
         }
 
         let cyclotomic_poly_reducer = CyclotomicPolyReducer::new(Fp, m as u64, STANDARD_CONVOLUTION);
 
         CompositeCyclotomicNumberRingQuotientBases {
-            coeff_to_tensorcoeff_conversion_matrix: coeff_to_tensorcoeff_conversion_matrix,
-            cyclotomic_poly_reducer: cyclotomic_poly_reducer,
+            coeff_to_tensorcoeff_conversion_matrix,
+            cyclotomic_poly_reducer,
             left_factor: self.left_factor.bases_mod_p(Fp.clone()),
             right_factor: self.right_factor.bases_mod_p(Fp),
             allocator: Global,
-            joint_galois_group: self.joint_galois_group.clone()
+            joint_galois_group: self.joint_galois_group.clone(),
         }
     }
 
     fn mod_p_required_root_of_unity(&self) -> u64 {
-        signed_lcm(self.left_factor.mod_p_required_root_of_unity().try_into().unwrap(), self.right_factor.mod_p_required_root_of_unity().try_into().unwrap(), StaticRing::<i64>::RING).try_into().unwrap()
+        signed_lcm(
+            self.left_factor.mod_p_required_root_of_unity().try_into().unwrap(),
+            self.right_factor.mod_p_required_root_of_unity().try_into().unwrap(),
+            StaticRing::<i64>::RING,
+        )
+        .try_into()
+        .unwrap()
     }
 
     fn generating_poly<P>(&self, poly_ring: P) -> El<P>
-        where P: RingStore,
-            P::Type: PolyRing + DivisibilityRing,
-            <<P::Type as RingExtension>::BaseRing as RingStore>::Type: IntegerRing
+    where
+        P: RingStore,
+        P::Type: PolyRing + DivisibilityRing,
+        <<P::Type as RingExtension>::BaseRing as RingStore>::Type: IntegerRing,
     {
         cyclotomic_polynomial(&poly_ring, self.m() as usize)
     }
 
-    fn rank(&self) -> usize {
-        self.left_factor.rank() * self.right_factor.rank()
-    }
+    fn rank(&self) -> usize { self.left_factor.rank() * self.right_factor.rank() }
 
-    fn galois_group(&self) -> &CyclotomicGaloisGroup {
-        &self.joint_galois_group
-    }
+    fn galois_group(&self) -> &CyclotomicGaloisGroup { &self.joint_galois_group }
 }
 
-///
 /// The [`NumberRingQuotientBases`] for [`TensorProductNumberRing`].
-/// 
-/// The small basis is given by 
+///
+/// The small basis is given by
 /// ```text
 ///   e1 ⊗ e1',           e2 ⊗ e1',           e3 ⊗ e1',           ...,  e(m1 - 1) ⊗ e1',
 ///   e1 ⊗ e2',           e2 ⊗ e2',           e3 ⊗ e2',           ...,  e(m1 - 1) ⊗ e2',
@@ -230,15 +241,15 @@ impl<L: NumberRingDescriptor, R: NumberRingDescriptor> NumberRingDescriptor for 
 /// ```
 /// where `e1, ..., e(m1 - 1)` and `e1', ..., e(m2 - 1)'` are the small bases of
 /// `left` and `right`, respectively.
-/// 
+///
 /// In particular, this is the powerful basis if `m1` and `m2` are prime, and
 /// `left` and `right` use the coefficient basis as small basis.
 /// Otherwise, it is somewhere between coefficient and powerful basis.
-/// 
-pub struct CompositeCyclotomicNumberRingQuotientBases<L, R, A = Global> 
-    where L: NumberRingQuotientBases,
-        R: NumberRingQuotientBases,
-        A: FheanorAllocator
+pub struct CompositeCyclotomicNumberRingQuotientBases<L, R, A = Global>
+where
+    L: NumberRingQuotientBases,
+    R: NumberRingQuotientBases,
+    A: FheanorAllocator,
 {
     allocator: A,
     left_factor: L,
@@ -247,61 +258,79 @@ pub struct CompositeCyclotomicNumberRingQuotientBases<L, R, A = Global>
     // and otherwise, it contains the coeff basis representation of the `i`-th small basis vector
     coeff_to_tensorcoeff_conversion_matrix: Vec<Vec<(usize, ZnEl)>>,
     cyclotomic_poly_reducer: CyclotomicPolyReducer<Zn>,
-    joint_galois_group: CyclotomicGaloisGroup
+    joint_galois_group: CyclotomicGaloisGroup,
 }
 
-impl<L, R, A> PartialEq for CompositeCyclotomicNumberRingQuotientBases<L, R, A> 
-    where L: NumberRingQuotientBases,
-        R: NumberRingQuotientBases,
-        A: FheanorAllocator
+impl<L, R, A> PartialEq for CompositeCyclotomicNumberRingQuotientBases<L, R, A>
+where
+    L: NumberRingQuotientBases,
+    R: NumberRingQuotientBases,
+    A: FheanorAllocator,
 {
     fn eq(&self, other: &Self) -> bool {
         self.left_factor == other.left_factor && self.right_factor == other.right_factor
     }
 }
 
-impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientBases<L, R, A> 
-    where L: NumberRingQuotientBases,
-        R: NumberRingQuotientBases,
-        A: FheanorAllocator 
+impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientBases<L, R, A>
+where
+    L: NumberRingQuotientBases,
+    R: NumberRingQuotientBases,
+    A: FheanorAllocator,
 {
-    fn galois_group(&self) -> &CyclotomicGaloisGroup {
-        &self.joint_galois_group
-    }
+    fn galois_group(&self) -> &CyclotomicGaloisGroup { &self.joint_galois_group }
 
     #[instrument(skip_all)]
     fn small_basis_to_mult_basis<V>(&self, mut data: V)
-        where V: SwappableVectorViewMut<ZnEl>
+    where
+        V: SwappableVectorViewMut<ZnEl>,
     {
         for i in 0..self.right_factor.rank() {
-            self.left_factor.small_basis_to_mult_basis(SubvectorView::new(&mut data).restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())));
+            self.left_factor.small_basis_to_mult_basis(
+                SubvectorView::new(&mut data)
+                    .restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())),
+            );
         }
         for j in 0..self.left_factor.rank() {
-            self.right_factor.small_basis_to_mult_basis(SubvectorView::new(&mut data).restrict(j..).step_by_view(self.left_factor.rank()));
+            self.right_factor.small_basis_to_mult_basis(
+                SubvectorView::new(&mut data)
+                    .restrict(j..)
+                    .step_by_view(self.left_factor.rank()),
+            );
         }
     }
 
     #[instrument(skip_all)]
     fn mult_basis_to_small_basis<V>(&self, mut data: V)
-        where V: SwappableVectorViewMut<ZnEl>
+    where
+        V: SwappableVectorViewMut<ZnEl>,
     {
         for j in 0..self.left_factor.rank() {
-            self.right_factor.mult_basis_to_small_basis(SubvectorView::new(&mut data).restrict(j..).step_by_view(self.left_factor.rank()));
+            self.right_factor.mult_basis_to_small_basis(
+                SubvectorView::new(&mut data)
+                    .restrict(j..)
+                    .step_by_view(self.left_factor.rank()),
+            );
         }
         for i in 0..self.right_factor.rank() {
-            self.left_factor.mult_basis_to_small_basis(SubvectorView::new(&mut data).restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())));
+            self.left_factor.mult_basis_to_small_basis(
+                SubvectorView::new(&mut data)
+                    .restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())),
+            );
         }
     }
 
     #[instrument(skip_all)]
     fn coeff_basis_to_small_basis<V>(&self, mut data: V)
-        where V: SwappableVectorViewMut<ZnEl>
+    where
+        V: SwappableVectorViewMut<ZnEl>,
     {
         let mut result = Vec::with_capacity_in(self.rank(), &self.allocator);
         result.resize_with(self.rank(), || self.base_ring().zero());
         for i in 0..self.rank() {
             for (j, c) in &self.coeff_to_tensorcoeff_conversion_matrix[i] {
-                self.base_ring().add_assign(&mut result[*j], self.base_ring().mul_ref(data.at(i), c));
+                self.base_ring()
+                    .add_assign(&mut result[*j], self.base_ring().mul_ref(data.at(i), c));
             }
         }
         for (i, c) in result.drain(..).enumerate() {
@@ -309,22 +338,37 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
         }
 
         for j in 0..self.left_factor.rank() {
-            self.right_factor.coeff_basis_to_small_basis(SubvectorView::new(&mut data).restrict(j..).step_by_view(self.left_factor.rank()));
+            self.right_factor.coeff_basis_to_small_basis(
+                SubvectorView::new(&mut data)
+                    .restrict(j..)
+                    .step_by_view(self.left_factor.rank()),
+            );
         }
         for i in 0..self.right_factor.rank() {
-            self.left_factor.coeff_basis_to_small_basis(SubvectorView::new(&mut data).restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())));
+            self.left_factor.coeff_basis_to_small_basis(
+                SubvectorView::new(&mut data)
+                    .restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())),
+            );
         }
     }
 
     #[instrument(skip_all)]
     fn small_basis_to_coeff_basis<V>(&self, mut data: V)
-        where V: SwappableVectorViewMut<ZnEl>
+    where
+        V: SwappableVectorViewMut<ZnEl>,
     {
         for j in 0..self.left_factor.rank() {
-            self.right_factor.small_basis_to_coeff_basis(SubvectorView::new(&mut data).restrict(j..).step_by_view(self.left_factor.rank()));
+            self.right_factor.small_basis_to_coeff_basis(
+                SubvectorView::new(&mut data)
+                    .restrict(j..)
+                    .step_by_view(self.left_factor.rank()),
+            );
         }
         for i in 0..self.right_factor.rank() {
-            self.left_factor.small_basis_to_coeff_basis(SubvectorView::new(&mut data).restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())));
+            self.left_factor.small_basis_to_coeff_basis(
+                SubvectorView::new(&mut data)
+                    .restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())),
+            );
         }
 
         let r1 = self.left_factor.rank();
@@ -335,7 +379,7 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
 
         let mut result = Vec::with_capacity_in(m, &self.allocator);
         result.resize_with(m, || self.base_ring().zero());
-        
+
         for i2 in 0..r2 {
             for i1 in 0..r1 {
                 let mut target_idx = i1 * m2 + i2 * m1;
@@ -351,17 +395,14 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
         }
     }
 
-    fn rank(&self) -> usize {
-        self.left_factor.rank() * self.right_factor.rank()
-    }
+    fn rank(&self) -> usize { self.left_factor.rank() * self.right_factor.rank() }
 
-    fn base_ring(&self) -> &Zn {
-        self.left_factor.base_ring()
-    }
+    fn base_ring(&self) -> &Zn { self.left_factor.base_ring() }
 
     fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &GaloisGroupEl)
-        where V1: VectorView<ZnEl>,
-            V2: SwappableVectorViewMut<ZnEl>
+    where
+        V1: VectorView<ZnEl>,
+        V2: SwappableVectorViewMut<ZnEl>,
     {
         let ring_factor1 = self.left_factor.galois_group();
         let ring_factor2 = self.right_factor.galois_group();
@@ -372,45 +413,52 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
         tmp.resize_with(self.rank(), || self.base_ring().zero());
         for i in 0..self.right_factor.rank() {
             self.left_factor.permute_galois_action(
-                SubvectorView::new(&src).restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())), 
-                &mut tmp[(i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())], 
-                &g1
+                SubvectorView::new(&src).restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())),
+                &mut tmp[(i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())],
+                &g1,
             );
         }
         for j in 0..self.left_factor.rank() {
             self.right_factor.permute_galois_action(
-                SubvectorView::new(&tmp[..]).restrict(j..).step_by_view(self.left_factor.rank()), 
-                SubvectorView::new(&mut dst).restrict(j..).step_by_view(self.left_factor.rank()), 
-                &g2
+                SubvectorView::new(&tmp[..])
+                    .restrict(j..)
+                    .step_by_view(self.left_factor.rank()),
+                SubvectorView::new(&mut dst)
+                    .restrict(j..)
+                    .step_by_view(self.left_factor.rank()),
+                &g2,
             );
         }
     }
 }
 
-
 #[cfg(test)]
 use feanor_math::assert_el_eq;
+
 #[cfg(test)]
 use crate::ciphertext_ring::double_rns_ring;
 #[cfg(test)]
 use crate::ciphertext_ring::single_rns_ring;
 #[cfg(test)]
-use crate::number_ring::quotient_by_int;
-#[cfg(test)]
-use crate::ring_literal;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
-#[cfg(test)]
 use crate::ntt::RustNegacyclicNTT;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+#[cfg(test)]
+use crate::number_ring::quotient_by_int;
+#[cfg(test)]
+use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
+#[cfg(test)]
+use crate::ring_literal;
 
 #[test]
 fn test_odd_cyclotomic_double_rns_ring() {
     feanor_tracing::DelayedLogger::init_test();
     double_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 5));
     double_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 7));
-    double_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+    double_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(
+        OddSquarefreeCyclotomicNumberRing::new(3),
+        Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
+    ));
 }
 
 #[test]
@@ -418,7 +466,10 @@ fn test_odd_cyclotomic_single_rns_ring() {
     feanor_tracing::DelayedLogger::init_test();
     single_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 5));
     single_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 7));
-    single_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+    single_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(
+        OddSquarefreeCyclotomicNumberRing::new(3),
+        Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
+    ));
 }
 
 #[test]
@@ -426,7 +477,10 @@ fn test_odd_cyclotomic_decomposition_ring() {
     feanor_tracing::DelayedLogger::init_test();
     quotient_by_int::test_with_number_ring(TensorProductNumberRing::new(3, 5));
     quotient_by_int::test_with_number_ring(TensorProductNumberRing::new(3, 7));
-    quotient_by_int::test_with_number_ring(TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+    quotient_by_int::test_with_number_ring(TensorProductNumberRing::new_with_factors(
+        OddSquarefreeCyclotomicNumberRing::new(3),
+        Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
+    ));
 }
 
 #[test]
@@ -437,12 +491,14 @@ fn test_small_coeff_basis_conversion() {
     let decomposition = number_ring.bases_mod_p(ring);
 
     let arr_create = |data: [i32; 8]| std::array::from_fn::<_, 8, _>(|i| ring.int_hom().map(data[i]));
-    let assert_arr_eq = |fst: [zn_64::ZnEl; 8], snd: [zn_64::ZnEl; 8]| assert!(
-        fst.iter().zip(snd.iter()).all(|(x, y)| ring.eq_el(x, y)),
-        "expected {:?} = {:?}",
-        std::array::from_fn::<_, 8, _>(|i| ring.format(&fst[i])),
-        std::array::from_fn::<_, 8, _>(|i| ring.format(&snd[i]))
-    );
+    let assert_arr_eq = |fst: [zn_64::ZnEl; 8], snd: [zn_64::ZnEl; 8]| {
+        assert!(
+            fst.iter().zip(snd.iter()).all(|(x, y)| ring.eq_el(x, y)),
+            "expected {:?} = {:?}",
+            std::array::from_fn::<_, 8, _>(|i| ring.format(&fst[i])),
+            std::array::from_fn::<_, 8, _>(|i| ring.format(&snd[i]))
+        )
+    };
 
     let original = arr_create([1, 0, 0, 0, 0, 0, 0, 0]);
     let expected = arr_create([1, 0, 0, 0, 0, 0, 0, 0]);
@@ -451,7 +507,7 @@ fn test_small_coeff_basis_conversion() {
     assert_arr_eq(expected, actual);
     decomposition.small_basis_to_coeff_basis(&mut actual);
     assert_arr_eq(original, actual);
-    
+
     // 𝝵_15 = 𝝵_3^-1 ⊗ 𝝵_5^2 = (-1 - 𝝵_3) ⊗ 𝝵_5^2
     let original = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
     let expected = arr_create([0, 0, 0, 0, 240, 240, 0, 0]);
@@ -485,7 +541,10 @@ fn test_small_coeff_basis_conversion() {
     decomposition.small_basis_to_coeff_basis(&mut actual);
     assert_arr_eq(original, actual);
 
-    let number_ring = TensorProductNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8));
+    let number_ring = TensorProductNumberRing::new_with_factors(
+        OddSquarefreeCyclotomicNumberRing::new(3),
+        Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
+    );
     let decomposition = number_ring.bases_mod_p(ring);
     let original = arr_create([-1, 0, 0, 0, 1, 0, 0, 0]);
     let expected = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
@@ -503,8 +562,24 @@ fn test_permute_galois_automorphism() {
     let R = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 3), Fp);
     let gal_el = |x: i64| R.number_ring().galois_group().from_representative(x);
 
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(2)));
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(4)));
-    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(8)));
-    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.apply_galois_action(&ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), &gal_el(2)));
+    assert_el_eq!(
+        R,
+        ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]),
+        R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(2))
+    );
+    assert_el_eq!(
+        R,
+        ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]),
+        R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(4))
+    );
+    assert_el_eq!(
+        R,
+        ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]),
+        R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(8))
+    );
+    assert_el_eq!(
+        R,
+        ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]),
+        R.apply_galois_action(&ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), &gal_el(2))
+    );
 }
