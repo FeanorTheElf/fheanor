@@ -326,6 +326,32 @@ where
     /// representation of elements.
     pub fn unmanaged_ring(&self) -> RingRef<'_, DoubleRNSRingBase<NumberRing, A>> { RingRef::new(&self.base) }
 
+    /// Returns if the representation w.r.t. the multiplicative basis is already computed and cached
+    /// for the given element. If this returns true, any call to
+    /// [`ManagedDoubleRNSRingBase::to_doublerns()`] will be essentially free.
+    pub fn is_doublerns_cached(&self, el: &ManagedDoubleRNSEl<NumberRing, A>) -> bool {
+        match el.internal.get_repr() {
+            ManagedDoubleRNSElRepresentation::Both(..) => true,
+            ManagedDoubleRNSElRepresentation::SmallBasis(_) => false,
+            ManagedDoubleRNSElRepresentation::Sum(_) => false,
+            ManagedDoubleRNSElRepresentation::Zero => true,
+            ManagedDoubleRNSElRepresentation::DoubleRNS(_) => true,
+        }
+    }
+
+    /// Returns if the representation w.r.t. the small basis is already computed and cached
+    /// for the given element. If this returns true, any call to
+    /// [`ManagedDoubleRNSRingBase::to_small_basis()`] will be essentially free.
+    pub fn is_small_basis_cached(&self, el: &ManagedDoubleRNSEl<NumberRing, A>) -> bool {
+        match el.internal.get_repr() {
+            ManagedDoubleRNSElRepresentation::Both(..) => true,
+            ManagedDoubleRNSElRepresentation::SmallBasis(_) => true,
+            ManagedDoubleRNSElRepresentation::Sum(_) => false,
+            ManagedDoubleRNSElRepresentation::Zero => true,
+            ManagedDoubleRNSElRepresentation::DoubleRNS(_) => false,
+        }
+    }
+
     /// Returns the representation of the given element w.r.t. the small basis, possibly computing
     /// this representation if it is not available. If the element is zero, `None` is returned.
     pub fn to_small_basis<'a>(

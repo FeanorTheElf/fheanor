@@ -445,7 +445,7 @@ pub trait CLPXInstantiation {
         let (c00, c01) = lhs;
         let (c10, c11) = rhs;
 
-        let mut lift = Self::lift_to_Cmul(C, C_mul);
+        let lift = Self::lift_to_Cmul(C, C_mul);
         let c00_lifted = lift(&c00);
         let c01_lifted = lift(&c01);
         let c10_lifted = lift(&c10);
@@ -460,7 +460,7 @@ pub trait CLPXInstantiation {
         C_mul.mul_assign_ref(&mut lifted1, &t_in_C_mul);
         C_mul.mul_assign_ref(&mut lifted2, &t_in_C_mul);
 
-        let mut scale_down = Self::rescale_to_C(C, C_mul, t_coeff_inf_norm);
+        let scale_down = Self::rescale_to_C(C, C_mul, t_coeff_inf_norm);
         let res0 = scale_down(&lifted0);
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
@@ -488,7 +488,7 @@ pub trait CLPXInstantiation {
     ) -> Ciphertext<Self> {
         let (c0, c1) = val;
 
-        let mut lift = Self::lift_to_Cmul(C, C_mul);
+        let lift = Self::lift_to_Cmul(C, C_mul);
         let c0_lifted = lift(&c0);
         let c1_lifted = lift(&c1);
 
@@ -500,7 +500,7 @@ pub trait CLPXInstantiation {
         C_mul.mul_assign_ref(&mut lifted1, &t_in_C_mul);
         C_mul.mul_assign_ref(&mut lifted2, &t_in_C_mul);
 
-        let mut scale_down = Self::rescale_to_C(C, C_mul, t_coeff_inf_norm);
+        let scale_down = Self::rescale_to_C(C, C_mul, t_coeff_inf_norm);
         let res0 = scale_down(&lifted0);
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
@@ -694,8 +694,8 @@ pub trait CLPXInstantiation {
     fn lift_to_Cmul<'a>(
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Send + Sync + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_lift_to_Cmul(C, C_mul, |_, delta| delta)
+    ) -> Box<dyn 'a + Send + Sync + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+        default_impl_lift_to_Cmul(C, C_mul, |_, _, _, delta| delta)
     }
 
     /// Returns an implementation of the function `R/qq'R -> R/qR` that maps every `x` in `R/qq'R`
@@ -707,7 +707,7 @@ pub trait CLPXInstantiation {
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
         log2_t_coeff_inf_norm: usize,
-    ) -> Box<dyn 'a + Send + Sync + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Send + Sync + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         default_impl_rescale_to_C::<Self>(C, C_mul, log2_t_coeff_inf_norm)
     }
 }
@@ -749,8 +749,14 @@ impl<A: FheanorAllocator, C: FheanorNegacyclicNTT<Zn>> CLPXInstantiation for Pow
     fn lift_to_Cmul<'a>(
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Send + Sync + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_lift_to_Cmul(C, C_mul, |C_delta, delta| force_double_rns_repr(C_delta, delta))
+    ) -> Box<dyn 'a + Send + Sync + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+        default_impl_lift_to_Cmul(C, C_mul, |C, dst, C_delta, delta| {
+            if C.get_ring().is_doublerns_cached(dst) {
+                force_double_rns_repr(C_delta, delta)
+            } else {
+                delta
+            }
+        })
     }
 }
 
@@ -791,8 +797,14 @@ impl<A: FheanorAllocator> CLPXInstantiation for CompositeCLPX<A> {
     fn lift_to_Cmul<'a>(
         C: &'a CiphertextRing<Self>,
         C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Send + Sync + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_lift_to_Cmul(C, C_mul, |C_delta, delta| force_double_rns_repr(C_delta, delta))
+    ) -> Box<dyn 'a + Send + Sync + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+        default_impl_lift_to_Cmul(C, C_mul, |C, dst, C_delta, delta| {
+            if C.get_ring().is_doublerns_cached(dst) {
+                force_double_rns_repr(C_delta, delta)
+            } else {
+                delta
+            }
+        })
     }
 }
 
@@ -806,7 +818,7 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + CLPXInstantiation>(
     C: &'a CiphertextRing<Inst>,
     C_mul: &'a CiphertextRing<Inst>,
     log2_t_coeff_inf_norm: usize,
-) -> Box<dyn 'a + Send + Sync + for<'b> FnMut(&'b El<CiphertextRing<Inst>>) -> El<CiphertextRing<Inst>>> {
+) -> Box<dyn 'a + Send + Sync + for<'b> Fn(&'b El<CiphertextRing<Inst>>) -> El<CiphertextRing<Inst>>> {
     assert!(C.number_ring() == C_mul.number_ring());
     assert_eq!(
         C.get_ring().small_generating_set_len(),

@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
-use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
+use feanor_math::algorithms::convolution::{ConvolutionAlgorithm, STANDARD_CONVOLUTION};
 use feanor_math::algorithms::eea::signed_gcd;
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::algorithms::matmul::ComputeInnerProduct;
@@ -178,7 +178,7 @@ pub trait BGVInstantiation {
     type NumberRing: NumberRingDescriptor;
 
     /// Type of the ciphertext ring `R/qR`.
-    type CiphertextRing: NumberRingRNSQuotient<NumberRing = Self::NumberRing>;
+    type CiphertextRing: Send + Sync + NumberRingRNSQuotient<NumberRing = Self::NumberRing>;
 
     /// Type of the plaintext base ring `Z/tZ`.
     type PlaintextZnRing: NiceZn;
@@ -1171,7 +1171,7 @@ pub trait BGVInstantiation {
         P: &'a PlaintextRing<Self>,
         Cnew: &'a CiphertextRing<Self>,
         Cold: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + FnMut(El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ) -> Box<dyn 'a + Send + Sync + Fn(El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         let added_rns_factors = RNSFactorIndexList::missing_from(Cold.base_ring(), Cnew.base_ring());
         let dropped_rns_factors = RNSFactorIndexList::missing_from(Cnew.base_ring(), Cold.base_ring());
         let kept_rns_factors = dropped_rns_factors.complement(Cold.base_ring().len());
@@ -1184,7 +1184,12 @@ pub trait BGVInstantiation {
             ),
         );
 
-        let map_kept_factors = move |x| {
+        fn map_kept_factors<Inst: ?Sized + BGVInstantiation>(
+            Cnew: &CiphertextRing<Inst>,
+            Cold: &CiphertextRing<Inst>,
+            added_rns_factors: &RNSFactorIndexList,
+            x: El<CiphertextRing<Inst>>,
+        ) -> El<CiphertextRing<Inst>> {
             Cnew.get_ring()
                 .collect_rns_factors((0..Cnew.base_ring().len()).map(|idx| {
                     if added_rns_factors.contains(idx) {
@@ -1201,7 +1206,7 @@ pub trait BGVInstantiation {
                         RNSFactorCongruence::CongruentTo(Cold.get_ring(), old_idx, &x)
                     }
                 }))
-        };
+        }
 
         if kept_rns_factors.len() == Cold.base_ring().len() {
             if kept_rns_factors.len() == Cnew.base_ring().len() {
@@ -1209,7 +1214,7 @@ pub trait BGVInstantiation {
             } else {
                 return Box::new(move |mut x: El<CiphertextRing<Self>>| {
                     Cold.inclusion().mul_assign_ref_map(&mut x, &a);
-                    return map_kept_factors(x);
+                    return map_kept_factors::<Self>(Cnew, Cold, &added_rns_factors, x);
                 });
             }
         }
@@ -1238,12 +1243,24 @@ pub trait BGVInstantiation {
                 ),
             )
             .unwrap();
-        Box::new(move |mut x: El<CiphertextRing<Self>>| {
+
+        #[instrument(skip_all)]
+        fn rescale_ring_element_impl<Inst: ?Sized + BGVInstantiation>(
+            Cnew: &CiphertextRing<Inst>,
+            Cold: &CiphertextRing<Inst>,
+            C_dropped: &CiphertextRing<Inst>,
+            added_rns_factors: &RNSFactorIndexList,
+            kept_rns_factors: &RNSFactorIndexList,
+            compute_delta: &RNSCongruencePreservingBaseConversion,
+            a: &El<<<CiphertextRing<Inst> as RingStore>::Type as RingExtension>::BaseRing>,
+            b_inv: &El<<<CiphertextRing<Inst> as RingStore>::Type as RingExtension>::BaseRing>,
+            mut x: El<CiphertextRing<Inst>>,
+        ) -> El<CiphertextRing<Inst>> {
             Cold.inclusion().mul_assign_ref_map(&mut x, &a);
 
             let x_dropped = C_dropped
                 .get_ring()
-                .drop_rns_factor_element(Cold.get_ring(), &kept_rns_factors, &x);
+                .drop_rns_factor_element(Cold.get_ring(), kept_rns_factors, &x);
             let x_dropped_matrix = C_dropped
                 .get_ring()
                 .as_representation_wrt_small_generating_set(&x_dropped);
@@ -1252,9 +1269,24 @@ pub trait BGVInstantiation {
                 .get_ring()
                 .from_representation_wrt_small_generating_set(|dst| compute_delta.apply(x_dropped_matrix, dst));
 
-            return Cnew
-                .inclusion()
-                .mul_ref_snd_map(Cnew.sub(map_kept_factors(x), delta), &b_inv);
+            return Cnew.inclusion().mul_ref_snd_map(
+                Cnew.sub(map_kept_factors::<Inst>(Cnew, Cold, added_rns_factors, x), delta),
+                &b_inv,
+            );
+        }
+
+        Box::new(move |x: El<CiphertextRing<Self>>| {
+            rescale_ring_element_impl::<Self>(
+                Cnew,
+                Cold,
+                &C_dropped,
+                &added_rns_factors,
+                &kept_rns_factors,
+                &compute_delta,
+                &a,
+                &b_inv,
+                x,
+            )
         })
     }
 
@@ -1272,7 +1304,7 @@ pub trait BGVInstantiation {
         ct: Ciphertext<Self>,
     ) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
-        let mut rescale = Self::rescale_ring_element_fn(P, Cnew, Cold);
+        let rescale = Self::rescale_ring_element_fn(P, Cnew, Cold);
         let result = Ciphertext {
             c0: rescale(ct.c0),
             c1: rescale(ct.c1),
@@ -1807,7 +1839,11 @@ impl<A: FheanorAllocator, C: FheanorConvolution<Zn>> CompositeSingleRNSBGV<A, C>
     }
 }
 
-impl<A: FheanorAllocator, C: FheanorConvolution<Zn>> BGVInstantiation for CompositeSingleRNSBGV<A, C> {
+impl<A: FheanorAllocator, C: FheanorConvolution<Zn>> BGVInstantiation for CompositeSingleRNSBGV<A, C>
+where
+    C: ConvolutionAlgorithm<ZnBase>,
+    <C as ConvolutionAlgorithm<ZnBase>>::PreparedConvolutionOperand: Send + Sync,
+{
     type NumberRing = TensorProductNumberRing;
     type CiphertextRing = SingleRNSRingBase<TensorProductNumberRing, A, C>;
     type PlaintextZnRing = ZnBase;
