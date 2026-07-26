@@ -11,7 +11,6 @@ use feanor_math::algorithms::matmul::ComputeInnerProduct;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::homomorphism::*;
 use feanor_math::integer::{BigIntRing, BigIntRingBase, IntegerRingStore, int_cast};
-use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ordered::OrderedRingStore;
 use feanor_math::ring::*;
 use feanor_math::rings::extension::*;
@@ -1249,11 +1248,9 @@ pub trait BGVInstantiation {
                 .get_ring()
                 .as_representation_wrt_small_generating_set(&x_dropped);
             let x_dropped_matrix = x_dropped_matrix.as_submatrix();
-            let mut delta = OwnedMatrix::uninit(Cnew.base_ring().len(), Cnew.get_ring().small_generating_set_len());
-            let delta = compute_delta.apply(x_dropped_matrix, delta.data_mut());
             let delta = Cnew
                 .get_ring()
-                .from_representation_wrt_small_generating_set(delta.as_const());
+                .from_representation_wrt_small_generating_set(|dst| compute_delta.apply(x_dropped_matrix, dst));
 
             return Cnew
                 .inclusion()

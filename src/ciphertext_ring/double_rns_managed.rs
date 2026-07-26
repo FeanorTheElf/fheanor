@@ -944,12 +944,16 @@ where
             .as_representation_wrt_small_generating_set_non_fft(self.to_small_basis(x).unwrap_or(&self.zero))
     }
 
-    #[instrument(skip_all)]
-    fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, El<Zn>>) -> Self::Element
+    fn from_representation_wrt_small_generating_set<F>(&self, initializer: F) -> Self::Element
     where
-        V: AsPointerToSlice<El<Zn>>,
+        F: FnOnce(
+            SubmatrixMut<AsFirstElement<std::mem::MaybeUninit<zn_64::ZnEl>>, std::mem::MaybeUninit<zn_64::ZnEl>>,
+        ) -> SubmatrixMut<AsFirstElement<std::mem::MaybeUninit<zn_64::ZnEl>>, zn_64::ZnEl>,
     {
-        self.from_small_basis(self.base.from_representation_wrt_small_generating_set_non_fft(data))
+        self.from_small_basis(
+            self.base
+                .from_representation_wrt_small_generating_set_non_fft(initializer),
+        )
     }
 
     fn two_by_two_convolution(&self, lhs: [Self::Element; 2], rhs: [Self::Element; 2]) -> [Self::Element; 3] {

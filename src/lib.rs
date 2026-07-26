@@ -18,13 +18,11 @@
 #![doc = include_str!("../Readme.md")]
 
 use std::alloc::{Allocator, Global};
-use std::mem::MaybeUninit;
 use std::ptr::Alignment;
 
 use feanor_math::algorithms::linsolve::LinSolveRing;
 use feanor_math::homomorphism::*;
 use feanor_math::integer::*;
-use feanor_math::matrix::{AsFirstElement, OwnedMatrix, SubmatrixMut};
 use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
 use feanor_math::rings::zn::{FromModulusCreateableZnRing, ZnRing};

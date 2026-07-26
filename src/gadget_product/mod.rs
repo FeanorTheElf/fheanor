@@ -3,7 +3,6 @@ use std::ops::Range;
 use feanor_math::group::AbelianGroupStore;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::{BigIntRing, int_cast};
-use feanor_math::matrix::*;
 use feanor_math::ring::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::{VectorFn, VectorView};
@@ -357,17 +356,15 @@ where
         .as_iter()
         .map(|Zp| Zp.can_hom(&ZZi64).unwrap())
         .collect::<Vec<_>>();
-    let mut current_row = OwnedMatrix::uninit(homs.len(), el_as_matrix.col_count());
 
     for digit in digits {
         let conversion = GadgetProductBaseConversion::new(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
             homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
         );
-
-        let current_row = conversion.apply(el_as_matrix.restrict_rows(digit.clone()), current_row.data_mut());
-
-        let decomposition_part = out_ring.from_representation_wrt_small_generating_set(current_row.as_const());
+        let decomposition_part = out_ring.from_representation_wrt_small_generating_set(|dst| {
+            conversion.apply(el_as_matrix.restrict_rows(digit.clone()), dst)
+        });
         result.push((out_ring.prepare_multiplicant(&decomposition_part), decomposition_part));
     }
     return result;
@@ -394,17 +391,15 @@ where
         .as_iter()
         .map(|Zp| Zp.can_hom(&ZZi64).unwrap())
         .collect::<Vec<_>>();
-    let mut current_row = OwnedMatrix::uninit(homs.len(), el_as_matrix.col_count());
 
     for digit in digits {
         let conversion = GadgetProductBaseConversion::new(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
             homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
         );
-
-        let current_row = conversion.apply(el_as_matrix.restrict_rows(digit.clone()), current_row.data_mut());
-
-        let decomposition_part = out_ring.from_representation_wrt_small_generating_set(current_row.as_const());
+        let decomposition_part = out_ring.from_representation_wrt_small_generating_set(|dst| {
+            conversion.apply(el_as_matrix.restrict_rows(digit.clone()), dst)
+        });
         result.push((out_ring.prepare_multiplicant(&decomposition_part), decomposition_part));
     }
     return result;

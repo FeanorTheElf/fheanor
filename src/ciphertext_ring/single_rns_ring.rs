@@ -525,10 +525,11 @@ where
             SubmatrixMut<AsFirstElement<std::mem::MaybeUninit<ZnEl>>, std::mem::MaybeUninit<ZnEl>>,
         ) -> SubmatrixMut<AsFirstElement<std::mem::MaybeUninit<ZnEl>>, ZnEl>,
     {
-        let mut result = OwnedMatrix::uninit_in(self.base_ring().len(), self.m(), self.allocator().clone());
-        result.init(|dst| initializer(dst));
-        return SingleRNSRingPreparedMultiplicant {
-            data: result,
+        let result = OwnedMatrix::uninit_in(self.base_ring().len(), self.m(), self.allocator().clone());
+        let result = result.init(|dst| initializer(dst));
+        return SingleRNSRingEl {
+            coefficients: result.into_data(),
+            convolutions: PhantomData,
             number_ring: PhantomData,
         };
     }

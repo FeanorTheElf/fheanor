@@ -1,5 +1,4 @@
 use std::alloc::Global;
-use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
@@ -7,7 +6,6 @@ use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::*;
-use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ordered::*;
 use feanor_math::ring::*;
 use feanor_math::rings::extension::FreeAlgebraStore;
@@ -839,24 +837,21 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + CLPXInstantiation>(
         Vec::new(),
         (0..C.base_ring().len()).collect(),
     );
-    let mut tmp_out = OwnedMatrix::uninit(C.base_ring().len(), C.get_ring().small_generating_set_len());
 
     #[instrument(skip_all)]
     fn rescale_to_C_impl<Inst: ?Sized + CLPXInstantiation>(
         C: &CiphertextRing<Inst>,
         C_mul: &CiphertextRing<Inst>,
-        tmp_out: &mut OwnedMatrix<MaybeUninit<El<zn_64::Zn>>>,
         rescale: &RNSRescalingConversion,
         c: &El<CiphertextRing<Inst>>,
     ) -> El<CiphertextRing<Inst>> {
         let c_repr = C_mul.get_ring().as_representation_wrt_small_generating_set(c);
         let c_repr = c_repr.as_submatrix();
-        let tmp_out = rescale.apply(c_repr, tmp_out.data_mut());
         return C
             .get_ring()
-            .from_representation_wrt_small_generating_set(tmp_out.as_const());
+            .from_representation_wrt_small_generating_set(|dst| rescale.apply(c_repr, dst));
     }
-    Box::new(move |c| rescale_to_C_impl::<Inst>(C, C_mul, &mut tmp_out, &rescale, c))
+    Box::new(move |c| rescale_to_C_impl::<Inst>(C, C_mul, &rescale, c))
 }
 
 #[cfg(test)]

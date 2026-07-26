@@ -37,13 +37,10 @@ use super::serialization::{deserialize_rns_data, serialize_rns_data};
 use super::single_rns_ring::*;
 use super::{NumberRingRNSQuotient, PreparedMultiplicationRing};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::{
-    AsSubmatrix, MatrixInitializer, RNSFactorCongruence, add_rns_factor_list_of_congruences,
-    drop_rns_factor_list_of_congruences,
-};
+use crate::ciphertext_ring::*;
 use crate::number_ring::galois::*;
 use crate::number_ring::*;
-use crate::{FheanorAllocator, ZZbig, init_vec_safely, is_parallel};
+use crate::{FheanorAllocator, ZZbig, is_parallel};
 
 /// Implementation of the ring `Z[𝝵_m]/(q)`, where `q = p1 ... pr` is a product of "RNS factors".
 /// Elements are (by default) stored in double-RNS-representation for efficient arithmetic.
@@ -564,14 +561,11 @@ where
             SubmatrixMut<AsFirstElement<MaybeUninit<ZnEl>>, MaybeUninit<ZnEl>>,
         ) -> SubmatrixMut<AsFirstElement<MaybeUninit<ZnEl>>, ZnEl>,
     {
-        let mut result = OwnedMatrix::uninit_in(self.rns_base.len(), self.rank(), self.allocator().clone());
-        result.init(|dst| initializer(dst));
-        let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
-        result.resize_with(self.element_len(), MaybeUninit::uninit);
-        let result = init_vec_safely(result, |dst| initializer(dst));
+        let result = OwnedMatrix::uninit_in(self.rns_base.len(), self.rank(), self.allocator().clone());
+        let result = result.init(|dst| initializer(dst));
         return SmallBasisEl {
             allocator: PhantomData,
-            el_wrt_small_basis: result,
+            el_wrt_small_basis: result.into_data(),
             number_ring: PhantomData,
         };
     }
