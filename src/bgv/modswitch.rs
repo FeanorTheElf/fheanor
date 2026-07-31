@@ -11,7 +11,6 @@ use crate::bgv::eval::AsBGVPlaintext;
 use crate::bgv::noise_estimator::*;
 use crate::boo::Boo;
 use crate::circuit::evaluator::CircuitEvaluator;
-use crate::circuit::*;
 use crate::gadget_product::digits::*;
 use crate::number_ring::galois::{CyclotomicGaloisGroupOps, *};
 

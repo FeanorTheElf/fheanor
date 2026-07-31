@@ -721,7 +721,8 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
             .sum::<f64>();
         let result = f64::max(
             ct.noise.log2_relative_critical_quantity,
-            log2_largest_digit - special_modulus_log2 + (C_special.rank() as f64).log2() * 2. - log2_q,
+            t_log2::<Params>(P) + log2_largest_digit - special_modulus_log2 + (C_special.rank() as f64).log2() * 2.
+                - log2_q,
         );
         Self::descriptor::<Params>(result, P.base_ring().clone_el(&ct.implicit_scale), switch_key.new_sk)
     }

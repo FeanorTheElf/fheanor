@@ -2,8 +2,10 @@
 #![allow(non_upper_case_globals)]
 
 use std::fmt::Display;
+use std::iter::repeat_n;
 use std::marker::PhantomData;
 use std::ops::Range;
+use std::time::Instant;
 
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::algorithms::int_factor::is_prime_power;
@@ -17,18 +19,22 @@ use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::ring::*;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::finite::{FiniteRing, FiniteRingStore};
+use feanor_math::rings::poly::PolyRingStore;
+use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::*;
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, Rng, rng};
 use rand_distr::StandardNormal;
 use tracing::instrument;
 
+use crate::bfv::bootstrap::{SparseKeyEncapsulationKey, ThinBootstrapper};
+use crate::bgv::SecretKeyDistribution::SparseWithHwt;
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
 use crate::ciphertext_ring::{AsSubmatrix, NumberRingRNSQuotient, perform_rns_op};
-use crate::circuit::{CircuitEvaluatorCosts, DEFAULT_EVALUATOR_COSTS, PlaintextCircuit};
+use crate::circuit::{CircuitEvaluatorCosts, Coefficient, DEFAULT_EVALUATOR_COSTS, PlaintextCircuit};
 use crate::gadget_product::digits::*;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
 use crate::ntt::{FheanorConvolution, FheanorNegacyclicNTT};
@@ -39,6 +45,7 @@ use crate::number_ring::pow2_cyclotomic::*;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use crate::number_ring::tensor_ring::*;
 use crate::number_ring::*;
+use crate::poly_eval::to_circuit::poly_to_circuit;
 use crate::rns_conv::bfv_rescale::{RNSRescaling, RNSRescalingConversion};
 use crate::rns_conv::shared_lift::RNSSharedBaseConversion;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
@@ -1904,4 +1911,167 @@ fn measure_time_single_rns_composite_bfv_basic_ops() {
         CompositeSingleRNSBFV::hom_mul(&P, &C, &C_mul, ct, ct2, &rk)
     });
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBFV::dec(&P, &C, res, &sk));
+}
+
+#[test]
+fn test_transaction_experiment_bfv() {
+    feanor_tracing::DelayedLogger::init_test();
+    // let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    // let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer,
+    // tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis",
+    // "mult_basis_to_small_basis", "small_basis_to_coeff_basis",
+    // "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    // tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
+
+    let inst = Pow2BFV::new(1 << 16);
+    let P = inst.create_plaintext_ring(int_cast(65537, ZZbig, ZZi64));
+    let (C, C_mul) = inst.create_ciphertext_rings(835..855);
+    let H = HypercubeIsomorphism::new(
+        &P,
+        &HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64)),
+        Some("./cache"),
+    );
+
+    let FpX = DensePolyRing::new(P.base_ring(), "X");
+    let [f4, f3] = FpX.with_wrapped_indeterminate(|X| {
+        [
+            10923 * X.pow_ref(4) + 43690 * X.pow_ref(3) + 21849 * X.pow_ref(2) + 54612 * X,
+            43691 * X.pow_ref(3) + 32770 * X.pow_ref(2) + 54613 * X,
+        ]
+    });
+    let c4 = poly_to_circuit(&FpX, &[f4]).change_ring_uniform(|x| x.change_ring(|x| P.inclusion().map(x)));
+    let c3 = poly_to_circuit(&FpX, &[f3]).change_ring_uniform(|x| x.change_ring(|x| P.inclusion().map(x)));
+    let mask = H.from_slot_values(
+        (0..(P.rank() / 64))
+            .flat_map(|_| (0..63).map(|_| 1).chain([0]))
+            .map(|x| H.slot_ring().int_hom().map(x)),
+    );
+
+    let red_step = |poly: PlaintextCircuit<_>| {
+        PlaintextCircuit::linear_transform(
+            &[
+                Coefficient::One,
+                Coefficient::from_int(int_cast(-2, ZZbig, ZZi64)),
+                Coefficient::One,
+            ],
+            &P,
+        )
+        .compose(
+            PlaintextCircuit::identity(1, &P)
+                .tensor(
+                    PlaintextCircuit::identity(1, &P)
+                        .tensor(
+                            PlaintextCircuit::gal(H.hypercube().map(&[1, 0]), P.acting_galois_group(), &P).compose(
+                                PlaintextCircuit::linear_transform(&[Coefficient::Other(P.clone_el(&mask))], &P),
+                                &P,
+                            ),
+                            &P,
+                        )
+                        .compose(poly.output_twice(&P), &P),
+                    &P,
+                )
+                .compose(PlaintextCircuit::identity(1, &P).output_twice(&P), &P),
+            &P,
+        )
+    };
+    let add = red_step(c3)
+        .compose(red_step(c4), &P)
+        .compose(PlaintextCircuit::add(&P), &P);
+
+    fn val_from_bits<'a, I: IntoIterator<Item = &'a i32>>(bits: I) -> i32
+    where
+        I::IntoIter: DoubleEndedIterator,
+    {
+        bits.into_iter().rev().fold(0, |current, next| current * 2 + next)
+    }
+    let bits_x = [0, 1, 1, 0, 2, 0, 1, 2, 2, 2, 0, 1, 0, 0, 0, 0];
+    let bits_y = [1, 2, 2, 2, 2, 1, 0, 0, 1, 2, 0, 0, 1, 2, 0, 0];
+
+    let m_x = H.from_slot_values(
+        bits_x
+            .into_iter()
+            .chain(repeat_n(0, P.rank() / 2 - 16))
+            .flat_map(|x| [x, 0])
+            .map(|x| H.slot_ring().int_hom().map(x)),
+    );
+    let m_y = H.from_slot_values(
+        bits_y
+            .into_iter()
+            .chain(repeat_n(0, P.rank() / 2 - 16))
+            .flat_map(|x| [x, 0])
+            .map(|x| H.slot_ring().int_hom().map(x)),
+    );
+
+    let gk_digits = RNSGadgetVectorDigitIndices::select_digits(8, C.base_ring().len());
+    let rk_digits = RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len());
+    let sk = Pow2BFV::gen_sk(&C, rng(), SparseWithHwt(128));
+    let rk = Pow2BFV::gen_rk(&C, rng(), &sk, &rk_digits, 3.2);
+    let gk = Pow2BFV::gen_gk(&C, rng(), &sk, &H.hypercube().map(&[1, 0]), &gk_digits, 3.2);
+    let x = Pow2BFV::enc_sym(&P, &C, rng(), &m_x, &sk, 3.2);
+    let y = Pow2BFV::enc_sym(&P, &C, rng(), &m_y, &sk, 3.2);
+    let start = Instant::now();
+    let [res] = add
+        .evaluate_bfv::<Pow2BFV, &PlaintextRing<Pow2BFV>>(
+            &P,
+            &P,
+            &C,
+            Some(&C_mul),
+            &[x, y],
+            Some(&rk),
+            &[(H.hypercube().map(&[1, 0]), gk)],
+            None,
+        )
+        .try_into()
+        .ok()
+        .unwrap();
+    let end = Instant::now();
+    println!("addition done in {} ms", (end - start).as_millis());
+    let values = H
+        .get_slot_values(&Pow2BFV::dec(&P, &C, Pow2BFV::clone_ct(&C, &res), &sk))
+        .map(|x| {
+            H.slot_ring()
+                .base_ring()
+                .smallest_positive_lift(H.slot_ring().wrt_canonical_basis(&x).at(0)) as i32
+        })
+        .collect::<Vec<_>>();
+    println!("{:?}", &values[..32]);
+    println!(
+        "assert({} == {})",
+        val_from_bits(&bits_x) + val_from_bits(&bits_y),
+        val_from_bits(values[..32].iter().step_by(2))
+    );
+
+    let bootstrapper = ThinBootstrapper::build_pow2(&inst, &P, &C, 1, Some(16), 4, &gk_digits, Some("./cache"));
+    let sparse_key_encaps = SparseKeyEncapsulationKey::new(&P, &C, &sk, 3, 32, rng(), 3.2);
+    let gks = bootstrapper
+        .required_galois_keys(&P)
+        .into_iter()
+        .map(|g| {
+            let gk = Pow2BFV::gen_gk(&C, rng(), &sk, &g, &gk_digits, 3.2);
+            (g, gk)
+        })
+        .collect::<Vec<_>>();
+    let start = Instant::now();
+    let res = bootstrapper.bootstrap_thin(&C, &C_mul, res, &rk, &gks, Some(&sparse_key_encaps), None);
+    let end = Instant::now();
+    println!("bootstrap done in {} ms", (end - start).as_millis());
+    println!(
+        "noise budget: {}/{}",
+        Pow2BFV::noise_budget(&P, &C, &res, &sk),
+        ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap()
+    );
+    let res = Pow2BFV::dec(&P, &C, Pow2BFV::clone_ct(&C, &res), &sk);
+    let values = H
+        .get_slot_values(&res)
+        .map(|x| {
+            H.slot_ring()
+                .base_ring()
+                .smallest_positive_lift(H.slot_ring().wrt_canonical_basis(&x).at(0)) as i32
+        })
+        .collect::<Vec<_>>();
+    println!("{:?}", &values[..32]);
+    assert_eq!(
+        val_from_bits(&bits_x) + val_from_bits(&bits_y),
+        val_from_bits(&values[..32])
+    );
 }

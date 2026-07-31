@@ -6,7 +6,7 @@ use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::group::AbelianGroupStore;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::generic_impls::map_from_integer_ring;
-use feanor_math::integer::{BigIntRing, int_cast};
+use feanor_math::integer::{BigIntRing, IntegerRingStore, int_cast};
 use feanor_math::ring::*;
 use feanor_math::rings::zn::*;
 use feanor_math::serialization::SerializableElementRing;
@@ -1313,6 +1313,44 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
             multiplicative_depths.extend((0..count).map(|_| new_depth));
         }
         return mult_depth_of_linear_combination(&self.output_transforms[i], &multiplicative_depths);
+    }
+
+    /// Returns the total multiplicative depth of the `i`-th output, i.e.
+    /// the maximal number of ciphertext-ciphertxt multiplication and nontrivial scalar
+    /// multiplication gates on a path from some input to the given output.
+    /// [`PlaintextCircuit::mul_depth()`].
+    pub fn total_mul_depth(&self, i: usize) -> usize {
+        let mut scalar_mul_depths = Vec::new();
+        scalar_mul_depths.resize(self.input_count(), 0);
+        let mult_depth_of_linear_combination = |lin_combination: &LinearCombination<_>, mul_depths: &[usize]| {
+            assert_eq!(lin_combination.factors.len(), mul_depths.len());
+            lin_combination
+                .factors
+                .iter()
+                .zip(mul_depths.iter())
+                .map(|(factor, d)| match factor {
+                    Coefficient::NegOne | Coefficient::One => *d,
+                    Coefficient::Zero => 0,
+                    _ => 1 + d,
+                })
+                .max()
+                .unwrap_or(0)
+        };
+        for gate in &self.gates {
+            let (new_depth, count) = match gate {
+                PlaintextCircuitGate::Mul(lhs, rhs) => (
+                    max(
+                        mult_depth_of_linear_combination(lhs, &scalar_mul_depths),
+                        mult_depth_of_linear_combination(rhs, &scalar_mul_depths),
+                    ) + 1,
+                    1,
+                ),
+                PlaintextCircuitGate::Gal(gs, t) => (mult_depth_of_linear_combination(t, &scalar_mul_depths), gs.len()),
+                PlaintextCircuitGate::Square(t) => (mult_depth_of_linear_combination(t, &scalar_mul_depths) + 1, 1),
+            };
+            scalar_mul_depths.extend((0..count).map(|_| new_depth));
+        }
+        return mult_depth_of_linear_combination(&self.output_transforms[i], &scalar_mul_depths);
     }
 
     /// Returns the maximal multiplicative depth of an output, i.e.

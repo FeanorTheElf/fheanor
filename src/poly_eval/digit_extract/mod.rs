@@ -411,6 +411,7 @@ impl<R: ?Sized + NiceZn> DigitExtract<R> {
 }
 
 impl<R: ?Sized + RingBase> DigitExtract<R> {
+
     /// Creates a new [`DigitExtract`] from the given circuits.
     ///
     /// If you want to use the default choice of circuits, consider using

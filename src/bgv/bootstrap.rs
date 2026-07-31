@@ -134,7 +134,8 @@ where
     ///  - `digit_extract_error_bound` allows to give a tighter bound on the noise. If `p` is large,
     ///    even with `v = 1` the bound on the noise `p^v/2` is often far from tight. Setting this to
     ///    a tighter bound will enable the use of more efficient digit extraction polynomials. Note
-    ///    that if this is set, it is required that `v = 1`.
+    ///    that if this is set, it is required that `v = 1`. Note that the used digit extraction
+    ///    polynomial has degree `e (2 B + 1) - 1`.
     ///  - `lin_transform_max_levels` maximal number of sequential plaintext-ciphertext
     ///    multiplications performed by the linear transform. Higher values can lead to better
     ///    performance, while lower values improve noise growth.
@@ -208,8 +209,11 @@ where
         );
         let digit_extract = DigitExtract::new_default(&all_plaintext_rings, &H, digit_extract_error_bound, cache_dir);
 
-        // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
-        // ring elements of size at most `t`
+        // a ciphertext that was just modulus-switched down has noise of canonical norm about
+        // `t |s|_can`, which we bound by `t` times the expansion factor of the ring; the
+        // Slots-to-Coeffs transform then multiplies this by its noise expansion factor, and the
+        // result must still fit into the ciphertext modulus - note that we don't need any noise
+        // budget left after the transform
         let min_rns_factor_log2 = C_master
             .base_ring()
             .as_iter()
@@ -217,9 +221,9 @@ where
             .map(|rns_factor| (rns_factor as f64).log2())
             .min_by(f64::total_cmp)
             .unwrap();
-        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64
-            + P.number_ring().coeff_basis_product_expansion_factor().log2())
-            * (P.acting_galois_group().group_order() as f64).log2()
+        let log2_can_norm_plaintext =
+            ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2();
+        let slots_to_coeffs_rns_factors = ((slots_to_coeffs.total_mul_depth(0) as f64 * (log2_can_norm_plaintext + 1.))
             / min_rns_factor_log2)
             .ceil() as usize;
 
@@ -253,7 +257,8 @@ where
     ///  - `digit_extract_error_bound` allows to give a tighter bound on the noise. If `p` is large,
     ///    even with `v = 1` the bound on the noise `p^v/2` is often far from tight. Setting this to
     ///    a tighter bound will enable the use of more efficient digit extraction polynomials. Note
-    ///    that if this is set, it is required that `v = 1`.
+    ///    that if this is set, it is required that `v = 1`. Note that the used digit extraction
+    ///    polynomial has degree `e (2 B + 1) - 1`.
     ///  - `gk_digits` specifies the gadget vector used for Galois keys. This is required to
     ///    estimate the number of RNS factors used for the Slots-to-Coeffs transform.
     ///  - `lin_transform_max_levels` maximal number of sequential plaintext-ciphertext
@@ -324,8 +329,11 @@ where
         );
         let digit_extract = DigitExtract::new_default(&all_plaintext_rings, &H, digit_extract_error_bound, cache_dir);
 
-        // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
-        // ring elements of size at most `t`
+        // a ciphertext that was just modulus-switched down has noise of canonical norm about
+        // `t |s|_can`, which we bound by `t` times the expansion factor of the ring; the
+        // Slots-to-Coeffs transform then multiplies this by its noise expansion factor, and the
+        // result must still fit into the ciphertext modulus - note that we don't need any noise
+        // budget left after the transform
         let min_rns_factor_log2 = C_master
             .base_ring()
             .as_iter()
@@ -333,9 +341,9 @@ where
             .map(|rns_factor| (rns_factor as f64).log2())
             .min_by(f64::total_cmp)
             .unwrap();
-        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64
-            + P.number_ring().coeff_basis_product_expansion_factor().log2())
-            * (hypercube.dim_count() as f64 + 1.0)
+        let log2_can_norm_plaintext =
+            ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2();
+        let slots_to_coeffs_rns_factors = ((slots_to_coeffs.total_mul_depth(0) as f64 * (log2_can_norm_plaintext + 1.))
             / min_rns_factor_log2)
             .ceil() as usize;
 
@@ -583,6 +591,16 @@ where
                     &sparse_sk_encaps.switch_to_sparse_key,
                 )
             };
+            if let Some(sk) = debug_sk {
+                // the switch to the sparse key happens at a very small modulus, and thus is often
+                // the point where the remaining noise budget is smallest
+                Inst::dec_println(
+                    P_base,
+                    &sparse_sk_encaps.C_sparse_sk,
+                    &ct_keyswitched,
+                    &Inst::mod_switch_sk(&sparse_sk_encaps.C_sparse_sk, C_master, sk),
+                );
+            }
             perform_noisy_expansion(
                 &sparse_sk_encaps.C_sparse_sk,
                 ct_keyswitched,
