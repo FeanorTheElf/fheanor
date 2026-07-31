@@ -856,14 +856,16 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
                     gks,
                     debug_sk,
                 );
-                if let Some(sk) = debug_sk {
-                    println!("Digit extraction modulo p^{} done", exp);
-                    for ct in &digit_extracted {
-                        modswitch_strategy.print_info(P[exp - self.r()], C_master, ct);
-                        let Clocal = Inst::mod_switch_down_C(C_master, &ct.dropped_rns_factor_indices);
-                        let sk_local = Inst::mod_switch_sk(&Clocal, C_master, sk);
-                        Inst::dec_println_slots(P[exp - self.r()], &Clocal, &ct.data, &sk_local, Some("./cache"));
-                        println!();
+                if circuit.has_multiplication_gates() {
+                    if let Some(sk) = debug_sk {
+                        println!("Digit extraction modulo p^{} done", exp);
+                        for ct in &digit_extracted {
+                            modswitch_strategy.print_info(P[exp - self.r()], C_master, ct);
+                            let Clocal = Inst::mod_switch_down_C(C_master, &ct.dropped_rns_factor_indices);
+                            let sk_local = Inst::mod_switch_sk(&Clocal, C_master, sk);
+                            Inst::dec_println_slots(P[exp - self.r()], &Clocal, &ct.data, &sk_local, Some("./cache"));
+                            println!();
+                        }
                     }
                 }
                 return digit_extracted;
