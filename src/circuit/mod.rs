@@ -6,7 +6,7 @@ use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::group::AbelianGroupStore;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::generic_impls::map_from_integer_ring;
-use feanor_math::integer::{BigIntRing, IntegerRingStore, int_cast};
+use feanor_math::integer::*;
 use feanor_math::ring::*;
 use feanor_math::rings::zn::*;
 use feanor_math::serialization::SerializableElementRing;

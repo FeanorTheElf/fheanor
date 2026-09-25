@@ -271,9 +271,9 @@ dependencies = [
 
 [[package]]
 name = "fhe-ir"
-version = "0.1.4"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51c62917df8beb16bae1135ef908f24b67e182202c4b7181f7d2d46d752f9b45"
+checksum = "98611b82cc72e024e74912a804190c224e097cee435b30691b776347db207163"
 dependencies = [
  "bimap",
 ]

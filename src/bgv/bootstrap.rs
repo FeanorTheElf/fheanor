@@ -591,16 +591,6 @@ where
                     &sparse_sk_encaps.switch_to_sparse_key,
                 )
             };
-            if let Some(sk) = debug_sk {
-                // the switch to the sparse key happens at a very small modulus, and thus is often
-                // the point where the remaining noise budget is smallest
-                Inst::dec_println(
-                    P_base,
-                    &sparse_sk_encaps.C_sparse_sk,
-                    &ct_keyswitched,
-                    &Inst::mod_switch_sk(&sparse_sk_encaps.C_sparse_sk, C_master, sk),
-                );
-            }
             perform_noisy_expansion(
                 &sparse_sk_encaps.C_sparse_sk,
                 ct_keyswitched,

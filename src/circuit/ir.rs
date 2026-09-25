@@ -11,6 +11,7 @@ use feanor_math::homomorphism::Homomorphism;
 use feanor_math::primitive_int::*;
 use feanor_math::ring::{RingStore, *};
 use feanor_math::rings::extension::FreeAlgebra;
+use feanor_math::rings::field::AsFieldBase;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::VectorFn;
 use fhe_ir::*;
@@ -92,6 +93,16 @@ impl ElToIRRing for BigIntRingBase {
 }
 
 impl ElToIRRing for zn_64::ZnBase {
+    type ElRepr = i64;
+
+    fn from_repr(&self, repr: &Self::ElRepr) -> Self::Element {
+        RingRef::new(self).can_hom(&ZZi64).unwrap().map_ref(repr)
+    }
+
+    fn into_repr(&self, el: &Self::Element) -> Self::ElRepr { self.smallest_lift(*el) }
+}
+
+impl<R: RingStore<Type = zn_64::ZnBase>> ElToIRRing for AsFieldBase<R> {
     type ElRepr = i64;
 
     fn from_repr(&self, repr: &Self::ElRepr) -> Self::Element {
@@ -235,10 +246,15 @@ impl<'idents, 'constants, 'values, R: ?Sized + RingBase> ToIREvaluator<'idents, 
         return (result, self.identifiers[result].as_str());
     }
 
-    fn new_plaintext(&self, value: &'constants Coefficient<R>) -> &'idents str {
+    fn new_plaintext(&self, value: &'constants Coefficient<R>) -> IntOrPtx<&'idents str> {
+        if let Some(int) = value.as_integer() {
+            if ZZbig.abs_log2_ceil(&int).unwrap_or(0) <= i64::BITS as usize {
+                return IntOrPtx::Int(int_cast(int, ZZi64, ZZbig));
+            }
+        }
         let result = self.constants.len();
         self.constants.push((format!("@{}", result), value));
-        return self.constants[result].0.as_str();
+        return IntOrPtx::Ptx(self.constants[result].0.as_str());
     }
 }
 
@@ -270,35 +286,13 @@ impl<'idents, 'constants, 'values, R: ?Sized + RingBase> CircuitEvaluator<'const
             self.instructions.push(Instruction::Zero { out: name });
             return id;
         } else if data.len() == 1 {
-            return if let Coefficient::One = data[0].0 {
-                *data[0].1
-            } else if let Some(int) = data[0].0.as_integer() {
-                if ZZbig.abs_log2_ceil(&int).unwrap_or(0) <= i64::BITS as usize {
-                    let (id, name) = self.new_ident();
-                    self.instructions.push(Instruction::MulIntCtx {
-                        out: name,
-                        value: self.identifiers[*data[0].1].as_str(),
-                        integer: int_cast(int, ZZi64, ZZbig),
-                    });
-                    id
-                } else {
-                    let (id, name) = self.new_ident();
-                    self.instructions.push(Instruction::MulPtxCtx {
-                        out: name,
-                        value: self.identifiers[*data[0].1].as_str(),
-                        plaintext: self.new_plaintext(&data[0].0),
-                    });
-                    id
-                }
-            } else {
-                let (id, name) = self.new_ident();
-                self.instructions.push(Instruction::MulPtxCtx {
-                    out: name,
-                    value: self.identifiers[*data[0].1].as_str(),
-                    plaintext: self.new_plaintext(&data[0].0),
-                });
-                id
-            };
+            let (id, name) = self.new_ident();
+            self.instructions.push(Instruction::MulPtxCtx {
+                out: name,
+                value: self.identifiers[*data[0].1].as_str(),
+                plaintext: self.new_plaintext(data[0].0),
+            });
+            return id;
         } else {
             let (id, name) = self.new_ident();
             let mut values = Vec::new();
@@ -525,8 +519,11 @@ where
                 let mut all_coeffs = (0..current_wires).map(|_| Coefficient::Zero).collect::<Vec<_>>();
                 for (val, coeff) in values.iter().zip(coefficients.iter()) {
                     let prev_coeff = replace(&mut all_coeffs[*mapping.get(*val).unwrap()], Coefficient::Zero);
-                    all_coeffs[*mapping.get(*val).unwrap()] =
-                        prev_coeff.add(Coefficient::from(ring.get_ring().from_repr(coeff), ring), ring);
+                    let coeff = match coeff {
+                        IntOrPtx::Int(x) => Coefficient::from_int(int_cast(*x, ZZbig, ZZi64)),
+                        IntOrPtx::Ptx(x) => Coefficient::from(ring.get_ring().from_repr(x), ring),
+                    };
+                    all_coeffs[*mapping.get(*val).unwrap()] = prev_coeff.add(coeff, ring);
                 }
                 current = PlaintextCircuit::identity(current_wires, ring)
                     .tensor(PlaintextCircuit::linear_transform(&all_coeffs, ring), ring)
@@ -534,13 +531,15 @@ where
                 _ = mapping.insert(out, current_wires);
             }
             GenericInstruction::AddPtxCtx { out, value, plaintext } => {
+                let constant = match plaintext {
+                    IntOrPtx::Int(x) => PlaintextCircuit::constant_int(int_cast(x, ZZbig, ZZi64), ring),
+                    IntOrPtx::Ptx(x) => PlaintextCircuit::constant(ring.get_ring().from_repr(x), ring),
+                };
                 current = PlaintextCircuit::identity(current_wires, ring)
                     .tensor(
                         PlaintextCircuit::add(ring).compose(
-                            PlaintextCircuit::select(current_wires, &[*mapping.get(value).unwrap()], ring).tensor(
-                                PlaintextCircuit::constant(ring.get_ring().from_repr(plaintext), ring),
-                                ring,
-                            ),
+                            PlaintextCircuit::select(current_wires, &[*mapping.get(value).unwrap()], ring)
+                                .tensor(constant, ring),
                             ring,
                         ),
                         ring,
@@ -549,27 +548,13 @@ where
                 _ = mapping.insert(out, current_wires);
             }
             GenericInstruction::MulPtxCtx { out, value, plaintext } => {
-                current = PlaintextCircuit::identity(current_wires, ring)
-                    .tensor(
-                        PlaintextCircuit::linear_transform_ring(&[ring.get_ring().from_repr(plaintext)], ring).compose(
-                            PlaintextCircuit::select(current_wires, &[*mapping.get(value).unwrap()], ring),
-                            ring,
-                        ),
-                        ring,
-                    )
-                    .compose(current.output_twice(ring), ring);
-                _ = mapping.insert(out, current_wires);
-            }
-            GenericInstruction::MulIntCtx { out, value, integer } => {
-                let coefficient = match integer {
-                    0 => Coefficient::Zero,
-                    1 => Coefficient::One,
-                    -1 => Coefficient::NegOne,
-                    x => Coefficient::Integer(int_cast(x, ZZbig, ZZi64)),
+                let coeff = match plaintext {
+                    IntOrPtx::Int(x) => Coefficient::from_int(int_cast(x, ZZbig, ZZi64)),
+                    IntOrPtx::Ptx(x) => Coefficient::from(ring.get_ring().from_repr(x), ring),
                 };
                 current = PlaintextCircuit::identity(current_wires, ring)
                     .tensor(
-                        PlaintextCircuit::linear_transform(&[coefficient], ring).compose(
+                        PlaintextCircuit::linear_transform(&[coeff], ring).compose(
                             PlaintextCircuit::select(current_wires, &[*mapping.get(value).unwrap()], ring),
                             ring,
                         ),
