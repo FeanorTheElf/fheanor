@@ -1434,7 +1434,8 @@ fn test_to_circuit_many() {
         2,
         &DEFAULT_EVALUATOR_COSTS,
     );
-    assert_eq!(4, transform.galois_gate_output_sum());
+    assert_eq!(3, transform.hoisted_automorphism_count());
+    assert_eq!(1, transform.unhoisted_automorphism_count());
 
     let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
     assert_eq!(2, mul_depth);
@@ -1456,7 +1457,8 @@ fn test_to_circuit_many() {
         2,
         &DEFAULT_EVALUATOR_COSTS,
     );
-    assert_eq!(2 + 4, transform.galois_gate_output_sum());
+    assert_eq!(5, transform.hoisted_automorphism_count());
+    assert_eq!(1, transform.unhoisted_automorphism_count());
 
     let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
     assert_eq!(2, mul_depth);
@@ -1495,7 +1497,8 @@ fn test_to_circuit_many() {
     );
     // no bs/gs algorithm will be used here, since hoisting is considered better with current
     // configuration
-    assert_eq!(3 + 3, transform.galois_gate_output_sum());
+    assert_eq!(6, transform.hoisted_automorphism_count());
+    assert_eq!(0, transform.unhoisted_automorphism_count());
 
     let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
     assert_eq!(2, mul_depth);

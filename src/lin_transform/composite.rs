@@ -848,15 +848,6 @@ fn test_powcoeffs_to_slots_thin_large() {
 
     let transform = powcoeffs_to_slots_thin_base(&H);
 
-    println!("{}", transform.len());
-    println!("{}", transform.last().unwrap().automorphism_count());
-    let circuit = transform
-        .last()
-        .unwrap()
-        .clone(&ring)
-        .to_circuit(&ring, &h, &DEFAULT_EVALUATOR_COSTS);
-    println!("{}", circuit.galois_gate_output_sum());
-
     let ring_ref = &ring;
     let mut current = ring.pow(ring_ref.canonical_gen(), 7 * 127 + 2 * 337);
     for transform in &transform {

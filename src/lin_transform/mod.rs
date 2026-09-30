@@ -5,6 +5,8 @@ use feanor_math::ring::*;
 use feanor_math::rings::zn::ZnRingStore;
 use feanor_math::rings::zn::zn_64::*;
 
+pub mod to_circuit;
+
 /// Contains algorithms for computing linear transforms and representing them
 /// as linear combination of Galois automorphisms.
 pub mod matmul;

@@ -1239,16 +1239,46 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
             .sum()
     }
 
-    /// Returns the sum of the number of outputs of each Galois gate in the circuit.
-    pub fn galois_gate_output_sum(&self) -> usize {
+    /// Returns the number of hoisted Galois automorphisms required for evaluating this circuit.
+    ///
+    /// Concretely, this is the sum of the number of automorphisms for every Galois gate with at
+    /// least two automorphisms.
+    pub fn hoisted_automorphism_count(&self) -> usize {
         self.gates
             .iter()
             .map(|gate| match gate {
-                PlaintextCircuitGate::Gal(gs, _) => gs.len(),
-                PlaintextCircuitGate::Mul(..) => 0,
-                PlaintextCircuitGate::Square(_) => 0,
+                PlaintextCircuitGate::Gal(gs, _) if gs.len() >= 2 => gs.len(),
+                _ => 0,
             })
             .sum()
+    }
+
+    /// Returns the number of Galois automorphism hoisting setups in this circuit.
+    ///
+    /// Concretely, this is the number of Galois gates with at least two automorphisms in this
+    /// circuit.
+    pub fn hoisting_setup_count(&self) -> usize {
+        self.gates
+            .iter()
+            .filter(|gate| match gate {
+                PlaintextCircuitGate::Gal(gs, _) if gs.len() >= 2 => true,
+                _ => false,
+            })
+            .count()
+    }
+
+    /// Returns the number of unhoisted Galois automorphisms required for evaluating this circuit.
+    ///
+    /// Concretely, this is the number of Galois gates with exactly one automorphism in this
+    /// circuit.
+    pub fn unhoisted_automorphism_count(&self) -> usize {
+        self.gates
+            .iter()
+            .filter(|gate| match gate {
+                PlaintextCircuitGate::Gal(gs, _) if gs.len() == 1 => true,
+                _ => false,
+            })
+            .count()
     }
 
     /// Returns all galois automorphisms which are evaluated by some

@@ -286,13 +286,17 @@ impl<'idents, 'constants, 'values, R: ?Sized + RingBase> CircuitEvaluator<'const
             self.instructions.push(Instruction::Zero { out: name });
             return id;
         } else if data.len() == 1 {
-            let (id, name) = self.new_ident();
-            self.instructions.push(Instruction::MulPtxCtx {
-                out: name,
-                value: self.identifiers[*data[0].1].as_str(),
-                plaintext: self.new_plaintext(data[0].0),
-            });
-            return id;
+            if let Coefficient::One = &data[0].0 {
+                return *data[0].1;
+            } else {
+                let (id, name) = self.new_ident();
+                self.instructions.push(Instruction::MulPtxCtx {
+                    out: name,
+                    value: self.identifiers[*data[0].1].as_str(),
+                    plaintext: self.new_plaintext(data[0].0),
+                });
+                return id;
+            }
         } else {
             let (id, name) = self.new_ident();
             let mut values = Vec::new();
@@ -590,25 +594,26 @@ fn test_circuit_to_ir() {
     feanor_tracing::DelayedLogger::init_test();
     let ring = StaticRing::<i64>::RING;
     let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
-    let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
+    // use integer coefficients, since only these are inlined into the IR
+    let neg_x = PlaintextCircuit::linear_transform(&[Coefficient::NegOne], ring);
     let x_neg_x = PlaintextCircuit::mul(ring)
         .compose(x.clone(ring).tensor(neg_x, ring), ring)
         .compose(x.output_twice(ring), ring);
-    let two_minus_x_neg_x =
-        PlaintextCircuit::add(ring).compose(x_neg_x.tensor(PlaintextCircuit::constant(2, ring), ring), ring);
+    let two_minus_x_neg_x = PlaintextCircuit::add(ring).compose(
+        x_neg_x.tensor(PlaintextCircuit::constant_int(ZZbig.int_hom().map(2), ring), ring),
+        ring,
+    );
     let circuit = PlaintextCircuit::square(ring).compose(two_minus_x_neg_x, ring); // (2 - x * x) * (2 - x * x)
 
     let program = Program::parse(
         r#"
         func(%0) {
-            %1 = mul_ptx %0, @0
+            %1 = mul_ptx %0, -1
             %2 = mul %0, %1
-            %3 = add_ptx %2, @1
+            %3 = add_ptx %2, 2
             %4 = mul %3, %3
             return %4
         }
-        @0: -1
-        @1: 2
     "#
         .as_bytes(),
     )
@@ -633,14 +638,12 @@ fn test_ir_to_circuit() {
     let program = Program::parse(
         r#"
         func(%0) {
-            %1 = mul_ptx %0, @0
+            %1 = mul_ptx %0, -1
             %2 = mul %0, %1
-            %3 = add_ptx %2, @1
+            %3 = add_ptx %2, 2
             %4 = mul %3, %3
             return %4
         }
-        @0: -1
-        @1: 2
     "#
         .as_bytes(),
     )

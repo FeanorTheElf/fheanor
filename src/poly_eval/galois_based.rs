@@ -361,7 +361,7 @@ fn test_poly_circuit_via_norm_pow2() {
     let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
     assert_eq!(1, circuit.output_count());
     assert_eq!(2, circuit.multiplication_gate_count());
-    assert_eq!(2, circuit.galois_gate_output_sum());
+    assert_eq!(2, circuit.unhoisted_automorphism_count());
     assert_eq!(2, circuit.mul_depth(0));
     for x in ring.base_ring().elements() {
         assert_el_eq!(
@@ -376,7 +376,7 @@ fn test_poly_circuit_via_norm_pow2() {
     let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
     assert_eq!(1, circuit.output_count());
     assert_eq!(4, circuit.multiplication_gate_count());
-    assert_eq!(2, circuit.galois_gate_output_sum());
+    assert_eq!(2, circuit.unhoisted_automorphism_count());
     assert_eq!(2, circuit.mul_depth(0));
     for x in ring.base_ring().elements() {
         assert_el_eq!(
@@ -402,7 +402,7 @@ fn test_poly_circuit_via_norm_pow2() {
     let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
     assert_eq!(1, circuit.output_count());
     assert_eq!(2, circuit.multiplication_gate_count());
-    assert_eq!(2, circuit.galois_gate_output_sum());
+    assert_eq!(2, circuit.unhoisted_automorphism_count());
     assert_eq!(2, circuit.mul_depth(0));
     for x in ring.base_ring().elements() {
         assert_el_eq!(
@@ -417,7 +417,7 @@ fn test_poly_circuit_via_norm_pow2() {
     let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
     assert_eq!(1, circuit.output_count());
     assert_eq!(4, circuit.multiplication_gate_count());
-    assert_eq!(2, circuit.galois_gate_output_sum());
+    assert_eq!(2, circuit.unhoisted_automorphism_count());
     assert_eq!(2, circuit.mul_depth(0));
     for x in ring.base_ring().elements() {
         assert_el_eq!(
@@ -442,7 +442,7 @@ fn test_poly_circuit_via_norm_pow2() {
     let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
     assert_eq!(1, circuit.output_count());
     assert_eq!(3, circuit.multiplication_gate_count());
-    assert_eq!(3, circuit.galois_gate_output_sum());
+    assert_eq!(3, circuit.unhoisted_automorphism_count());
     assert_eq!(3, circuit.mul_depth(0));
     for x in ring.base_ring().elements() {
         assert_el_eq!(
@@ -457,7 +457,7 @@ fn test_poly_circuit_via_norm_pow2() {
     let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
     assert_eq!(1, circuit.output_count());
     assert_eq!(6, circuit.multiplication_gate_count());
-    assert_eq!(3, circuit.galois_gate_output_sum());
+    assert_eq!(3, circuit.unhoisted_automorphism_count());
     assert_eq!(3, circuit.mul_depth(0));
     for x in ring.base_ring().elements() {
         assert_el_eq!(
@@ -472,7 +472,7 @@ fn test_poly_circuit_via_norm_pow2() {
     let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
     assert_eq!(1, circuit.output_count());
     assert_eq!(4, circuit.multiplication_gate_count());
-    assert_eq!(4, circuit.galois_gate_output_sum());
+    assert_eq!(4, circuit.unhoisted_automorphism_count());
     assert_eq!(4, circuit.mul_depth(0));
     for x in ring.base_ring().elements() {
         assert_el_eq!(
