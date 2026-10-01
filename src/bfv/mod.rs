@@ -1725,18 +1725,18 @@ fn test_pow2_huge_t() {
 #[test]
 #[ignore]
 fn measure_time_pow2_bfv_basic_ops() {
-    // feanor_tracing::DelayedLogger::init_test();
-    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(
-        chrome_layer,
-        tracing_subscriber::filter::filter_fn(|metadata| ![].contains(&metadata.name())),
-    );
-    tracing_subscriber::util::SubscriberInitExt::init(
-        tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(
-            tracing_subscriber::registry(),
-            filtered_chrome_layer,
-        ),
-    );
+    feanor_tracing::DelayedLogger::init_test();
+    // let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    // let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(
+    //     chrome_layer,
+    //     tracing_subscriber::filter::filter_fn(|metadata| ![].contains(&metadata.name())),
+    // );
+    // tracing_subscriber::util::SubscriberInitExt::init(
+    //     tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(
+    //         tracing_subscriber::registry(),
+    //         filtered_chrome_layer,
+    //     ),
+    // );
 
     let mut rng = rand::rng();
 

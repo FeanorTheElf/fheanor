@@ -1091,7 +1091,7 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping_t257_sqr() {
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
     let gk_params = RNSGadgetVectorDigitIndices::select_digits(C.base_ring().len().div_ceil(2), C.base_ring().len());
     let rk_params = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 1, Some(6), 4, &gk_params, Some("./cache"));
+    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 1, Some(8), 4, &gk_params, Some("./cache"));
 
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
     let gk = Pow2BFV::gen_gks(
@@ -1134,7 +1134,7 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping_t65537() {
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
     let gk_params = RNSGadgetVectorDigitIndices::select_digits(C.base_ring().len().div_ceil(2), C.base_ring().len());
     let rk_params = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 1, Some(6), 4, &gk_params, Some("./cache"));
+    let bootstrapper = ThinBootstrapper::build_pow2(&params, &P, &C, 1, Some(8), 4, &gk_params, Some("./cache"));
 
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
     let gk = Pow2BFV::gen_gks(
@@ -1169,12 +1169,6 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping_t65537() {
 #[ignore]
 fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     feanor_tracing::DelayedLogger::init_test();
-    // let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    // let filtered_chrome_layer = tracing_subscriber::Layer::with_filter(chrome_layer,
-    // tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis",
-    // "mult_basis_to_small_basis", "small_basis_to_coeff_basis",
-    // "coeff_basis_to_small_basis"].contains(&metadata.name())));
-    // tracing_subscriber::util::SubscriberInitExt::init(tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt::with(tracing_subscriber::registry(), filtered_chrome_layer));
 
     let mut rng = rand::rng();
 
