@@ -9,3 +9,4 @@ cache
 bgv_memtrace
 .vscode
 **/*.old.rs
+*.old

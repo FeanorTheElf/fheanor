@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::group::AbelianGroupStore;
 use feanor_math::integer::int_cast;
@@ -7,6 +9,7 @@ use feanor_math::ring::*;
 use crate::circuit::*;
 use crate::number_ring::galois::*;
 use crate::number_ring::{NumberRingQuotient, NumberRingQuotientStore};
+use crate::search::minimum_somewhat_continuous_function;
 use crate::{ZZbig, ZZi64};
 
 pub struct BSGSPlan<'a> {
@@ -42,6 +45,160 @@ impl<'a> BSGSPlan<'a> {
             base_auto,
             giant_step_dims,
         };
+    }
+
+    /// Creates a [`BSGSPlan`] that covers the given grid of automorphisms. It uses a search and
+    /// heuristics to obtain a plan with costs that are as low as we can find.
+    /// 
+    /// Note that in many scenarios, it it is not optimal.
+    pub fn plan(
+        Gal: &'a Subgroup<CyclotomicGaloisGroup>,
+        grid: Vec<(GaloisGroupEl, GaloisGroupEl, usize)>,
+        cost_model: &CircuitEvaluatorCosts,
+        gk_key_limit: usize,
+    ) -> Option<BSGSPlan<'a>> {
+        fn plan_with_unhoisted_baby_step_count<'a>(
+            Gal: &'a Subgroup<CyclotomicGaloisGroup>,
+            base_auto: GaloisGroupEl,
+            mut baby_step_dims: Vec<(GaloisGroupEl, usize)>,
+            giant_step_dims: Vec<(GaloisGroupEl, usize)>,
+            unhoisted_baby_step_count: usize,
+            gk_key_limit: usize,
+            _cost_model: &CircuitEvaluatorCosts
+        ) -> Option<BSGSPlan<'a>> {
+            baby_step_dims.sort_unstable_by_key(|(_, len)| *len);
+
+            let baby_step_dims = baby_step_dims
+                .into_iter()
+                .rev()
+                .scan(1, |current, (g, len)| {
+                    if len * *current < unhoisted_baby_step_count + 1 {
+                        *current *= len;
+                        Some((g, len, 1))
+                    } else if *current < unhoisted_baby_step_count + 1 {
+                        let unhoisted_count = (unhoisted_baby_step_count + 1).div_ceil(*current);
+                        *current *= unhoisted_count;
+                        assert!(*current >= unhoisted_baby_step_count + 1);
+                        let hoisted_count = len.div_ceil(unhoisted_count);
+                        Some((g, unhoisted_count, hoisted_count))
+                    } else {
+                        Some((g, 1, len))
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let plan = BSGSPlan::create(Gal, base_auto, baby_step_dims, giant_step_dims);
+            if plan.required_galois_keys().len() <= gk_key_limit {
+                return Some(plan);
+            } else {
+                return None;
+            }
+        }
+
+        fn plan_with_baby_step_count<'a>(
+            Gal: &'a Subgroup<CyclotomicGaloisGroup>,
+            base_auto: GaloisGroupEl,
+            mut grid: Vec<(GaloisGroupEl, usize)>,
+            approx_baby_step_count: usize,
+            cost_model: &CircuitEvaluatorCosts,
+            gk_key_limit: usize,
+        ) -> Option<BSGSPlan<'a>> {
+            let mut baby_step_dims = 0;
+            let mut current_count = 1;
+            for (_, len) in &grid {
+                if len * current_count > approx_baby_step_count {
+                    break;
+                }
+                baby_step_dims += 1;
+                current_count *= len;
+            }
+
+            if current_count < approx_baby_step_count {
+                let mixed_dim_baby_steps = approx_baby_step_count.div_ceil(current_count);
+                assert!(current_count * mixed_dim_baby_steps >= approx_baby_step_count);
+                let giant_step = Gal.pow(
+                    &grid[baby_step_dims].0,
+                    &int_cast(mixed_dim_baby_steps as i64, ZZbig, ZZi64),
+                );
+                let mixed_dim_giant_steps = grid[baby_step_dims].1.div_ceil(mixed_dim_baby_steps);
+                grid[baby_step_dims].1 = mixed_dim_baby_steps;
+                grid.push((giant_step, mixed_dim_giant_steps));
+                baby_step_dims += 1;
+            }
+
+            let giant_steps = grid.drain(baby_step_dims..).collect::<Vec<_>>();
+            let baby_steps = grid;
+            let actual_baby_step_count = baby_steps.iter().map(|(_, len)| *len).product();
+
+            let unhoisted_baby_step_count = minimum_somewhat_continuous_function(
+                0..=actual_baby_step_count,
+                |count| {
+                    plan_with_unhoisted_baby_step_count(
+                        Gal,
+                        Gal.clone_el(&base_auto),
+                        baby_steps.clone(),
+                        giant_steps.clone(),
+                        count,
+                        gk_key_limit,
+                        cost_model
+                    )
+                    .map(|plan| (plan.cost(cost_model) * 256.).floor() as i64)
+                    .unwrap_or(i64::MAX)
+                },
+                4,
+            );
+            plan_with_unhoisted_baby_step_count(
+                Gal,
+                base_auto,
+                baby_steps.clone(),
+                giant_steps.clone(),
+                unhoisted_baby_step_count,
+                gk_key_limit,
+                cost_model
+            )
+        }
+
+        let mut base_auto = Gal.identity();
+        let mut grid = grid
+            .into_iter()
+            .map(|(start, step, len)| {
+                base_auto = Gal.op_ref_snd(start, &base_auto);
+                (step, len)
+            })
+            .collect::<Vec<_>>();
+
+        // long dimensions are better put into the giant steps; the reason is that for multiple short
+        // dimensions, we need a lot of Galois keys, whether we evaluate them hoisted or unhoisted; on the
+        // other hand, the evaluations along a single long dimension can be done with a single Galois when
+        // evaluating it a sequential, unhoisted manner
+        grid.sort_unstable_by_key(|(_, len)| *len);
+
+        let total_count = grid.iter().map(|(_, len)| *len).product();
+        let baby_step_count = minimum_somewhat_continuous_function(
+            0..=total_count,
+            |baby_step_count| {
+                plan_with_baby_step_count(
+                    Gal,
+                    Gal.clone_el(&base_auto),
+                    grid.clone(),
+                    baby_step_count,
+                    cost_model,
+                    gk_key_limit,
+                )
+                .map(|plan| (plan.cost(cost_model) * 256.).floor() as i64)
+                .unwrap_or(i64::MAX)
+            },
+            4,
+        );
+
+        return plan_with_baby_step_count(
+            Gal,
+            Gal.clone_el(&base_auto),
+            grid.clone(),
+            baby_step_count,
+            cost_model,
+            gk_key_limit,
+        );
     }
 
     /// Number of wires to which the hoisted Galois gate is applied, i.e. `\prod_i n_i`
@@ -93,6 +250,12 @@ impl<'a> BSGSPlan<'a> {
         let baby_steps = self.hoisting_input_count() - 1;
         let giant_steps = self.giant_step_dims.iter().map(|(_, len)| *len).product::<usize>() - 1;
         return degenerate_hoisted + baby_steps + giant_steps;
+    }
+
+    pub fn cost(&self, cost_model: &CircuitEvaluatorCosts) -> f64 {
+        self.hoisting_setup_count() as f64 * cost_model.cost_setup_hoisted_gal
+            + self.hoisted_automorphism_count() as f64 * cost_model.cost_hoisted_gal
+            + self.unhoisted_automorphism_count() as f64 * cost_model.cost_single_gal
     }
 
     /// Returns the Galois automorphisms for which the circuit returned by
@@ -280,7 +443,42 @@ impl<'a> BSGSPlan<'a> {
             self.unhoisted_automorphism_count(),
             circuit.unhoisted_automorphism_count()
         );
+        debug_assert_eq!(
+            self.required_galois_keys().len(),
+            circuit.required_galois_keys(self.Gal).len()
+        );
         return circuit;
+    }
+}
+
+impl<'a> Debug for BSGSPlan<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BSGSPlan {{ baby_step_dims: [")?;
+        for (i, (base, n, m)) in self.baby_step_dims.iter().enumerate() {
+            if i == 0 {
+                write!(f, "({}, {}, {})", self.Gal.representative(base), n, m)?;
+            } else {
+                write!(f, ", ({}, {}, {})", self.Gal.representative(base), n, m)?;
+            }
+        }
+        write!(f, "], giant_step_dims: [")?;
+        for (i, (base, len)) in self.giant_step_dims.iter().enumerate() {
+            if i == 0 {
+                write!(f, "({}, {})", self.Gal.representative(base), len)?;
+            } else {
+                write!(f, ", ({}, {})", self.Gal.representative(base), len)?;
+            }
+        }
+        write!(
+            f,
+            "], base_auto: {}, hoisted_automorphism_count: {}, unhoisted_automorphism_count: {}, hoisting_setup_count: {}, key_count: {} }}",
+            self.Gal.representative(&self.base_auto),
+            self.hoisted_automorphism_count(),
+            self.unhoisted_automorphism_count(),
+            self.hoisting_setup_count(),
+            self.required_galois_keys().len()
+        )?;
+        return Ok(());
     }
 }
 
@@ -420,4 +618,82 @@ fn test_create_circuit() {
         plan.unhoisted_automorphism_count(),
         circuit.unhoisted_automorphism_count()
     );
+
+    let plan = BSGSPlan {
+        Gal,
+        base_auto: Gal.identity(),
+        baby_step_dims: vec![],
+        giant_step_dims: vec![(Gal.from_representative(29), 2)],
+    };
+    let coefficients = || {
+        vec![
+            (Gal.from_representative(1), ring.int_hom().map(1)),
+            (Gal.from_representative(29), ring.int_hom().map(2)),
+        ]
+    };
+    let circuit = plan.create_circuit(&ring, coefficients());
+    let coefficients = coefficients();
+    for x in [
+        ring.one(),
+        ring.canonical_gen(),
+        ring.pow(ring.canonical_gen(), 2),
+        ring.sub(ring.canonical_gen(), ring.one()),
+    ] {
+        let expected = ComputeInnerProduct::inner_product_ref_fst(
+            ring.get_ring(),
+            coefficients
+                .iter()
+                .map(|(g, coeff)| (coeff, ring.apply_galois_action(&x, g))),
+        );
+        assert_el_eq!(&ring, expected, &circuit.evaluate(&[x], ring.identity())[0]);
+    }
+    assert_eq!(plan.hoisted_automorphism_count(), circuit.hoisted_automorphism_count());
+    assert_eq!(plan.hoisting_setup_count(), circuit.hoisting_setup_count());
+    assert_eq!(
+        plan.unhoisted_automorphism_count(),
+        circuit.unhoisted_automorphism_count()
+    );
+}
+
+#[test]
+fn test_plan() {
+    let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5 * 7, 13), Zn::new(65537));
+    let Gal = ring.acting_galois_group();
+    let grid = vec![
+        (Gal.from_representative(183), Gal.from_representative(92), 3), // { g_2^-1, 1, g_2 }
+        (Gal.from_representative(131), Gal.from_representative(66), 4), // { g_3^-1, 1, g_3, g_3^2 }
+        (Gal.from_representative(106), Gal.from_representative(106), 4), // { g_13^1, g_13^2, g_13^3, g_13^4 }
+    ];
+
+    let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, 4).unwrap();
+    _ = plan.create_circuit(&ring, Vec::new());
+    assert_eq!(4, plan.required_galois_keys().len());
+    assert_eq!(20, plan.unhoisted_automorphism_count());
+    assert_eq!(0, plan.hoisting_setup_count());
+    assert_eq!(0, plan.hoisted_automorphism_count());
+
+    let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, usize::MAX).unwrap();
+    _ = plan.create_circuit(&ring, Vec::new());
+    assert_eq!(12, plan.required_galois_keys().len());
+    assert_eq!(3, plan.unhoisted_automorphism_count());
+    assert_eq!(1, plan.hoisting_setup_count());
+    assert_eq!(12, plan.hoisted_automorphism_count());
+
+    let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, 6).unwrap();
+    _ = plan.create_circuit(&ring, Vec::new());
+    assert_eq!(6, plan.required_galois_keys().len());
+    assert_eq!(8, plan.unhoisted_automorphism_count());
+    assert_eq!(2, plan.hoisting_setup_count());
+    assert_eq!(8, plan.hoisted_automorphism_count());
+
+    let grid = vec![
+        (Gal.identity(), Gal.from_representative(106), 11),
+    ];
+
+    let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, usize::MAX).unwrap();
+    _ = plan.create_circuit(&ring, Vec::new());
+    assert_eq!(6, plan.required_galois_keys().len());
+    assert_eq!(1, plan.unhoisted_automorphism_count());
+    assert_eq!(1, plan.hoisting_setup_count());
+    assert_eq!(5, plan.hoisted_automorphism_count());
 }

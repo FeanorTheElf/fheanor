@@ -1,5 +1,4 @@
 use std::alloc::Global;
-use std::ops::Range;
 use std::sync::Arc;
 
 use feanor_math::algorithms::eea::signed_gcd;
@@ -8,7 +7,6 @@ use feanor_math::algorithms::matmul::ComputeInnerProduct;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::group::AbelianGroupStore;
 use feanor_math::homomorphism::*;
-use feanor_math::iters::multi_cartesian_product;
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
@@ -18,7 +16,8 @@ use feanor_math::seq::*;
 use tracing::instrument;
 
 use super::trace::extract_linear_map;
-use crate::circuit::{CircuitEvaluatorCosts, Coefficient, PlaintextCircuit};
+use crate::circuit::*;
+use crate::lin_transform::to_circuit::BSGSPlan;
 use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::*;
@@ -829,24 +828,17 @@ where
     /// Computes `max_step, min_step, gcd_step, sizes` such that all automorphisms are in the
     /// hypercube `X { min_step[i], min_step[i] + gcd_step[i], ..., max_step[i] }`.
     ///
-    /// The last list `sizes` contains the number of elements along each dimension. This is correct
-    /// even if `gcd_step[i] == usize::MAX`, we is set instead of `0` if there is only one entry
-    /// in dimension `i` (i.e. `min_step[i] = max_step[i]`), since this makes using it via `step_by`
-    /// easier.
+    /// The last list `sizes` contains the number of elements along each dimension. This
+    /// is correct in particular if `gcd_step[i] = 0`, and thus the division
+    /// `(max_step[i] - min_step[i]) / gcd_step[i]` is not well-defined.
     ///
     /// In the returned lists, we use the first entry for the "frobenius-dimension".
     ///
     /// Requires that `self` is defined w.r.t. the given ring and [`HypercubeStructure`].
-    fn compute_automorphisms_per_dimension<S>(
+    fn compute_automorphisms_per_dimension(
         &self,
-        ring: S,
         H: &HypercubeStructure,
-    ) -> (Vec<i64>, Vec<i64>, Vec<usize>, Vec<usize>)
-    where
-        S: Copy + RingStore<Type = R>,
-    {
-        self.check_valid(ring, H);
-
+    ) -> (Vec<i64>, Vec<i64>, Vec<usize>, Vec<usize>) {
         let mut max_step: Vec<i64> = Vec::new();
         let mut min_step: Vec<i64> = Vec::new();
         let mut gcd_step: Vec<usize> = Vec::new();
@@ -861,13 +853,8 @@ where
                 .fold(0, |a, b| signed_gcd(a, b, StaticRing::<i64>::RING))
                 .try_into()
                 .unwrap();
-            if gcd == 0 {
-                gcd_step.push(usize::MAX);
-            } else {
-                gcd_step.push(gcd);
-            }
-            assert!(gcd_step[i] > 0);
-            if gcd_step[i] != usize::MAX {
+            gcd_step.push(gcd);
+            if gcd_step[i] != 0 {
                 sizes.push(
                     StaticRing::<i64>::RING
                         .checked_div(
@@ -885,44 +872,39 @@ where
         return (max_step, min_step, gcd_step, sizes);
     }
 
-    #[instrument(skip_all)]
-    pub fn baby_step_giant_step_params<V>(
-        automorphisms_per_dim: V,
-        preferred_baby_steps: usize,
-    ) -> BabyStepGiantStepParams
+    fn plan_bsgs<'a>(
+        &self,
+        H: &'a HypercubeStructure,
+        cost_model: &CircuitEvaluatorCosts,
+        max_gk_count: usize,
+    ) -> Option<BSGSPlan<'a>> {
+        let (_, min, gcd, len) = self.compute_automorphisms_per_dimension(H);
+        let grid = min
+            .iter()
+            .enumerate()
+            .zip(gcd.iter().zip(&len))
+            .map(|((idx, min), (gcd, len))| {
+                (
+                    H.map_1d_incl_frobenius(idx, *min),
+                    H.map_1d_incl_frobenius(idx, *gcd as i64),
+                    *len,
+                )
+            })
+            .collect::<Vec<_>>();
+        BSGSPlan::plan(H.galois_group(), grid, cost_model, max_gk_count)
+    }
+
+    fn to_circuit_with_plan<S>(self, ring: S, H: &HypercubeStructure, plan: &BSGSPlan) -> PlaintextCircuit<R>
     where
-        V: VectorFn<usize>,
+        S: Copy + RingStore<Type = R>,
     {
-        let mut baby_step_dims = 0;
-        let mut baby_steps = 1;
-        for i in 0..automorphisms_per_dim.len() {
-            let new_steps = baby_steps * automorphisms_per_dim.at(i);
-            if new_steps >= preferred_baby_steps {
-                break;
-            }
-            baby_step_dims += 1;
-            baby_steps = new_steps;
-        }
-        let mixed_dim_i = baby_step_dims;
-        let giant_step_start_dim = mixed_dim_i + 1;
-        let mixed_dim_baby_steps = (preferred_baby_steps - 1) / baby_steps + 1;
-        let baby_steps = baby_steps * mixed_dim_baby_steps;
-        assert!(baby_steps >= preferred_baby_steps);
-        let giant_steps = (giant_step_start_dim..automorphisms_per_dim.len())
-            .map(|i| automorphisms_per_dim.at(i))
-            .product::<usize>()
-            * ((automorphisms_per_dim.at(mixed_dim_i) - 1) / mixed_dim_baby_steps + 1);
-        return BabyStepGiantStepParams {
-            pure_baby_step_dimensions: 0..baby_step_dims,
-            pure_giant_step_dimensions: giant_step_start_dim..automorphisms_per_dim.len(),
-            mixed_step_dimension: mixed_dim_i,
-            mixed_step_dimension_baby_steps: mixed_dim_baby_steps,
-            // we assume both baby steps and giant steps contain the trivial automorphism once, thus subtract 1;
-            // note that we cannot check this with the current information, but if it is wrong, at most the
-            // estimates will be slightly suboptimal
-            hoisted_automorphism_count: baby_steps - 1,
-            unhoisted_automorphism_count: giant_steps - 1,
-        };
+        plan.create_circuit(
+            ring,
+            self.data
+                .into_iter()
+                .map(|(gal, coeff)| (H.map_incl_frobenius(&gal), coeff))
+                .collect(),
+        )
     }
 
     /// Computes a [`PlaintextCircuit`] (using only linear gates), which evaluates this linear
@@ -940,30 +922,15 @@ where
         self,
         ring: S,
         H: &HypercubeStructure,
+        max_gk_count: usize,
         cost_model: &CircuitEvaluatorCosts,
-    ) -> PlaintextCircuit<R>
+    ) -> Option<PlaintextCircuit<R>>
     where
         S: Copy + RingStore<Type = R>,
     {
         self.check_valid(ring, H);
-
-        let (_, _, _, sizes) = self.compute_automorphisms_per_dimension(ring, H);
-
-        let preferred_baby_steps = (1..=(sizes.iter().copied().product::<usize>()))
-            .map(|preferred_baby_steps| {
-                let params = Self::baby_step_giant_step_params(sizes.as_fn().map_fn(|s| *s), preferred_baby_steps);
-                (
-                    preferred_baby_steps,
-                    cost_model.cost_setup_hoisted_gal
-                        + params.hoisted_automorphism_count as f64 * cost_model.cost_hoisted_gal
-                        + params.unhoisted_automorphism_count as f64 * cost_model.cost_single_gal,
-                )
-            })
-            .min_by(|(_, lc), (_, rc)| f64::total_cmp(lc, rc))
-            .unwrap()
-            .0;
-
-        return self.to_circuit_with_baby_steps(ring, H, preferred_baby_steps);
+        let plan = self.plan_bsgs(H, cost_model, max_gk_count)?;
+        Some(self.to_circuit_with_plan(ring, H, &plan))
     }
 
     /// Computes a [`PlaintextCircuit`] (using only linear gates), which sequentially evaluates
@@ -979,8 +946,9 @@ where
         H: &HypercubeStructure,
         mut transforms: Vec<Self>,
         max_levels: usize,
+        max_gk_count: usize,
         cost_model: &CircuitEvaluatorCosts,
-    ) -> PlaintextCircuit<R>
+    ) -> Option<PlaintextCircuit<R>>
     where
         S: Copy + RingStore<Type = R>,
     {
@@ -1000,220 +968,65 @@ where
             let t2 = transforms.remove(merge_idx + 1);
             transforms[merge_idx] = t2.compose(ring, H, &transforms[merge_idx]);
         }
-        transforms
-            .into_iter()
-            .fold(PlaintextCircuit::identity(1, ring), |current, next| {
-                let next_circuit = next.to_circuit(ring, H, cost_model);
-                next_circuit.compose(current, ring)
-            })
-    }
-
-    /// Computes a [`PlaintextCircuit`] (using only linear gates), which evaluates this linear
-    /// transform in a baby-step-giant-step manner.
-    ///
-    /// The number of baby-steps is chosen to be as close to `preferred_baby_steps` as possible.
-    /// If you don't want to provide this number manually, use [`MatmulTransform::to_circuit()`]
-    /// which automatically chooses the best number of baby steps.
-    ///
-    /// For efficiency considerations, and how the decomposition into baby-steps and giant-steps
-    /// is chosen, see the type-level documentation [`MatmulTransform`].
-    ///  
-    /// Requires that `self` is defined w.r.t. the given ring and [`HypercubeStructure`].
-    #[instrument(skip_all)]
-    pub fn to_circuit_with_baby_steps<S>(
-        self,
-        ring: S,
-        H: &HypercubeStructure,
-        preferred_baby_steps: usize,
-    ) -> PlaintextCircuit<R>
-    where
-        S: Copy + RingStore<Type = R>,
-    {
-        self.check_valid(ring, H);
-
-        let (max_step, min_step, gcd_step, sizes) = self.compute_automorphisms_per_dimension(ring, H);
-
-        let params = Self::baby_step_giant_step_params((0..sizes.len()).map_fn(|i| sizes[i]), preferred_baby_steps);
-
-        let mixed_dim_i = params.mixed_step_dimension;
-        let mixed_dim_baby_steps = params.mixed_step_dimension_baby_steps;
-        let mixed_dim_steps_on_top = StaticRing::<i64>::RING
-            .checked_div(&max_step[mixed_dim_i], &gcd_step[mixed_dim_i].try_into().unwrap_or(0))
-            .unwrap();
-        let mixed_dim_steps_on_bottom = StaticRing::<i64>::RING
-            .checked_div(&min_step[mixed_dim_i], &gcd_step[mixed_dim_i].try_into().unwrap_or(0))
-            .unwrap();
-        let mixed_dim_baby_steps_on_top = mixed_dim_steps_on_top % mixed_dim_baby_steps as i64;
-        let mixed_dim_baby_steps_on_bottom = mixed_dim_baby_steps_on_top - mixed_dim_baby_steps as i64 + 1;
-        let mixed_dim_giant_steps_on_top = StaticRing::<i64>::RING
-            .checked_div(
-                &(mixed_dim_steps_on_top - mixed_dim_baby_steps_on_top),
-                &(mixed_dim_baby_steps as i64),
-            )
-            .unwrap();
-        let mixed_dim_giant_steps_on_bottom =
-            (mixed_dim_steps_on_bottom - mixed_dim_baby_steps_on_bottom).div_floor(mixed_dim_baby_steps as i64);
-        let mixed_dim_giant_step_range =
-            ((mixed_dim_giant_steps_on_bottom * mixed_dim_baby_steps as i64 * gcd_step[mixed_dim_i] as i64)
-                ..=(mixed_dim_giant_steps_on_top * mixed_dim_baby_steps as i64 * gcd_step[mixed_dim_i] as i64))
-                .step_by(mixed_dim_baby_steps * gcd_step[mixed_dim_i]);
-        let mixed_dim_baby_step_range = ((mixed_dim_baby_steps_on_bottom * gcd_step[mixed_dim_i] as i64)
-            ..=(mixed_dim_baby_steps_on_top * gcd_step[mixed_dim_i] as i64))
-            .step_by(gcd_step[mixed_dim_i]);
-        debug_assert!(
-            mixed_dim_baby_steps_on_top + mixed_dim_giant_steps_on_top * mixed_dim_baby_steps as i64
-                == mixed_dim_steps_on_top
-        );
-        debug_assert!(
-            mixed_dim_baby_steps_on_bottom + mixed_dim_giant_steps_on_bottom * mixed_dim_baby_steps as i64
-                <= mixed_dim_steps_on_bottom
-        );
-
-        let giant_step_range_iters = [mixed_dim_giant_step_range].into_iter().chain(
-            params
-                .pure_giant_step_dimensions
-                .clone()
-                .map(|i| (min_step[i]..=max_step[i]).step_by(gcd_step[i])),
-        );
-
-        let baby_step_range_iters = params
-            .pure_baby_step_dimensions
-            .clone()
-            .map(|i| (min_step[i]..=max_step[i]).step_by(gcd_step[i]))
-            .chain([mixed_dim_baby_step_range]);
-
-        let shift_or_frobenius = |dim_or_frobenius: usize, steps: i64| {
-            if dim_or_frobenius == 0 {
-                H.frobenius(steps)
-            } else {
-                H.map_1d(dim_or_frobenius - 1, steps)
-            }
-        };
-        let identity = shift_or_frobenius(0, 0);
-
-        let giant_steps_galois_els = multi_cartesian_product(
-            giant_step_range_iters,
-            |indices| {
-                indices[1..]
-                    .iter()
-                    .enumerate()
-                    .map(|(i, s)| shift_or_frobenius(i + params.pure_giant_step_dimensions.start, *s))
-                    .fold(shift_or_frobenius(mixed_dim_i, indices[0]), |a, b| {
-                        H.galois_group().op(a, b)
-                    })
-            },
-            |_, x| *x,
-        )
-        .map(|g_el| {
-            if H.galois_group().is_identity(&g_el) {
-                None
-            } else {
-                Some(g_el)
-            }
-        })
-        .collect::<Vec<_>>();
-
-        let baby_steps_galois_els = multi_cartesian_product(
-            baby_step_range_iters,
-            move |indices| {
-                indices
-                    .iter()
-                    .enumerate()
-                    .map(|(i, s)| shift_or_frobenius(i, *s))
-                    .fold(identity.clone(), |a, b| H.galois_group().op(a, b))
-            },
-            |_, x| *x,
-        )
-        .collect::<Vec<_>>();
-
-        debug_assert_eq!(params.hoisted_automorphism_count, baby_steps_galois_els.len() - 1);
-        debug_assert!(
-            params.unhoisted_automorphism_count == giant_steps_galois_els.len() - 1
-                || params.unhoisted_automorphism_count == giant_steps_galois_els.len()
-        );
-
-        let mut lin_transform_data = self.data;
-        let compiled_coeffs: Vec<Vec<Coefficient<_>>> = giant_steps_galois_els
+        const COMPLEXITY_CONSTANT: f64 = 2.;
+        let total_complexity = transforms
             .iter()
-            .map(|gs_el| {
-                baby_steps_galois_els
-                    .iter()
-                    .map(|bs_el| {
-                        let gs_el = gs_el.clone().unwrap_or(H.galois_group().identity());
-                        let total_el = H.galois_group().op_ref(&gs_el, bs_el);
-                        let mut coeff = None;
-                        lin_transform_data.retain(|(g, c)| {
-                            if H.galois_group().eq_el(&H.map_incl_frobenius(g), &total_el) {
-                                debug_assert!(coeff.is_none());
-                                coeff = Some(ring.clone_el(c));
-                                false
-                            } else {
-                                true
-                            }
-                        });
-                        if coeff.is_none() {
-                            return Coefficient::Zero;
-                        } else {
-                            return Coefficient::Other(
-                                ring.get_ring()
-                                    .apply_galois_action(coeff.as_ref().unwrap(), &H.galois_group().inv(&gs_el)),
-                            );
-                        }
-                    })
-                    .collect::<Vec<_>>()
+            .map(|t| (t.automorphism_count() as f64).sqrt() + COMPLEXITY_CONSTANT)
+            .sum::<f64>();
+        let gk_counts = transforms
+            .iter()
+            .map(|t| (t.automorphism_count() as f64).sqrt() + COMPLEXITY_CONSTANT)
+            .scan(
+                (max_gk_count, total_complexity),
+                |(remaining_keys, remaining_complexity), current_complexity| {
+                    assert!(*remaining_complexity > 0.);
+                    let current_gk_count = usize::min(
+                        (current_complexity * *remaining_keys as f64 / *remaining_complexity).floor() as usize,
+                        *remaining_keys,
+                    );
+                    *remaining_keys = remaining_keys.checked_sub(current_gk_count).unwrap();
+                    *remaining_complexity -= current_complexity;
+                    Some(current_gk_count)
+                },
+            )
+            .collect::<Vec<_>>();
+        assert!(gk_counts.iter().copied().sum::<usize>() <= max_gk_count);
+
+        let plans = transforms
+            .iter()
+            .zip(gk_counts)
+            .map(|(t, mut gk_count)| {
+                for _ in 0..256 {
+                    if let Some(result) = t.plan_bsgs(H, cost_model, gk_count) {
+                        return result;
+                    }
+                    gk_count += 1;
+                }
+                unreachable!()
             })
             .collect::<Vec<_>>();
 
-        let baby_step_circuit = PlaintextCircuit::gal_many(&baby_steps_galois_els, H.galois_group(), ring);
-
-        // init with the circuit
-        //
-        //       |
-        //       ‾‾‾|
-        //  0  [baby-steps]
-        //  |   | | | | |
-        //
-        // we accumulate data in the leftmost wire
-        let mut current = PlaintextCircuit::constant(ring.zero(), ring).tensor(baby_step_circuit, ring);
-
-        for (g, coeffs) in giant_steps_galois_els.iter().cloned().zip(compiled_coeffs) {
-            debug_assert_eq!(baby_steps_galois_els.len() + 1, current.output_count());
-            // Put the circuit
-            //
-            // |   | | | | |
-            // | [lin-combine]
-            // |       |
-            // |     [gal]
-            // |__   __|
-            //     +
-            //     |
-            //
-            // at the bottom of the current circuit to add to the accumulator the next
-            // giant step sum; also copy the baby step data to keep it for the next
-            // step.
-            let summand = if let Some(g) = g {
-                let galois_of_lin_transform = PlaintextCircuit::gal(g, &H.galois_group(), ring)
-                    .compose(PlaintextCircuit::linear_transform(&coeffs, ring), ring);
-                PlaintextCircuit::add(ring).compose(
-                    PlaintextCircuit::identity(1, ring).tensor(galois_of_lin_transform, ring),
-                    ring,
-                )
-            } else {
-                PlaintextCircuit::add(ring).compose(
-                    PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::linear_transform(&coeffs, ring), ring),
-                    ring,
-                )
-            };
-            current = summand
-                .tensor(PlaintextCircuit::drop(1), ring)
-                .tensor(PlaintextCircuit::identity(baby_steps_galois_els.len(), ring), ring)
-                .compose(current.output_twice(ring), ring);
-            debug_assert_eq!(baby_steps_galois_els.len() + 1, current.output_count());
+        let mut gk_keys = Vec::new();
+        for plan in &plans {
+            gk_keys.extend(
+                plan.required_galois_keys()
+                    .into_iter()
+                    .map(|g| H.galois_group().representative(&g)),
+            );
         }
-
-        return PlaintextCircuit::identity(1, ring)
-            .tensor(PlaintextCircuit::drop(baby_steps_galois_els.len()), ring)
-            .compose(current, ring);
+        gk_keys.sort_unstable();
+        gk_keys.dedup();
+        if gk_keys.len() > max_gk_count {
+            None
+        } else {
+            Some(transforms.into_iter().zip(plans).fold(
+                PlaintextCircuit::identity(1, ring),
+                |current, (transform, plan)| {
+                    let next_circuit = transform.to_circuit_with_plan(ring, H, &plan);
+                    next_circuit.compose(current, ring)
+                },
+            ))
+        }
     }
 }
 
@@ -1238,16 +1051,6 @@ where
                 .map(|(s, c)| self.mul_ref_fst(c, self.apply_galois_action(el, &H.map_incl_frobenius(s)))),
         )
     }
-}
-
-#[derive(Debug)]
-pub struct BabyStepGiantStepParams {
-    pure_baby_step_dimensions: Range<usize>,
-    pure_giant_step_dimensions: Range<usize>,
-    mixed_step_dimension: usize,
-    mixed_step_dimension_baby_steps: usize,
-    hoisted_automorphism_count: usize,
-    unhoisted_automorphism_count: usize,
 }
 
 #[cfg(test)]
@@ -1284,7 +1087,9 @@ fn test_to_circuit_single() {
 
     let transform = MatmulTransform::identity(&ring, H.hypercube());
     let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
-    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube(), &DEFAULT_EVALUATOR_COSTS);
+    let compiled_transform = transform
+        .to_circuit(H.ring(), H.hypercube(), usize::MAX, &DEFAULT_EVALUATOR_COSTS)
+        .unwrap();
     let actual = compiled_transform
         .evaluate(from_ref(&input), ring.identity())
         .pop()
@@ -1301,7 +1106,9 @@ fn test_to_circuit_single() {
     let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     let expected = H.from_slot_values([2, 3, 4, 0].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
 
-    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube(), &DEFAULT_EVALUATOR_COSTS);
+    let compiled_transform = transform
+        .to_circuit(H.ring(), H.hypercube(), usize::MAX, &DEFAULT_EVALUATOR_COSTS)
+        .unwrap();
     let actual = compiled_transform.evaluate(&[input], ring.identity()).pop().unwrap();
     assert_el_eq!(&ring, &expected, &actual);
 
@@ -1324,7 +1131,9 @@ fn test_to_circuit_single() {
         .into_iter(),
     );
 
-    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube(), &DEFAULT_EVALUATOR_COSTS);
+    let compiled_transform = transform
+        .to_circuit(H.ring(), H.hypercube(), usize::MAX, &DEFAULT_EVALUATOR_COSTS)
+        .unwrap();
     let input = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     let expected = H.from_slot_values([4, 10, 16, 17].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
 
@@ -1352,7 +1161,9 @@ fn test_to_circuit_single() {
         .into_iter(),
     );
 
-    let compiled_transform = transform.to_circuit(H.ring(), H.hypercube(), &DEFAULT_EVALUATOR_COSTS);
+    let compiled_transform = transform
+        .to_circuit(H.ring(), H.hypercube(), usize::MAX, &DEFAULT_EVALUATOR_COSTS)
+        .unwrap();
     let input = (0..16).collect::<Vec<_>>();
     let mut expected = (0..16).map(|_| 0).collect::<Vec<_>>();
     for (i, s) in [0, 1, 2, 4, 8].into_iter().enumerate() {
@@ -1414,7 +1225,7 @@ fn test_to_circuit_many() {
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
     let H = HypercubeIsomorphism::new(&ring, &hypercube, None);
-    let perm = [0, 2, 1, 3];
+    let perm = [0, 2, 3, 1];
     let permutation = MatmulTransform::matmul1d(&H, 0, |i, j, _| {
         if i == perm[j] {
             H.slot_ring().one()
@@ -1432,11 +1243,12 @@ fn test_to_circuit_many() {
             MatmulTransform::mult_ring_element(&ring, H.hypercube(), &ring.int_hom().map(2)),
         ],
         2,
+        usize::MAX,
         &DEFAULT_EVALUATOR_COSTS,
-    );
-    assert_eq!(3, transform.hoisted_automorphism_count());
+    )
+    .unwrap();
+    assert_eq!(6, transform.hoisted_automorphism_count());
     assert_eq!(1, transform.unhoisted_automorphism_count());
-
     let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
     assert_eq!(2, mul_depth);
 
@@ -1455,11 +1267,13 @@ fn test_to_circuit_many() {
             MatmulTransform::mult_ring_element(&ring, H.hypercube(), &ring.int_hom().map(2)),
         ],
         2,
+        usize::MAX,
         &DEFAULT_EVALUATOR_COSTS,
-    );
-    assert_eq!(5, transform.hoisted_automorphism_count());
+    )
+    .unwrap();
+    assert_eq!(6, transform.hoisted_automorphism_count());
     assert_eq!(1, transform.unhoisted_automorphism_count());
-
+    assert_eq!(2, transform.hoisting_setup_count());
     let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
     assert_eq!(2, mul_depth);
 
@@ -1493,13 +1307,14 @@ fn test_to_circuit_many() {
             ),
         ],
         2,
+        usize::MAX,
         &DEFAULT_EVALUATOR_COSTS,
-    );
+    )
+    .unwrap();
     // no bs/gs algorithm will be used here, since hoisting is considered better with current
     // configuration
     assert_eq!(6, transform.hoisted_automorphism_count());
     assert_eq!(0, transform.unhoisted_automorphism_count());
-
     let mul_depth = transform.evaluate_generic(&[0], MulDepthEvaluator).pop().unwrap();
     assert_eq!(2, mul_depth);
 }
@@ -1516,10 +1331,10 @@ fn test_compute_automorphisms_per_dimension() {
     assert_eq!(2, H.hypercube().dim_length(1));
 
     let transform = MatmulTransform::blockmatmul1d(&H, 0, |_, _, _| H.slot_ring().base_ring().one());
-    let (max, min, gcd, sizes) = transform.compute_automorphisms_per_dimension(H.ring(), H.hypercube());
+    let (max, min, gcd, sizes) = transform.compute_automorphisms_per_dimension(H.hypercube());
     assert_eq!(vec![-1, -3, 0], min);
     assert_eq!(vec![1, 2, 0], max);
-    assert_eq!(vec![1, 1, usize::MAX], gcd);
+    assert_eq!(vec![1, 1, 0], gcd);
     assert_eq!(vec![3, 6, 1], sizes);
 }
 
@@ -1583,10 +1398,10 @@ fn test_compose() {
     assert_el_eq!(&ring, &expected, &actual);
     // this here tests that `[0, -1, 1]` gets normalized as `[0, -1, 1]` and not as `[0, 7, 1]`,
     // which would result in many more automorphisms during the bs/gs approach
-    let params = composed_transform.compute_automorphisms_per_dimension(&ring, H.hypercube());
+    let params = composed_transform.compute_automorphisms_per_dimension(H.hypercube());
     assert_eq!(vec![0, 0, 0], params.0);
     assert_eq!(vec![0, -2, -1], params.1);
-    assert_eq!(vec![usize::MAX, 1, 1], params.2);
+    assert_eq!(vec![0, 1, 1], params.2);
     assert_eq!(vec![1, 3, 2], params.3);
 }
 

@@ -422,7 +422,15 @@ where
     R::Type: Sized + NumberRingQuotient,
     BaseRing<R>: NiceZn,
 {
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_coeffs_base(H), max_levels, cost_model)
+    MatmulTransform::to_circuit_many(
+        H.ring(),
+        H.hypercube(),
+        slots_to_coeffs_base(H),
+        max_levels,
+        usize::MAX,
+        cost_model,
+    )
+    .unwrap()
 }
 
 #[instrument(skip_all)]
@@ -522,8 +530,10 @@ where
         H.hypercube(),
         slots_to_coeffs_fat_impl(H),
         max_levels,
+        usize::MAX,
         cost_model,
     )
+    .unwrap()
 }
 
 /// Computes the <https://ia.cr/2024/153>-style Slots-to-Coeffs linear transform with packing
@@ -601,8 +611,10 @@ where
         H.hypercube(),
         slots_to_coeffs_fat_Xbasis(H),
         max_levels,
+        usize::MAX,
         cost_model,
     )
+    .unwrap()
     .compose(result, ring);
 
     return result;
@@ -880,7 +892,8 @@ where
         .subgroup([H.hypercube().frobenius(1)]);
     debug_assert_eq!(frobenius_subgroup.group_order(), H.slot_ring().rank());
     let trace_circuit = trace_circuit(H.ring(), &frobenius_subgroup, cost_model);
-    let result_circuit = MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), result, max_levels, cost_model);
+    let result_circuit =
+        MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), result, max_levels, usize::MAX, cost_model).unwrap();
     return trace_circuit.compose(result_circuit, H.ring());
 }
 
@@ -910,8 +923,10 @@ where
         H.hypercube(),
         coeffs_to_slots_fat_impl(H),
         max_levels,
+        usize::MAX,
         cost_model,
     )
+    .unwrap()
 }
 
 /// Computes the <https://ia.cr/2024/153>-style Coeffs-to-Slots linear transform with unpacking
@@ -964,7 +979,15 @@ where
             ),
         )
     });
-    let mut result = MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), base_transform, max_levels, cost_model);
+    let mut result = MatmulTransform::to_circuit_many(
+        H.ring(),
+        H.hypercube(),
+        base_transform,
+        max_levels,
+        usize::MAX,
+        cost_model,
+    )
+    .unwrap();
 
     for i in (1..log2_d).rev() {
         let coeff = H.ring().pow(H.ring().canonical_gen(), m - (1 << (log2_d - i - 1)));
@@ -1196,8 +1219,10 @@ fn test_slots_to_coeffs_non_cyclotomic_ring() {
         &h,
         slots_to_coeffs_base(&H),
         usize::MAX,
+        usize::MAX,
         &DEFAULT_EVALUATOR_COSTS,
     )
+    .unwrap()
     .evaluate(&[input], ring.identity())
     .pop()
     .unwrap();
@@ -1232,8 +1257,10 @@ fn test_slots_to_coeffs_non_cyclotomic_ring() {
         &h,
         slots_to_coeffs_base(&H),
         usize::MAX,
+        usize::MAX,
         &DEFAULT_EVALUATOR_COSTS,
     )
+    .unwrap()
     .evaluate(&[input], ring.identity())
     .pop()
     .unwrap();

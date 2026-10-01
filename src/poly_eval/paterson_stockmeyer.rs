@@ -1,6 +1,5 @@
 use std::cmp::{max, min};
 use std::collections::{BTreeSet, HashMap};
-use std::ops::RangeInclusive;
 
 use feanor_math::divisibility::{DivisibilityRing, DivisibilityRingStore};
 use feanor_math::integer::IntegerRingStore;
@@ -13,35 +12,8 @@ use crate::circuit::{Coefficient, PlaintextCircuit};
 use crate::number_ring::hypercube::isomorphism::BaseRing;
 use crate::poly_eval::addition_chains::addition_chain_lengths;
 use crate::poly_eval::to_circuit::compute_powers_circuit;
+use crate::search::minimum_somewhat_continuous_function;
 use crate::*;
-
-fn minimum_somewhat_continuous_function<F>(range: RangeInclusive<usize>, mut f: F, steps: usize) -> usize
-where
-    F: FnMut(usize) -> i64,
-{
-    assert!(steps >= 1);
-    let len = (range.end() - range.start() + 1) as usize;
-    assert!(len > 0);
-    if len == 1 {
-        return *range.start();
-    }
-    let delta = max(1, len / steps);
-    let approx = (*range.start()..*range.end())
-        .step_by(delta)
-        .chain([*range.end()])
-        .min_by_key(|x| f(*x))
-        .unwrap();
-    if delta > 1 {
-        debug_assert!(2 * (len / 3) + 1 < len);
-        return minimum_somewhat_continuous_function(
-            max(*range.start(), approx.saturating_sub(len as usize / 3))..=min(*range.end(), approx + len as usize / 3),
-            f,
-            steps,
-        );
-    } else {
-        return approx;
-    }
-}
 
 /// The evaluation strategy is as follows:
 ///  - compute powers `x^i` for `i` in `precomputed_powers`; this always includes `1, 2, ..., k`,

@@ -179,7 +179,7 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
             (Coefficient::NegOne, Coefficient::Integer(x)) => Coefficient::Integer(ZZbig.sub(x, ZZbig.one())),
             (Coefficient::Integer(x), Coefficient::One) => Coefficient::Integer(ZZbig.add(x, ZZbig.one())),
             (Coefficient::Integer(x), Coefficient::NegOne) => Coefficient::Integer(ZZbig.sub(x, ZZbig.one())),
-            (lhs, rhs) => Coefficient::Other(ring.add(lhs.to_ring_el(ring), rhs.to_ring_el(ring))),
+            (lhs, rhs) => Coefficient::from(ring.add(lhs.to_ring_el(ring), rhs.to_ring_el(ring)), ring),
         }
     }
 
@@ -191,7 +191,7 @@ impl<R: ?Sized + RingBase> Coefficient<R> {
             (lhs, Coefficient::One) => lhs,
             (lhs, Coefficient::NegOne) => lhs.negate(ring),
             (Coefficient::NegOne, rhs) => rhs.negate(ring),
-            (lhs, rhs) => Coefficient::Other(ring.mul(lhs.to_ring_el(ring), rhs.to_ring_el(ring))),
+            (lhs, rhs) => Coefficient::from(ring.mul(lhs.to_ring_el(ring), rhs.to_ring_el(ring)), ring),
         }
     }
 

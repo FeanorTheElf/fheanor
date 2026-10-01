@@ -69,6 +69,8 @@ impl<
 {
 }
 
+mod search;
+
 pub mod prepared_mul;
 
 // Uncomment this to log allocations

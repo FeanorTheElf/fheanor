@@ -350,6 +350,16 @@ impl HypercubeStructure {
         self.galois_group.pow(&self.gs[dim_idx], &int_cast(steps, ZZbig, ZZi64))
     }
 
+    /// Like [`HypercubeStructure::map_1d()`], except that in the case `dim_idx = 0`, the value
+    /// `step` is treated as power of the Frobenius.
+    pub fn map_1d_incl_frobenius(&self, dim_idx: usize, steps: i64) -> GaloisGroupEl {
+        if dim_idx == 0 {
+            self.frobenius(steps)
+        } else {
+            self.map_1d(dim_idx - 1, steps)
+        }
+    }
+
     /// Applies the hypercube structure map to the given vector.
     ///
     /// It is not enforced that the entries of the vector are contained in

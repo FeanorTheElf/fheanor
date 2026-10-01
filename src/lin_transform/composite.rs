@@ -216,8 +216,10 @@ where
         H.hypercube(),
         slots_to_powcoeffs_fat_impl(H),
         max_levels,
+        usize::MAX,
         cost_model,
     )
+    .unwrap()
 }
 
 fn slots_to_powcoeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
@@ -278,8 +280,10 @@ where
         H.hypercube(),
         powcoeffs_to_slots_fat_impl(H),
         max_levels,
+        usize::MAX,
         cost_model,
     )
+    .unwrap()
 }
 
 fn powcoeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
@@ -346,8 +350,10 @@ where
         H.hypercube(),
         slots_to_powcoeffs_thin_impl(H),
         max_levels,
+        usize::MAX,
         cost_model,
     )
+    .unwrap()
 }
 
 fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
@@ -469,8 +475,10 @@ where
             H.hypercube(),
             powcoeffs_to_slots_thin_base(H),
             max_levels,
+            usize::MAX,
             cost_model,
-        ),
+        )
+        .unwrap(),
         H.ring(),
     )
 }
@@ -508,8 +516,6 @@ use feanor_math::assert_el_eq;
 #[cfg(test)]
 use feanor_math::integer::*;
 
-#[cfg(test)]
-use crate::circuit::DEFAULT_EVALUATOR_COSTS;
 #[cfg(test)]
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 #[cfg(test)]
