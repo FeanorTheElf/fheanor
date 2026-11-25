@@ -67,9 +67,8 @@ This will be different once we reach version `1.0.0` (although I will probably u
 
 ## Performance
 
-When optimizing for performance, please use the Intel HEXL library (by enabling the feature `use_hexl` and providing a build of HEXL, as described in more detail in the documentation of [`feanor-math-hexl`](https://github.com/FeanorTheElf/feanor-math-hexl)), since the default NTT does not provide SOTA performance (this is being worked on, and improving). Also note that Fheanor is currently single-threaded (as usual, type implementing [`std::marker::Sync`] are thread-safe, which includes basically all types in Fheanor).
-
-Note that while this library is already quite optimized, it may not be fully competitive with other HE libraries that have existed for longer and thus received more optimization effort.
+Fheanor is single-threaded by default, but multi-threading can be enabled by activating the feature `parallel`. As Rust code in general, the thread-safety of Fheanor is specified via `Send` and `Sync`.
+While Fheanor is already quite optimized, it may not be fully competitive with other HE libraries that have existed for longer and thus received more optimization effort.
 Also, our goal of providing a modular toolkit of building blocks makes some kinds of optimizations more difficult, since components cannot always make as many assumptions on the input as they could if they only support a single HE scheme.
 
 ### Profiling

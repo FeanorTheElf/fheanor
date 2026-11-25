@@ -525,7 +525,6 @@ mod test {
             .as_bytes(),
         )
         .unwrap();
-        println!("{:?}", circuit.to_ir(ZZi64, Some(&galois_group)));
         assert!(circuit.eq(
             &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
             ZZi64,

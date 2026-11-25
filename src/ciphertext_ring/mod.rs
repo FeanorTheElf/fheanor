@@ -372,7 +372,7 @@ pub trait NumberRingRNSQuotient:
 /// [`NumberRingRNSQuotient::apply_rns_op_to_representation()`].
 ///
 /// Returns the range of RNS factors of `from` that are the input of `op`.
-pub(crate) fn rns_op_input_range<R, Op>(to: &R, from: &R, op: &Op) -> Range<usize>
+pub fn rns_op_input_range<R, Op>(to: &R, from: &R, op: &Op) -> Range<usize>
 where
     R: ?Sized + NumberRingRNSQuotient,
     Op: RNSOperation<RingType = ZnBase>,
@@ -410,9 +410,7 @@ where
     return start..end;
 }
 
-/// A map between two quotients of the same number ring, as returned e.g. by
-/// [`NumberRingRNSQuotient::lift_from()`].
-pub(crate) type PreparedRNSMap<'a, R> =
+type RNSRingElementMap<'a, R> =
     Box<dyn 'a + Send + Sync + Fn(&<R as RingBase>::Element) -> <R as RingBase>::Element>;
 
 fn rns_moduli(rns_base: &zn_rns::Zn<Zn, BigIntRing>) -> Vec<Zn> { rns_base.as_iter().cloned().collect() }
@@ -458,7 +456,7 @@ fn reduce_from<R: NumberRingRNSQuotient>(to: &R, from: &R, positions_in_from: &[
 /// of these additional RNS factors) is passed to `prepare_delta`, together with the input element,
 /// before it is combined with the input element. This allows ring implementations to control the
 /// representation of the result.
-pub(crate) fn lift_from_default_impl<'a, R, F>(to: &'a R, from: &'a R, prepare_delta: F) -> PreparedRNSMap<'a, R>
+fn lift_from_default_impl<'a, R, F>(to: &'a R, from: &'a R, prepare_delta: F) -> RNSRingElementMap<'a, R>
 where
     R: NumberRingRNSQuotient,
     F: 'a + Send + Sync + Fn(&R, &R::Element, R::Element) -> R::Element,
@@ -487,7 +485,7 @@ fn rescale_from_default_impl<'a, R>(
     from: &'a R,
     num: &El<BigIntRing>,
     den: &El<BigIntRing>,
-) -> PreparedRNSMap<'a, R>
+) -> RNSRingElementMap<'a, R>
 where
     R: NumberRingRNSQuotient,
 {

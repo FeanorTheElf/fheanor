@@ -320,7 +320,8 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// let error_coefficients = ring.wrt_canonical_basis(&error);
     /// let max_allowed_error = (113 / 2) * 8 * 3;
     /// assert!((0..8).all(|i| int_cast(ring.base_ring().smallest_lift(error_coefficients.at(i)),
-    /// StaticRing::<i64>::RING, BigIntRing::RING).abs() <= max_allowed_error)); ```
+    ///     StaticRing::<i64>::RING, BigIntRing::RING).abs() <= max_allowed_error));
+    /// ```
     pub fn gadget_product(&self, rhs: &RNSGadgetProductRhsOperand<R>, ring: &R) -> R::Element {
         assert_eq!(
             self.element_decomposition.len(),
