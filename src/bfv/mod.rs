@@ -14,7 +14,7 @@ use feanor_math::rings::finite::{FiniteRing, FiniteRingStore};
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::*;
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, Rng, RngExt};
 use rand_distr::StandardNormal;
 use tracing::instrument;
 

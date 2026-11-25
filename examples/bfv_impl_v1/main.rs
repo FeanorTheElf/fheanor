@@ -17,7 +17,7 @@ use feanor_math::rings::zn::*;
 use feanor_math::seq::VectorFn;
 use fheanor::number_ring::pow2_cyclotomic::*;
 use fheanor::number_ring::quotient_by_int::NumberRingQuotientByInt;
-use rand::{Rng, RngCore};
+use rand::{Rng, RngExt};
 use rand_distr::StandardNormal;
 
 type NumberRing = Pow2CyclotomicNumberRing;

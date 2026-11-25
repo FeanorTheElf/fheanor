@@ -20,7 +20,7 @@ use fheanor::number_ring::quotient_by_int::NumberRingQuotientByInt;
 use fheanor::number_ring::*;
 use fheanor::rns_conv::bconv::RNSBaseConversion;
 use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
-use rand::{Rng, RngCore};
+use rand::{Rng, RngExt};
 use rand_distr::StandardNormal;
 
 type NumberRing = Pow2CyclotomicNumberRing;

@@ -109,7 +109,7 @@ Using this, we can generate an element of `R_q` with ternary coefficients very e
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
@@ -154,7 +154,7 @@ For this, we use `can_hom()` to get the "canonical homomorphism" `Z -> Z/(q)` an
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
@@ -225,7 +225,7 @@ It does not require any new techniques.
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
@@ -305,7 +305,7 @@ We can then test this code, but note that these parameters are not secure in pra
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -389,7 +389,7 @@ First of all, implementing addition of ciphertexts is absolutely trivial.
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -426,7 +426,7 @@ In the power-of-two case that we are currently working in, this is just `X^(m/2)
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -488,7 +488,7 @@ We do this by using the formula `round( t (c0 + c1 * sk + c2 * sk^2) / q )` to d
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -611,7 +611,7 @@ This leads us to the following code.
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 # use feanor_math::pid::EuclideanRingStore;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -646,7 +646,7 @@ Putting it all together, we get the following.
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 # use feanor_math::pid::EuclideanRingStore;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -802,7 +802,7 @@ Finally, let's test that decrypting the result of a homomorphic multiplication w
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 # use feanor_math::pid::EuclideanRingStore;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;

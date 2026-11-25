@@ -168,7 +168,7 @@ Instead, we will use similar (but more impactful) techniques when implementing h
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::ordered::OrderedRingStore;
 # use feanor_math::primitive_int::StaticRing;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::number_ring::pow2_cyclotomic::*;
@@ -280,7 +280,7 @@ Since creating a double-RNS ring is somewhat expensive, we do this once and reus
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::ordered::OrderedRingStore;
 # use feanor_math::primitive_int::StaticRing;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::number_ring::pow2_cyclotomic::*;
@@ -339,7 +339,7 @@ This leaves us to implement BFV multiplication as follows.
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::ordered::OrderedRingStore;
 # use feanor_math::primitive_int::StaticRing;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
@@ -434,7 +434,7 @@ We arrive at:
 # use feanor_math::seq::VectorView;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::primitive_int::StaticRing;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::gadget_product::*;
@@ -503,7 +503,7 @@ Finally, let's test this implementation again!
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::ordered::OrderedRingStore;
-# use rand::{Rng, RngCore};
+# use rand::{Rng, RngExt};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
