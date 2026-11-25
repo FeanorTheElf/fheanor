@@ -1,15 +1,10 @@
-#![feature(never_type)]
 #![feature(fn_traits)]
 #![feature(unboxed_closures)]
-#![feature(test)]
-#![feature(const_type_name)]
-#![feature(allocator_api)]
+#![cfg_attr(test, feature(test))]
 #![feature(ptr_alignment_type)]
-#![feature(associated_type_defaults)]
 #![feature(min_specialization)]
 #![feature(int_roundings)]
 #![feature(mapped_lock_guards)]
-#![feature(iter_array_chunks)]
 #![allow(non_snake_case)]
 #![allow(type_alias_bounds)]
 #![allow(non_camel_case_types)]
@@ -17,8 +12,11 @@
 #![allow(rustdoc::private_intra_doc_links)]
 #![doc = include_str!("../Readme.md")]
 
+#[cfg(test)]
+extern crate test;
+
 use std::alloc::{Allocator, Global};
-use std::ptr::Alignment;
+use std::mem::Alignment;
 
 use feanor_math::algorithms::linsolve::LinSolveRing;
 use feanor_math::homomorphism::*;
@@ -27,16 +25,7 @@ use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
 use feanor_math::rings::zn::{FromModulusCreateableZnRing, ZnRing};
 use feanor_math::serialization::SerializableElementRing;
-use feanor_mempool::dynsize::DynLayoutMempool;
-
-extern crate feanor_math;
-#[cfg(feature = "use_hexl")]
-extern crate feanor_math_hexl;
-extern crate rand;
-extern crate rand_distr;
-extern crate serde;
-extern crate test;
-extern crate thread_local;
+use feanor_mempool::dynsize::Mempool;
 
 /// Trait for [`ZnRing`]s that have additional functionality, which
 /// is required in many different situations throughout this crate.
@@ -123,21 +112,7 @@ impl<A: Send + Sync + Clone + Allocator> FheanorAllocator for A {}
 /// The default convolution algorithm that will be used by all tests and benchmarks.
 /// It is also a good choice when instantiating homomorphic encryption as a user.
 ///
-/// By default, it will point to a pure-rust implementation of convolution (default
-/// [`ntt::NTTConvolution`]), but can be changed by using the feature `use_hexl`.
-///
 /// [`NTTConvolution`]: feanor_math::algorithms::convolution::ntt::NTTConvolution
-#[cfg(feature = "use_hexl")]
-pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
-
-/// The default convolution algorithm that will be used by all tests and benchmarks.
-/// It is also a good choice when instantiating homomorphic encryption as a user.
-///
-/// By default, it will point to a pure-rust implementation of convolution (default
-/// [`NTTConvolution`]), but can be changed by using the feature `use_hexl`.
-///
-/// [`NTTConvolution`]: feanor_math::algorithms::convolution::ntt::NTTConvolution
-#[cfg(not(feature = "use_hexl"))]
 pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConvolution<
     feanor_math::rings::zn::zn_64::ZnBase,
     feanor_math::rings::zn::zn_64::ZnFastmulBase,
@@ -148,22 +123,7 @@ pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConv
 /// all tests and benchmarks. It is also a good choice when instantiating homomorphic
 /// encryption as a user.
 ///
-/// By default, it will point to a pure-rust implementation of the negacyclic NTT
-/// (default [`RustNegacyclicNTT`]), but can be  changed by using the feature `use_hexl`.
-///
 /// [`RustNegacyclicNTT`]: crate::ntt::RustNegacyclicNTT
-#[cfg(feature = "use_hexl")]
-pub type DefaultNegacyclicNTT = feanor_math_hexl::hexl::HEXLNegacyclicNTT;
-
-/// The default algorithm for computing negacyclic NTTs that will be used by
-/// all tests and benchmarks. It is also a good choice when instantiating homomorphic
-/// encryption as a user.
-///
-/// By default, it will point to a pure-rust implementation of the negacyclic NTT
-/// (default [`RustNegacyclicNTT`]), but can be  changed by using the feature `use_hexl`.
-///
-/// [`RustNegacyclicNTT`]: crate::ntt::RustNegacyclicNTT
-#[cfg(not(feature = "use_hexl"))]
 pub type DefaultNegacyclicNTT = crate::ntt::RustNegacyclicNTT<feanor_math::rings::zn::zn_64::Zn>;
 
 /// The default allocator for ciphertext ring elements, which will be used by all tests and
@@ -191,7 +151,11 @@ fn is_parallel() -> bool { cfg!(feature = "parallel") }
 #[allow(unused)]
 struct HighlyAlignedData([u64; 4]);
 
-static SCRATCH_ALLOCATOR: DynLayoutMempool = DynLayoutMempool::new_in(Alignment::of::<HighlyAlignedData>(), Global);
+/// Allocator for obtaining scratch space. This is supposed to be used for large chunks of scratch
+/// space, to hold intermediate results during NTTs or base conversions, not for utility vectors or
+/// other small allocations. In particular, this is a [`Mempool`] allocator, and doesn't support
+/// arbitrary-size allocations.
+static SCRATCH_ALLOCATOR: Mempool = Mempool::new_in(64, 3, Alignment::of::<HighlyAlignedData>(), Global);
 
 /// Euler's totient function.
 #[allow(unused)]

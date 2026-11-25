@@ -10,30 +10,26 @@ use feanor_math::algorithms::poly_gcd::hensel::hensel_lift_factorization;
 use feanor_math::computation::DontObserve;
 use feanor_math::divisibility::*;
 use feanor_math::homomorphism::{CanHomFrom, CanIsoFromTo, Homomorphism};
-use feanor_math::integer::*;
 use feanor_math::iters::{MultiProduct, multi_cartesian_product};
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::reduce_lift::poly_factor_gcd::IntegersWithLocalZnQuotient;
-use feanor_math::ring::*;
 use feanor_math::rings::extension::{FreeAlgebra, FreeAlgebraStore};
 use feanor_math::rings::finite::{FiniteRing, *};
 use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::*;
-use feanor_math::seq::*;
 use feanor_math::serialization::{DeserializeWithRing, SerializableElementRing, SerializeWithRing};
 use feanor_math::specialization::{FiniteRingOperation, FiniteRingSpecializable};
 use feanor_serde::newtype_struct::*;
 use feanor_serde::seq::*;
+use serde::de::DeserializeSeed;
 use serde::{Deserializer, Serialize, Serializer};
 use tracing::{Level, instrument, span};
 
-use crate::number_ring::galois::*;
 use crate::number_ring::poly_remainder::BarettPolyReducer;
 use crate::number_ring::*;
 use crate::prepared_mul::PreparedMultiplicationRing;
-use crate::serde::de::DeserializeSeed;
 use crate::*;
 
 /// Implementation of `R/I` for any ideal `I` of the form `I = (p^e, t(ϑ)).
@@ -1056,60 +1052,61 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::group::*;
+mod test {
+    use feanor_math::assert_el_eq;
+    use feanor_math::group::*;
 
-#[cfg(test)]
-use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+    use super::*;
+    use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 
-#[test]
-fn test_quotient_by_ideal() {
-    feanor_tracing::DelayedLogger::init_test();
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(8);
-    let base_ring = zn_big::Zn::new(ZZbig, int_cast(17, ZZbig, ZZi64))
-        .as_field()
-        .ok()
-        .unwrap();
-    let poly_ring = DensePolyRing::new(base_ring.as_field().ok().unwrap(), "X");
-    let [t] = poly_ring.with_wrapped_indeterminate(|X| [X - 2]);
-    let acting_galois_group = number_ring.galois_group().clone().into().subgroup([]);
-    let ring = NumberRingQuotientByIdealBase::new(number_ring, poly_ring, t, acting_galois_group);
-    assert_eq!(1, ring.rank());
-    let galois_group = ring.get_ring().acting_galois_group().parent();
-    assert_eq!(17, ring.elements().count());
-    feanor_math::ring::generic_tests::test_ring_axioms(&ring, ring.elements());
-    assert_el_eq!(
-        &ring,
-        ring.one(),
-        ring.get_ring()
-            .apply_galois_action(&ring.one(), &galois_group.identity())
-    );
+    #[test]
+    fn test_quotient_by_ideal() {
+        feanor_tracing::DelayedLogger::init_test();
+        let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(8);
+        let base_ring = zn_big::Zn::new(ZZbig, int_cast(17, ZZbig, ZZi64))
+            .as_field()
+            .ok()
+            .unwrap();
+        let poly_ring = DensePolyRing::new(base_ring.as_field().ok().unwrap(), "X");
+        let [t] = poly_ring.with_wrapped_indeterminate(|X| [X - 2]);
+        let acting_galois_group = number_ring.galois_group().clone().into().subgroup([]);
+        let ring = NumberRingQuotientByIdealBase::new(number_ring, poly_ring, t, acting_galois_group);
+        assert_eq!(1, ring.rank());
+        let galois_group = ring.get_ring().acting_galois_group().parent();
+        assert_eq!(17, ring.elements().count());
+        feanor_math::ring::generic_tests::test_ring_axioms(&ring, ring.elements());
+        assert_el_eq!(
+            &ring,
+            ring.one(),
+            ring.get_ring()
+                .apply_galois_action(&ring.one(), &galois_group.identity())
+        );
 
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(8);
-    let galois_group = number_ring.galois_group();
-    let base_ring = zn_big::Zn::new(ZZbig, int_cast(17, ZZbig, ZZi64))
-        .as_field()
-        .ok()
-        .unwrap();
-    let poly_ring = DensePolyRing::new(base_ring.as_field().ok().unwrap(), "X");
-    let [t] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(2) + 4]);
-    let acting_galois_group = galois_group
-        .get_group()
-        .clone()
-        .subgroup([galois_group.from_representative(5)]);
-    let ring = NumberRingQuotientByIdealBase::new(number_ring, poly_ring, t, acting_galois_group);
-    assert_eq!(2, ring.rank());
-    let galois_group = ring.get_ring().acting_galois_group();
-    assert_el_eq!(
-        ZZbig,
-        int_cast(2, ZZbig, ZZi64),
-        ring.get_ring().acting_galois_group().subgroup_order()
-    );
-    assert_el_eq!(
-        &ring,
-        ring.negate(ring.canonical_gen()),
-        ring.get_ring()
-            .apply_galois_action(&ring.canonical_gen(), &galois_group.from_representative(5))
-    );
+        let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(8);
+        let galois_group = number_ring.galois_group();
+        let base_ring = zn_big::Zn::new(ZZbig, int_cast(17, ZZbig, ZZi64))
+            .as_field()
+            .ok()
+            .unwrap();
+        let poly_ring = DensePolyRing::new(base_ring.as_field().ok().unwrap(), "X");
+        let [t] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(2) + 4]);
+        let acting_galois_group = galois_group
+            .get_group()
+            .clone()
+            .subgroup([galois_group.from_representative(5)]);
+        let ring = NumberRingQuotientByIdealBase::new(number_ring, poly_ring, t, acting_galois_group);
+        assert_eq!(2, ring.rank());
+        let galois_group = ring.get_ring().acting_galois_group();
+        assert_el_eq!(
+            ZZbig,
+            int_cast(2, ZZbig, ZZi64),
+            ring.get_ring().acting_galois_group().subgroup_order()
+        );
+        assert_el_eq!(
+            &ring,
+            ring.negate(ring.canonical_gen()),
+            ring.get_ring()
+                .apply_galois_action(&ring.canonical_gen(), &galois_group.from_representative(5))
+        );
+    }
 }

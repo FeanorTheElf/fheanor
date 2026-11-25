@@ -14,12 +14,9 @@ use feanor_math::group::AbelianGroupStore;
 use feanor_math::homomorphism::*;
 use feanor_math::integer::*;
 use feanor_math::iters::{MultiProduct, multi_cartesian_product};
-use feanor_math::matrix::*;
-use feanor_math::ring::*;
 use feanor_math::rings::extension::*;
 use feanor_math::rings::finite::*;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::*;
 use feanor_math::serialization::*;
@@ -1244,8 +1241,8 @@ where
     fn from_ref(&self, x: &El<Self::BaseRing>) -> Self::Element {
         let x_congruence = self.base_ring().get_congruence(x);
         let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
-        // this works, since the mult basis is, by definition, given by an isomorphism `R/p -> Fp^n`, so
-        // in particular `Fp` mapsto to the diagonal `(x, ..., x) <= Fp^n`
+        // this works, since the mult basis is, by definition, given by an isomorphism `R/p ->
+        // Fp^n`, so in particular `Fp` mapsto to the diagonal `(x, ..., x) <= Fp^n`
         for (i, Zp) in self.base_ring().as_iter().enumerate() {
             for _ in 0..self.rank() {
                 result.push(Zp.clone_el(x_congruence.at(i)));
@@ -1782,26 +1779,21 @@ where
     }
 }
 
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-
-#[cfg(test)]
-use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-
 #[cfg(any(test, feature = "generic_tests"))]
 pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ring: NumberRing) {
-    use feanor_math::algorithms::eea::signed_lcm;
     use feanor_math::assert_el_eq;
+    use feanor_math::pid::PrincipalIdealRingStore;
     use feanor_math::primitive_int::*;
 
-    let required_root_of_unity = signed_lcm(
-        number_ring.mod_p_required_root_of_unity() as i64,
-        1 << StaticRing::<i64>::RING
-            .abs_log2_ceil(&(number_ring.galois_group().m() as i64))
-            .unwrap()
-            + 2,
-        StaticRing::<i64>::RING,
-    );
+    let required_root_of_unity = StaticRing::<i64>::RING
+        .lcm(
+            &(number_ring.mod_p_required_root_of_unity() as i64),
+            &(1 << StaticRing::<i64>::RING
+                .abs_log2_ceil(&(number_ring.galois_group().m() as i64))
+                .unwrap()
+                + 2),
+        )
+        .abs();
     let p1 = largest_prime_leq_congruent_to_one(20000, required_root_of_unity).unwrap();
     let p2 = largest_prime_leq_congruent_to_one(p1 - 1, required_root_of_unity).unwrap();
     assert!(p1 != p2);
@@ -1990,11 +1982,19 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
     feanor_math::serialization::generic_tests::test_serialization(&ring, elements.iter().map(|x| ring.clone_el(x)));
 }
 
-#[test]
-fn test_nonprime_rns_factors() {
-    feanor_tracing::DelayedLogger::init_test();
-    let R: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(32);
-    let Zq = zn_rns::Zn::new(vec![Zn::new(257 * 257), Zn::new(65537)], ZZbig);
-    let Rq = DoubleRNSRingBase::new(R, Zq);
-    assert_el_eq!(&Rq, Rq.int_hom().map(257 * 257), Rq.pow(Rq.int_hom().map(257), 2));
+#[cfg(test)]
+mod test {
+    use feanor_math::assert_el_eq;
+
+    use super::*;
+    use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+
+    #[test]
+    fn test_nonprime_rns_factors() {
+        feanor_tracing::DelayedLogger::init_test();
+        let R: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(32);
+        let Zq = zn_rns::Zn::new(vec![Zn::new(257 * 257), Zn::new(65537)], ZZbig);
+        let Rq = DoubleRNSRingBase::new(R, Zq);
+        assert_el_eq!(&Rq, Rq.int_hom().map(257 * 257), Rq.pow(Rq.int_hom().map(257), 2));
+    }
 }

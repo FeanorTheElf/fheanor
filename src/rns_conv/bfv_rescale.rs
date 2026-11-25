@@ -88,9 +88,9 @@ impl RNSOperation for RNSRescalingConversion {
             use feanor_math::ordered::OrderedRingStore;
 
             let rns_ring = zn_rns::Zn::new(self.input_rings().iter().cloned().collect(), ZZbig);
-            // unfortunately, checking all the inputs takes a lot of time, and even though we only do it on
-            // debug builds, it is not good to extremely blow up the test times. Hence, check only
-            // some input elements
+            // unfortunately, checking all the inputs takes a lot of time, and even though we only
+            // do it on debug builds, it is not good to extremely blow up the test
+            // times. Hence, check only some input elements
             for j in (0..min(500, input.col_count())).step_by(7) {
                 debug_assert!(
                     ZZbig.is_leq(
@@ -354,8 +354,8 @@ impl RNSOperation for RNSRescaling {
         // SAFETY: we just initialized it
         let mut x_mod_aq_over_b = unsafe { x_mod_aq_over_b.assume_init() };
 
-        // Compute the shortest lift of `x mod b` to `aq/b`; Here we might introduce an error of `+/- b`
-        // that will later be rescaled to `+/- 1`.
+        // Compute the shortest lift of `x mod b` to `aq/b`; Here we might introduce an error of
+        // `+/- b` that will later be rescaled to `+/- 1`.
         let mut x_mod_b_lift = OwnedMatrix::uninit_in(self.output_rings().len(), col_count, &SCRATCH_ALLOCATOR);
         let x_mod_b_lift = self
             .b_to_out_moduli_lift
@@ -391,215 +391,221 @@ impl RNSOperation for RNSRescaling {
     }
 }
 
-#[test]
-fn test_rescale_partial() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
-    let to = vec![Zn::new(257), Zn::new(113)];
-    let q = 17 * 97 * 113;
+#[cfg(test)]
+mod test {
+    use super::*;
 
-    let rescaling = RNSRescaling::new(from.clone(), to.clone());
+    #[test]
+    fn test_rescale_partial() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
+        let to = vec![Zn::new(257), Zn::new(113)];
+        let q = 17 * 97 * 113;
 
-    for i in -(q / 2)..=(q / 2) {
-        let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
-        let expected = to
-            .iter()
-            .map(|Zn| Zn.int_hom().map((i as f64 * 257. / 17. / 97.).round() as i32))
-            .collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+        let rescaling = RNSRescaling::new(from.clone(), to.clone());
 
-        let actual = rescaling.apply(
-            Submatrix::from_1d(&input, 3, 1),
-            SubmatrixMut::from_1d(&mut actual, 2, 1),
-        );
+        for i in -(q / 2)..=(q / 2) {
+            let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
+            let expected = to
+                .iter()
+                .map(|Zn| Zn.int_hom().map((i as f64 * 257. / 17. / 97.).round() as i32))
+                .collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        for j in 0..expected.len() {
-            assert!(
-                to.at(j)
-                    .smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0)))
-                    .abs()
-                    <= 1,
-                "Expected {} to be {} +/- 1",
-                to.at(j).format(actual.at(j, 0)),
-                to.at(j).format(expected.at(j))
+            let actual = rescaling.apply(
+                Submatrix::from_1d(&input, 3, 1),
+                SubmatrixMut::from_1d(&mut actual, 2, 1),
             );
-        }
-    }
-}
 
-#[test]
-fn test_rescale_larger_unordered() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(17), Zn::new(23), Zn::new(29), Zn::new(31), Zn::new(19)];
-    let to = vec![Zn::new(19), Zn::new(17), Zn::new(5), Zn::new(23)];
-    let q = 17 * 31 * 23 * 29 * 19;
-
-    let rescaling = RNSRescaling::new(from.clone(), to.clone());
-
-    for i in (-(q / 2)..=(q / 2)).step_by(2907) {
-        let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
-        let expected = to
-            .iter()
-            .map(|Zn| Zn.int_hom().map((i as f64 * 5. / 31. / 29.).round() as i32))
-            .collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
-
-        let actual = rescaling.apply(
-            Submatrix::from_1d(&input, 5, 1),
-            SubmatrixMut::from_1d(&mut actual, 4, 1),
-        );
-
-        for j in 0..expected.len() {
-            assert!(
-                to.at(j)
-                    .smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0)))
-                    .abs()
-                    <= 1,
-                "Expected {} to be {} +/- 1",
-                to.at(j).format(actual.at(j, 0)),
-                to.at(j).format(expected.at(j))
-            );
-        }
-    }
-}
-
-#[test]
-fn test_rescale_larger() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(17), Zn::new(31), Zn::new(23), Zn::new(29), Zn::new(19)];
-    let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
-    let q = 17 * 31 * 23 * 29 * 19;
-
-    let rescaling = RNSRescaling::new(from.clone(), to.clone());
-
-    for i in (-(q / 2)..=(q / 2)).step_by(2907) {
-        let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
-        let expected = to
-            .iter()
-            .map(|Zn| Zn.int_hom().map((i as f64 * 5. / 31. / 29.).round() as i32))
-            .collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
-
-        let actual = rescaling.apply(
-            Submatrix::from_1d(&input, 5, 1),
-            SubmatrixMut::from_1d(&mut actual, 4, 1),
-        );
-
-        for j in 0..expected.len() {
-            assert!(
-                to.at(j)
-                    .smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0)))
-                    .abs()
-                    <= 1,
-                "Expected {} to be {} +/- 1",
-                to.at(j).format(actual.at(j, 0)),
-                to.at(j).format(expected.at(j))
-            );
-        }
-    }
-}
-
-#[test]
-fn test_rescale_convert() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(17), Zn::new(31), Zn::new(23), Zn::new(29), Zn::new(19)];
-    let to = vec![Zn::new(31), Zn::new(29)];
-    let q = 17 * 31 * 23 * 29 * 19;
-    let rescaling = RNSRescalingConversion::new(from.clone(), to.clone(), vec![Zn::new(5)], vec![1, 3]);
-
-    // `RNSRescaling` only works up to `q/4`
-    for i in (-(q / 4)..(q / 4 - 512)).step_by(512) {
-        // `q/4` is quite large, so group stuff into matrices here
-        let input = OwnedMatrix::from_fn(from.len(), 512, |k, j| from.at(k).int_hom().map(i + j as i32));
-        let expected = OwnedMatrix::from_fn(to.len(), 512, |k, j| {
-            to.at(k)
-                .int_hom()
-                .map(((i + j as i32) as f64 * 5. / 31. / 29.).round() as i32)
-        });
-        let mut actual = OwnedMatrix::uninit(to.len(), 512);
-
-        let actual = rescaling.apply(input.data(), actual.data_mut());
-
-        for k in 0..expected.row_count() {
-            for j in 0..expected.col_count() {
+            for j in 0..expected.len() {
                 assert!(
-                    to.at(k)
-                        .smallest_lift(to.at(k).sub_ref(expected.at(k, j), actual.at(k, j)))
+                    to.at(j)
+                        .smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0)))
                         .abs()
                         <= 1,
                     "Expected {} to be {} +/- 1",
-                    to.at(k).format(actual.at(k, j)),
-                    to.at(k).format(expected.at(k, j))
+                    to.at(j).format(actual.at(j, 0)),
+                    to.at(j).format(expected.at(j))
                 );
             }
         }
     }
-}
 
-#[test]
-fn test_rescale_small_num() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
-    let to = vec![Zn::new(19), Zn::new(23), Zn::new(113)];
-    let q = 17 * 97 * 113;
+    #[test]
+    fn test_rescale_larger_unordered() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(17), Zn::new(23), Zn::new(29), Zn::new(31), Zn::new(19)];
+        let to = vec![Zn::new(19), Zn::new(17), Zn::new(5), Zn::new(23)];
+        let q = 17 * 31 * 23 * 29 * 19;
 
-    let rescaling = RNSRescaling::new(from.clone(), to.clone());
+        let rescaling = RNSRescaling::new(from.clone(), to.clone());
 
-    for i in -(q / 2)..=(q / 2) {
-        let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
-        let expected = to
-            .iter()
-            .map(|Zn| Zn.int_hom().map((i as f64 * 19. * 23. / 17. / 97.).round() as i32))
-            .collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+        for i in (-(q / 2)..=(q / 2)).step_by(2907) {
+            let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
+            let expected = to
+                .iter()
+                .map(|Zn| Zn.int_hom().map((i as f64 * 5. / 31. / 29.).round() as i32))
+                .collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        let actual = rescaling.apply(
-            Submatrix::from_1d(&input, 3, 1),
-            SubmatrixMut::from_1d(&mut actual, 3, 1),
-        );
-
-        for j in 0..expected.len() {
-            assert!(
-                to.at(j)
-                    .smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0)))
-                    .abs()
-                    <= 1,
-                "Expected {} to be {} +/- 1",
-                to.at(j).format(actual.at(j, 0)),
-                to.at(j).format(expected.at(j))
+            let actual = rescaling.apply(
+                Submatrix::from_1d(&input, 5, 1),
+                SubmatrixMut::from_1d(&mut actual, 4, 1),
             );
+
+            for j in 0..expected.len() {
+                assert!(
+                    to.at(j)
+                        .smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0)))
+                        .abs()
+                        <= 1,
+                    "Expected {} to be {} +/- 1",
+                    to.at(j).format(actual.at(j, 0)),
+                    to.at(j).format(expected.at(j))
+                );
+            }
         }
     }
-}
 
-#[test]
-fn test_rescale_small() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
-    let to = vec![Zn::new(29)];
-    let q = 17 * 19 * 23;
+    #[test]
+    fn test_rescale_larger() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(17), Zn::new(31), Zn::new(23), Zn::new(29), Zn::new(19)];
+        let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
+        let q = 17 * 31 * 23 * 29 * 19;
 
-    let rescaling = RNSRescaling::new(from.clone(), to.clone());
+        let rescaling = RNSRescaling::new(from.clone(), to.clone());
 
-    // since Zm_intermediate has a very large modulus, we can ignore errors here at the moment (I think)
-    for i in -(q / 2)..=(q / 2) {
-        let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
-        let output = to
-            .iter()
-            .map(|Zn| Zn.int_hom().map((i as f64 * 29. / q as f64).round() as i32))
-            .collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+        for i in (-(q / 2)..=(q / 2)).step_by(2907) {
+            let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
+            let expected = to
+                .iter()
+                .map(|Zn| Zn.int_hom().map((i as f64 * 5. / 31. / 29.).round() as i32))
+                .collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        let actual = rescaling.apply(
-            Submatrix::from_1d(&input, 3, 1),
-            SubmatrixMut::from_1d(&mut actual, 1, 1),
-        );
+            let actual = rescaling.apply(
+                Submatrix::from_1d(&input, 5, 1),
+                SubmatrixMut::from_1d(&mut actual, 4, 1),
+            );
 
-        let Zk = to.at(0);
-        assert!(
-            Zk.eq_el(output.at(0), actual.at(0, 0))
-                || Zk.eq_el(output.at(0), &Zk.add_ref_fst(actual.at(0, 0), Zk.one()))
-                || Zk.eq_el(output.at(0), &Zk.sub_ref_fst(actual.at(0, 0), Zk.one()))
-        );
+            for j in 0..expected.len() {
+                assert!(
+                    to.at(j)
+                        .smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0)))
+                        .abs()
+                        <= 1,
+                    "Expected {} to be {} +/- 1",
+                    to.at(j).format(actual.at(j, 0)),
+                    to.at(j).format(expected.at(j))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_rescale_convert() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(17), Zn::new(31), Zn::new(23), Zn::new(29), Zn::new(19)];
+        let to = vec![Zn::new(31), Zn::new(29)];
+        let q = 17 * 31 * 23 * 29 * 19;
+        let rescaling = RNSRescalingConversion::new(from.clone(), to.clone(), vec![Zn::new(5)], vec![1, 3]);
+
+        // `RNSRescaling` only works up to `q/4`
+        for i in (-(q / 4)..(q / 4 - 512)).step_by(512) {
+            // `q/4` is quite large, so group stuff into matrices here
+            let input = OwnedMatrix::from_fn(from.len(), 512, |k, j| from.at(k).int_hom().map(i + j as i32));
+            let expected = OwnedMatrix::from_fn(to.len(), 512, |k, j| {
+                to.at(k)
+                    .int_hom()
+                    .map(((i + j as i32) as f64 * 5. / 31. / 29.).round() as i32)
+            });
+            let mut actual = OwnedMatrix::uninit(to.len(), 512);
+
+            let actual = rescaling.apply(input.data(), actual.data_mut());
+
+            for k in 0..expected.row_count() {
+                for j in 0..expected.col_count() {
+                    assert!(
+                        to.at(k)
+                            .smallest_lift(to.at(k).sub_ref(expected.at(k, j), actual.at(k, j)))
+                            .abs()
+                            <= 1,
+                        "Expected {} to be {} +/- 1",
+                        to.at(k).format(actual.at(k, j)),
+                        to.at(k).format(expected.at(k, j))
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_rescale_small_num() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
+        let to = vec![Zn::new(19), Zn::new(23), Zn::new(113)];
+        let q = 17 * 97 * 113;
+
+        let rescaling = RNSRescaling::new(from.clone(), to.clone());
+
+        for i in -(q / 2)..=(q / 2) {
+            let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
+            let expected = to
+                .iter()
+                .map(|Zn| Zn.int_hom().map((i as f64 * 19. * 23. / 17. / 97.).round() as i32))
+                .collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+
+            let actual = rescaling.apply(
+                Submatrix::from_1d(&input, 3, 1),
+                SubmatrixMut::from_1d(&mut actual, 3, 1),
+            );
+
+            for j in 0..expected.len() {
+                assert!(
+                    to.at(j)
+                        .smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j, 0)))
+                        .abs()
+                        <= 1,
+                    "Expected {} to be {} +/- 1",
+                    to.at(j).format(actual.at(j, 0)),
+                    to.at(j).format(expected.at(j))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_rescale_small() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
+        let to = vec![Zn::new(29)];
+        let q = 17 * 19 * 23;
+
+        let rescaling = RNSRescaling::new(from.clone(), to.clone());
+
+        // since Zm_intermediate has a very large modulus, we can ignore errors here at the moment
+        // (I think)
+        for i in -(q / 2)..=(q / 2) {
+            let input = from.iter().map(|Zn| Zn.int_hom().map(i)).collect::<Vec<_>>();
+            let output = to
+                .iter()
+                .map(|Zn| Zn.int_hom().map((i as f64 * 29. / q as f64).round() as i32))
+                .collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+
+            let actual = rescaling.apply(
+                Submatrix::from_1d(&input, 3, 1),
+                SubmatrixMut::from_1d(&mut actual, 1, 1),
+            );
+
+            let Zk = to.at(0);
+            assert!(
+                Zk.eq_el(output.at(0), actual.at(0, 0))
+                    || Zk.eq_el(output.at(0), &Zk.add_ref_fst(actual.at(0, 0), Zk.one()))
+                    || Zk.eq_el(output.at(0), &Zk.sub_ref_fst(actual.at(0, 0), Zk.one()))
+            );
+        }
     }
 }

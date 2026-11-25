@@ -57,12 +57,13 @@ Using this, we can now create the plaintext ring and initial ciphertext ring via
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
-# use feanor_math::algorithms::eea::signed_gcd;
+# use feanor_math::divisibility::DivisibilityRingStore;
+# use feanor_math::pid::PrincipalIdealRingStore;
 # let log2_N = 13;
 # let params = Pow2BGV::new(2 << log2_N);
 let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
 let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
-assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+assert!(BigIntRing::RING.is_unit(&BigIntRing::RING.ideal_gen(C_initial.base_ring().modulus(), &int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING))));
 ```
 We choose the size of the RLWE modulus `q` to be between `210` and `220` bits - this choice (together with `N = 8192`) gives 128 bits of security, according to "Security Guidelines for Implementing Homomorphic Encryption" <https://ia.cr/2024/463>.
 We will later derive the other moduli in the modulus chain `q', q'', ...` from `q` by "dropping" factors of `q`.
@@ -87,13 +88,14 @@ While it would be preferable for the BGV implementation not to be tied to any sp
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
-# use feanor_math::algorithms::eea::signed_gcd;
+# use feanor_math::divisibility::DivisibilityRingStore;
+# use feanor_math::pid::PrincipalIdealRingStore;
 # use feanor_math::seq::VectorView;
 # let log2_N = 13;
 # let params = Pow2BGV::new(2 << log2_N);
 # let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# assert!(BigIntRing::RING.is_unit(&BigIntRing::RING.ideal_gen(C_initial.base_ring().modulus(), &int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING))));
 let mut rng = StdRng::from_seed([1; 32]);
 let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()), 3.2);
@@ -122,7 +124,8 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
-# use feanor_math::algorithms::eea::signed_gcd;
+# use feanor_math::divisibility::DivisibilityRingStore;
+# use feanor_math::pid::PrincipalIdealRingStore;
 # use feanor_math::homomorphism::Homomorphism;
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::assert_el_eq;
@@ -131,7 +134,7 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # let params = Pow2BGV::new(2 << log2_N);
 # let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# assert!(BigIntRing::RING.is_unit(&BigIntRing::RING.ideal_gen(C_initial.base_ring().modulus(), &int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING))));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()), 3.2);
@@ -167,7 +170,8 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
-# use feanor_math::algorithms::eea::signed_gcd;
+# use feanor_math::divisibility::DivisibilityRingStore;
+# use feanor_math::pid::PrincipalIdealRingStore;
 # use feanor_math::homomorphism::Homomorphism;
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::assert_el_eq;
@@ -176,7 +180,7 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # let params = Pow2BGV::new(2 << log2_N);
 # let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# assert!(BigIntRing::RING.is_unit(&BigIntRing::RING.ideal_gen(C_initial.base_ring().modulus(), &int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING))));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()), 3.2);
@@ -209,7 +213,8 @@ The naïve way would be to compute
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
-# use feanor_math::algorithms::eea::signed_gcd;
+# use feanor_math::divisibility::DivisibilityRingStore;
+# use feanor_math::pid::PrincipalIdealRingStore;
 # use feanor_math::homomorphism::Homomorphism;
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::assert_el_eq;
@@ -218,7 +223,7 @@ The naïve way would be to compute
 # let params = Pow2BGV::new(2 << log2_N);
 # let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# assert!(BigIntRing::RING.is_unit(&BigIntRing::RING.ideal_gen(C_initial.base_ring().modulus(), &int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING))));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()), 3.2);
@@ -254,7 +259,8 @@ Alternatively, these can also determined manually: [`BGVInstantiation::mod_switc
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
-# use feanor_math::algorithms::eea::signed_gcd;
+# use feanor_math::divisibility::DivisibilityRingStore;
+# use feanor_math::pid::PrincipalIdealRingStore;
 # use feanor_math::homomorphism::Homomorphism;
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::seq::VectorView;
@@ -263,7 +269,7 @@ Alternatively, these can also determined manually: [`BGVInstantiation::mod_switc
 # let params = Pow2BGV::new(2 << log2_N);
 # let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# assert!(BigIntRing::RING.is_unit(&BigIntRing::RING.ideal_gen(C_initial.base_ring().modulus(), &int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING))));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()), 3.2);
@@ -302,7 +308,8 @@ We can even reduce the noise growth slightly more by using hybrid key switching 
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
-# use feanor_math::algorithms::eea::signed_gcd;
+# use feanor_math::divisibility::DivisibilityRingStore;
+# use feanor_math::pid::PrincipalIdealRingStore;
 # use feanor_math::homomorphism::Homomorphism;
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::seq::VectorView;
@@ -311,7 +318,7 @@ We can even reduce the noise growth slightly more by using hybrid key switching 
 # let params = Pow2BGV::new(2 << log2_N);
 # let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# assert!(BigIntRing::RING.is_unit(&BigIntRing::RING.ideal_gen(C_initial.base_ring().modulus(), &int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING))));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()), 3.2);
@@ -361,7 +368,8 @@ For example, we could implement the above evaluation instead as follows:
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
-# use feanor_math::algorithms::eea::signed_gcd;
+# use feanor_math::divisibility::DivisibilityRingStore;
+# use feanor_math::pid::PrincipalIdealRingStore;
 # use feanor_math::homomorphism::Homomorphism;
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::seq::VectorView;
@@ -370,7 +378,7 @@ For example, we could implement the above evaluation instead as follows:
 # let params = Pow2BGV::new(2 << log2_N);
 # let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# assert!(BigIntRing::RING.is_unit(&BigIntRing::RING.ideal_gen(C_initial.base_ring().modulus(), &int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING))));
 # let mut rng = StdRng::from_seed([1; 32]);
 # let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()), 3.2);

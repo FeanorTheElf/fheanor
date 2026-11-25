@@ -203,8 +203,8 @@ where
                 |sum_repr: &Option<_>| sum_repr.as_ref().unwrap(),
             )));
         }
-        // we can unlock `sum_repr` here, since if `sum_repr` was empty previously, it will always remain
-        // empty
+        // we can unlock `sum_repr` here, since if `sum_repr` was empty previously, it will always
+        // remain empty
         drop(sum_repr);
         if let Some(small_basis_repr) = self.small_basis_repr.get() {
             if let Some(double_rns_repr) = self.double_rns_repr.get() {
@@ -227,8 +227,8 @@ where
         if let Some(sum_repr) = sum_repr {
             return ManagedDoubleRNSElRepresentation::Sum(Boo::Owned(sum_repr));
         }
-        // we can unlock `sum_repr` here, since if `sum_repr` was empty previously, it will always remain
-        // empty
+        // we can unlock `sum_repr` here, since if `sum_repr` was empty previously, it will always
+        // remain empty
         drop(sum_repr);
         if let Some(small_basis_repr) = self.small_basis_repr.into_inner() {
             if let Some(double_rns_repr) = self.double_rns_repr.into_inner() {
@@ -371,11 +371,13 @@ where
                 let mut result = sum_repr.0;
                 self.base
                     .add_assign_non_fft(&mut result, &self.base.undo_fft(sum_repr.1));
-                // no other thread is able to update this, since the previous call to `get_repr()` would alway
-                // return `Sum` (or run after we unlocked `sum_repr_lock`)
+                // no other thread is able to update this, since the previous call to `get_repr()`
+                // would alway return `Sum` (or run after we unlocked
+                // `sum_repr_lock`)
                 value.internal.small_basis_repr.set(result).ok().unwrap();
-                // keep the `sum_repr_lock` until we initialized `small_basis_repr`, otherwise threads querying this
-                // in the meantime might think the element stores zero
+                // keep the `sum_repr_lock` until we initialized `small_basis_repr`, otherwise
+                // threads querying this in the meantime might think the element
+                // stores zero
                 drop(sum_repr_lock);
                 return Some(value.internal.small_basis_repr.get().unwrap());
             }
@@ -385,8 +387,8 @@ where
             }
             ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) => {
                 let result = self.base.undo_fft(double_rns_repr.to_owned(|x| self.base.clone_el(x)));
-                // here another thread might have set `small_basis_repr` in the meantime, so this might return
-                // `Err(_)`
+                // here another thread might have set `small_basis_repr` in the meantime, so this
+                // might return `Err(_)`
                 _ = value.internal.small_basis_repr.set(result);
                 return Some(value.internal.small_basis_repr.get().unwrap());
             }
@@ -450,11 +452,13 @@ where
                 let sum_repr = std::mem::replace(&mut *sum_repr_lock, None).unwrap();
                 let mut result = sum_repr.1;
                 self.base.add_assign(&mut result, self.base.do_fft(sum_repr.0));
-                // no other thread is able to update this, since the previous call to `get_repr()` would alway
-                // return `Sum` (or run after we unlocked `sum_repr_lock`)
+                // no other thread is able to update this, since the previous call to `get_repr()`
+                // would alway return `Sum` (or run after we unlocked
+                // `sum_repr_lock`)
                 value.internal.double_rns_repr.set(result).ok().unwrap();
-                // keep the `sum_repr_lock` until we initialized `small_basis_repr`, otherwise threads querying this
-                // in the meantime might think the element stores zero
+                // keep the `sum_repr_lock` until we initialized `small_basis_repr`, otherwise
+                // threads querying this in the meantime might think the element
+                // stores zero
                 drop(sum_repr_lock);
                 return Some(value.internal.double_rns_repr.get().unwrap());
             }
@@ -466,8 +470,8 @@ where
                 let result = self
                     .base
                     .do_fft(small_basis_repr.to_owned(|x| self.base.clone_el_non_fft(x)));
-                // here another thread might have set `double_rns_repr` in the meantime, so this might return
-                // `Err(_)`
+                // here another thread might have set `double_rns_repr` in the meantime, so this
+                // might return `Err(_)`
                 _ = value.internal.double_rns_repr.set(result);
                 return Some(value.internal.double_rns_repr.get().unwrap());
             }
@@ -1785,367 +1789,367 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
+mod test {
+    use feanor_math::assert_el_eq;
 
-#[cfg(test)]
-use crate::DefaultConvolution;
-#[cfg(test)]
-use crate::number_ring::pow2_cyclotomic::*;
+    use super::*;
+    use crate::DefaultConvolution;
+    use crate::number_ring::pow2_cyclotomic::*;
 
-#[cfg(test)]
-fn ring_and_elements() -> (
-    ManagedDoubleRNSRing<Pow2CyclotomicNumberRing>,
-    Vec<El<ManagedDoubleRNSRing<Pow2CyclotomicNumberRing>>>,
-) {
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
-    let ring = ManagedDoubleRNSRingBase::new(Pow2CyclotomicNumberRing::new(16), rns_base);
+    fn ring_and_elements() -> (
+        ManagedDoubleRNSRing<Pow2CyclotomicNumberRing>,
+        Vec<El<ManagedDoubleRNSRing<Pow2CyclotomicNumberRing>>>,
+    ) {
+        let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
+        let ring = ManagedDoubleRNSRingBase::new(Pow2CyclotomicNumberRing::new(16), rns_base);
 
-    let elements = vec![
-        ring.zero(),
-        ring.one(),
-        ring.neg_one(),
-        ring.int_hom().map(17),
-        ring.int_hom().map(97),
-        ring.canonical_gen(),
-        ring.pow(ring.canonical_gen(), 15),
-        ring.int_hom().mul_map(ring.canonical_gen(), 17),
-        ring.int_hom().mul_map(ring.pow(ring.canonical_gen(), 15), 17),
-        ring.add(ring.canonical_gen(), ring.one()),
-    ];
-    return (ring, elements);
-}
-
-#[test]
-fn test_ring_axioms() {
-    feanor_tracing::DelayedLogger::init_test();
-    let (ring, elements) = ring_and_elements();
-    feanor_math::ring::generic_tests::test_ring_axioms(&ring, elements.iter().map(|x| ring.clone_el(x)));
-    feanor_math::ring::generic_tests::test_self_iso(&ring, elements.iter().map(|x| ring.clone_el(x)));
-}
-
-#[test]
-fn test_inner_product() {
-    feanor_tracing::DelayedLogger::init_test();
-    let (ring, elements) = ring_and_elements();
-    assert_el_eq!(
-        &ring,
-        ring.sum(
-            elements
-                .iter()
-                .zip(elements.iter().skip(2))
-                .map(|(l, r)| ring.mul_ref(l, r))
-        ),
-        ring.get_ring()
-            .inner_product_ref(elements.iter().zip(elements.iter().skip(2)))
-    );
-}
-
-#[test]
-fn test_thread_safe() {
-    feanor_tracing::DelayedLogger::init_test();
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
-    let ring = Arc::new(ManagedDoubleRNSRingBase::new(number_ring, rns_base));
-
-    let test_element = Arc::new(
-        ring.get_ring().from_sum(
-            ring.get_ring()
-                .base
-                .from_non_fft(ring.get_ring().base.base_ring().int_hom().map(1)),
-            ring.get_ring()
-                .base
-                .from(ring.get_ring().base.base_ring().int_hom().map(10)),
-        ),
-    );
-    let mut threads = Vec::new();
-    let n = 5;
-    let barrier = Arc::new(Barrier::new(n));
-    for _ in 0..n {
-        let barrier = barrier.clone();
-        let test_element = test_element.clone();
-        let ring = ring.clone();
-        threads.push(std::thread::spawn(move || {
-            barrier.wait();
-            assert_el_eq!(
-                ring,
-                ring.int_hom().map(121),
-                ring.pow(ring.clone_el(&*test_element), 2)
-            );
-        }))
+        let elements = vec![
+            ring.zero(),
+            ring.one(),
+            ring.neg_one(),
+            ring.int_hom().map(17),
+            ring.int_hom().map(97),
+            ring.canonical_gen(),
+            ring.pow(ring.canonical_gen(), 15),
+            ring.int_hom().mul_map(ring.canonical_gen(), 17),
+            ring.int_hom().mul_map(ring.pow(ring.canonical_gen(), 15), 17),
+            ring.add(ring.canonical_gen(), ring.one()),
+        ];
+        return (ring, elements);
     }
-    for future in threads {
-        future.join().unwrap();
+
+    #[test]
+    fn test_ring_axioms() {
+        feanor_tracing::DelayedLogger::init_test();
+        let (ring, elements) = ring_and_elements();
+        feanor_math::ring::generic_tests::test_ring_axioms(&ring, elements.iter().map(|x| ring.clone_el(x)));
+        feanor_math::ring::generic_tests::test_self_iso(&ring, elements.iter().map(|x| ring.clone_el(x)));
     }
-}
 
-#[test]
-fn test_canonical_hom_from_doublerns() {
-    feanor_tracing::DelayedLogger::init_test();
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
-    let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
-
-    let doublerns_ring = RingRef::new(&ring.get_ring().base);
-    let elements = vec![
-        doublerns_ring.zero(),
-        doublerns_ring.one(),
-        doublerns_ring.neg_one(),
-        doublerns_ring.int_hom().map(17),
-        doublerns_ring.int_hom().map(97),
-        doublerns_ring.canonical_gen(),
-        doublerns_ring.pow(doublerns_ring.canonical_gen(), 15),
-        doublerns_ring.int_hom().mul_map(doublerns_ring.canonical_gen(), 17),
-        doublerns_ring
-            .int_hom()
-            .mul_map(doublerns_ring.pow(doublerns_ring.canonical_gen(), 15), 17),
-        doublerns_ring.add(doublerns_ring.canonical_gen(), doublerns_ring.one()),
-    ];
-
-    feanor_math::ring::generic_tests::test_hom_axioms(
-        doublerns_ring,
-        &ring,
-        elements.iter().map(|x| doublerns_ring.clone_el(x)),
-    );
-}
-
-#[test]
-fn test_canonical_hom_from_singlerns() {
-    feanor_tracing::DelayedLogger::init_test();
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(97), Zn::new(193)], BigIntRing::RING);
-    let ring = ManagedDoubleRNSRingBase::new(number_ring.clone(), rns_base.clone());
-    let singlerns_ring = SingleRNSRingBase::<_, _, DefaultConvolution>::new(number_ring, rns_base);
-    let elements = vec![
-        singlerns_ring.zero(),
-        singlerns_ring.one(),
-        singlerns_ring.neg_one(),
-        singlerns_ring.int_hom().map(97),
-        singlerns_ring.int_hom().map(193),
-        singlerns_ring.canonical_gen(),
-        singlerns_ring.pow(singlerns_ring.canonical_gen(), 15),
-        singlerns_ring.int_hom().mul_map(singlerns_ring.canonical_gen(), 97),
-        singlerns_ring
-            .int_hom()
-            .mul_map(singlerns_ring.pow(singlerns_ring.canonical_gen(), 15), 97),
-        singlerns_ring.add(singlerns_ring.canonical_gen(), singlerns_ring.one()),
-    ];
-
-    feanor_math::ring::generic_tests::test_hom_axioms(
-        &singlerns_ring,
-        &ring,
-        elements.iter().map(|x| singlerns_ring.clone_el(x)),
-    );
-}
-
-#[test]
-fn test_add_result_independent_of_repr() {
-    feanor_tracing::DelayedLogger::init_test();
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
-    let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
-    let base = &ring.get_ring().base;
-    let reprs_of_11: [Box<dyn Fn() -> ManagedDoubleRNSEl<_, _>>; 4] = [
-        Box::new(|| {
+    #[test]
+    fn test_inner_product() {
+        feanor_tracing::DelayedLogger::init_test();
+        let (ring, elements) = ring_and_elements();
+        assert_el_eq!(
+            &ring,
+            ring.sum(
+                elements
+                    .iter()
+                    .zip(elements.iter().skip(2))
+                    .map(|(l, r)| ring.mul_ref(l, r))
+            ),
             ring.get_ring()
-                .from_small_basis(base.from_non_fft(base.base_ring().int_hom().map(11)))
-        }),
-        Box::new(|| {
-            ring.get_ring()
-                .from_doublerns(base.from(base.base_ring().int_hom().map(11)))
-        }),
-        Box::new(|| {
+                .inner_product_ref(elements.iter().zip(elements.iter().skip(2)))
+        );
+    }
+
+    #[test]
+    fn test_thread_safe() {
+        feanor_tracing::DelayedLogger::init_test();
+        let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
+        let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
+        let ring = Arc::new(ManagedDoubleRNSRingBase::new(number_ring, rns_base));
+
+        let test_element = Arc::new(
             ring.get_ring().from_sum(
-                base.from_non_fft(base.base_ring().int_hom().map(10)),
-                base.from(base.base_ring().int_hom().map(1)),
-            )
-        }),
-        Box::new(|| {
-            ring.get_ring().from_both(
-                base.from_non_fft(base.base_ring().int_hom().map(11)),
-                base.from(base.base_ring().int_hom().map(11)),
-            )
-        }),
-    ];
-    let reprs_of_102: [Box<dyn Fn() -> ManagedDoubleRNSEl<_, _>>; 4] = [
-        Box::new(|| {
-            ring.get_ring()
-                .from_small_basis(base.from_non_fft(base.base_ring().int_hom().map(102)))
-        }),
-        Box::new(|| {
-            ring.get_ring()
-                .from_doublerns(base.from(base.base_ring().int_hom().map(102)))
-        }),
-        Box::new(|| {
-            ring.get_ring().from_sum(
-                base.from_non_fft(base.base_ring().int_hom().map(100)),
-                base.from(base.base_ring().int_hom().map(2)),
-            )
-        }),
-        Box::new(|| {
-            ring.get_ring().from_both(
-                base.from_non_fft(base.base_ring().int_hom().map(102)),
-                base.from(base.base_ring().int_hom().map(102)),
-            )
-        }),
-    ];
-    for a in &reprs_of_11 {
-        for b in &reprs_of_102 {
-            let x = a();
-            assert_el_eq!(
-                RingRef::new(base),
-                base.from_int(22),
-                ring.get_ring().to_doublerns(&ring.add_ref(&x, &x)).unwrap()
-            );
-
-            let x = a();
-            let y = b();
-            assert_el_eq!(
-                RingRef::new(base),
-                base.from_int(113),
-                ring.get_ring().to_doublerns(&ring.add_ref(&x, &y)).unwrap()
-            );
-
-            let x = a();
-            let y = b();
-            assert!(base.eq_el_non_fft(
-                &base.from_non_fft(base.base_ring().int_hom().map(113)),
-                &*ring.get_ring().to_small_basis(&ring.add_ref(&x, &y)).unwrap()
-            ));
-
-            let x = a();
-            let y = b();
-            assert_el_eq!(
-                RingRef::new(base),
-                base.from_int(-91),
-                ring.get_ring().to_doublerns(&ring.sub_ref(&x, &y)).unwrap()
-            );
-
-            let x = a();
-            let y = b();
-            assert!(base.eq_el_non_fft(
-                &base.from_non_fft(base.base_ring().int_hom().map(-91)),
-                &*ring.get_ring().to_small_basis(&ring.sub_ref(&x, &y)).unwrap()
-            ));
-
-            let x = a();
-            assert_el_eq!(
-                RingRef::new(base),
-                base.from_int(121),
-                ring.get_ring().to_doublerns(&ring.mul_ref(&x, &x)).unwrap()
-            );
-
-            let x = a();
-            let y = b();
-            assert_el_eq!(
-                RingRef::new(base),
-                base.from_int(1122),
-                ring.get_ring().to_doublerns(&ring.mul_ref(&x, &y)).unwrap()
-            );
-
-            let x = a();
-            let y = b();
-            assert!(base.eq_el_non_fft(
-                &base.from_non_fft(base.base_ring().int_hom().map(1122)),
-                &*ring.get_ring().to_small_basis(&ring.mul_ref(&x, &y)).unwrap()
-            ));
+                ring.get_ring()
+                    .base
+                    .from_non_fft(ring.get_ring().base.base_ring().int_hom().map(1)),
+                ring.get_ring()
+                    .base
+                    .from(ring.get_ring().base.base_ring().int_hom().map(10)),
+            ),
+        );
+        let mut threads = Vec::new();
+        let n = 5;
+        let barrier = Arc::new(Barrier::new(n));
+        for _ in 0..n {
+            let barrier = barrier.clone();
+            let test_element = test_element.clone();
+            let ring = ring.clone();
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                assert_el_eq!(
+                    ring,
+                    ring.int_hom().map(121),
+                    ring.pow(ring.clone_el(&*test_element), 2)
+                );
+            }))
+        }
+        for future in threads {
+            future.join().unwrap();
         }
     }
-}
 
-#[test]
-fn test_serialization() {
-    feanor_tracing::DelayedLogger::init_test();
-    let (ring, elements) = ring_and_elements();
-    feanor_math::serialization::generic_tests::test_serialization(&ring, elements.iter().map(|x| ring.clone_el(x)));
+    #[test]
+    fn test_canonical_hom_from_doublerns() {
+        feanor_tracing::DelayedLogger::init_test();
+        let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
+        let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
+        let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
 
-    for a in &elements {
-        if ring.is_zero(a) {
-            continue;
-        }
-        let a_small_basis = ring.get_ring().from_small_basis(
-            ring.get_ring()
-                .unmanaged_ring()
-                .get_ring()
-                .clone_el_non_fft(ring.get_ring().to_small_basis(a).unwrap()),
+        let doublerns_ring = RingRef::new(&ring.get_ring().base);
+        let elements = vec![
+            doublerns_ring.zero(),
+            doublerns_ring.one(),
+            doublerns_ring.neg_one(),
+            doublerns_ring.int_hom().map(17),
+            doublerns_ring.int_hom().map(97),
+            doublerns_ring.canonical_gen(),
+            doublerns_ring.pow(doublerns_ring.canonical_gen(), 15),
+            doublerns_ring.int_hom().mul_map(doublerns_ring.canonical_gen(), 17),
+            doublerns_ring
+                .int_hom()
+                .mul_map(doublerns_ring.pow(doublerns_ring.canonical_gen(), 15), 17),
+            doublerns_ring.add(doublerns_ring.canonical_gen(), doublerns_ring.one()),
+        ];
+
+        feanor_math::ring::generic_tests::test_hom_axioms(
+            doublerns_ring,
+            &ring,
+            elements.iter().map(|x| doublerns_ring.clone_el(x)),
         );
-        let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
-        let tokens = ring.get_ring().serialize(&a_small_basis, &serializer).unwrap();
-        let mut deserializer = serde_assert::Deserializer::builder(tokens)
-            .is_human_readable(true)
-            .build();
-        let result = ring.get_ring().deserialize(&mut deserializer).unwrap();
-        assert_el_eq!(ring, &a_small_basis, &result);
-        match result.internal.get_repr() {
-            ManagedDoubleRNSElRepresentation::SmallBasis(_) => {}
-            _ => panic!("wrong representation"),
-        };
-
-        let a_small_basis = ring.get_ring().from_small_basis(
-            ring.get_ring()
-                .unmanaged_ring()
-                .get_ring()
-                .clone_el_non_fft(ring.get_ring().to_small_basis(a).unwrap()),
-        );
-        let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
-        let tokens = ring.get_ring().serialize(&a_small_basis, &serializer).unwrap();
-        let mut deserializer = serde_assert::Deserializer::builder(tokens)
-            .is_human_readable(false)
-            .build();
-        let result = ring.get_ring().deserialize(&mut deserializer).unwrap();
-        assert_el_eq!(ring, &a_small_basis, &result);
-        match result.internal.get_repr() {
-            ManagedDoubleRNSElRepresentation::SmallBasis(_) => {}
-            _ => panic!("wrong representation"),
-        };
-
-        let a_doublerns = ring.get_ring().from_doublerns(
-            ring.get_ring()
-                .unmanaged_ring()
-                .clone_el(ring.get_ring().to_doublerns(a).unwrap()),
-        );
-        let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
-        let tokens = ring.get_ring().serialize(&a_doublerns, &serializer).unwrap();
-        let mut deserializer = serde_assert::Deserializer::builder(tokens)
-            .is_human_readable(true)
-            .build();
-        let result = ring.get_ring().deserialize(&mut deserializer).unwrap();
-        assert_el_eq!(ring, &a_doublerns, &result);
-        match result.internal.get_repr() {
-            ManagedDoubleRNSElRepresentation::SmallBasis(_) => {}
-            _ => panic!("wrong representation"),
-        };
-
-        let a_doublerns = ring.get_ring().from_doublerns(
-            ring.get_ring()
-                .unmanaged_ring()
-                .clone_el(ring.get_ring().to_doublerns(a).unwrap()),
-        );
-        let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
-        let tokens = ring.get_ring().serialize(&a_doublerns, &serializer).unwrap();
-        let mut deserializer = serde_assert::Deserializer::builder(tokens)
-            .is_human_readable(false)
-            .build();
-        let result = ring.get_ring().deserialize(&mut deserializer).unwrap();
-        assert_el_eq!(ring, &a_doublerns, &result);
-        match result.internal.get_repr() {
-            ManagedDoubleRNSElRepresentation::DoubleRNS(_) => {}
-            _ => panic!("wrong representation"),
-        };
     }
-}
 
-#[test]
-fn test_deadlock() {
-    feanor_tracing::DelayedLogger::init_test();
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
-    let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
-    let rns_base = ring.base_ring();
+    #[test]
+    fn test_canonical_hom_from_singlerns() {
+        feanor_tracing::DelayedLogger::init_test();
+        let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
+        let rns_base = zn_rns::Zn::new(vec![Zn::new(97), Zn::new(193)], BigIntRing::RING);
+        let ring = ManagedDoubleRNSRingBase::new(number_ring.clone(), rns_base.clone());
+        let singlerns_ring = SingleRNSRingBase::<_, _, DefaultConvolution>::new(number_ring, rns_base);
+        let elements = vec![
+            singlerns_ring.zero(),
+            singlerns_ring.one(),
+            singlerns_ring.neg_one(),
+            singlerns_ring.int_hom().map(97),
+            singlerns_ring.int_hom().map(193),
+            singlerns_ring.canonical_gen(),
+            singlerns_ring.pow(singlerns_ring.canonical_gen(), 15),
+            singlerns_ring.int_hom().mul_map(singlerns_ring.canonical_gen(), 97),
+            singlerns_ring
+                .int_hom()
+                .mul_map(singlerns_ring.pow(singlerns_ring.canonical_gen(), 15), 97),
+            singlerns_ring.add(singlerns_ring.canonical_gen(), singlerns_ring.one()),
+        ];
 
-    let el = ring.get_ring().from_sum(
-        ring.get_ring().base.from_non_fft(rns_base.int_hom().map(10)),
-        ring.get_ring().base.from(rns_base.int_hom().map(-10)),
-    );
-    assert!(ring.is_zero(&el));
-    assert!(ring.eq_el(&el, &el));
+        feanor_math::ring::generic_tests::test_hom_axioms(
+            &singlerns_ring,
+            &ring,
+            elements.iter().map(|x| singlerns_ring.clone_el(x)),
+        );
+    }
+
+    #[test]
+    fn test_add_result_independent_of_repr() {
+        feanor_tracing::DelayedLogger::init_test();
+        let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
+        let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
+        let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
+        let base = &ring.get_ring().base;
+        let reprs_of_11: [Box<dyn Fn() -> ManagedDoubleRNSEl<_, _>>; 4] = [
+            Box::new(|| {
+                ring.get_ring()
+                    .from_small_basis(base.from_non_fft(base.base_ring().int_hom().map(11)))
+            }),
+            Box::new(|| {
+                ring.get_ring()
+                    .from_doublerns(base.from(base.base_ring().int_hom().map(11)))
+            }),
+            Box::new(|| {
+                ring.get_ring().from_sum(
+                    base.from_non_fft(base.base_ring().int_hom().map(10)),
+                    base.from(base.base_ring().int_hom().map(1)),
+                )
+            }),
+            Box::new(|| {
+                ring.get_ring().from_both(
+                    base.from_non_fft(base.base_ring().int_hom().map(11)),
+                    base.from(base.base_ring().int_hom().map(11)),
+                )
+            }),
+        ];
+        let reprs_of_102: [Box<dyn Fn() -> ManagedDoubleRNSEl<_, _>>; 4] = [
+            Box::new(|| {
+                ring.get_ring()
+                    .from_small_basis(base.from_non_fft(base.base_ring().int_hom().map(102)))
+            }),
+            Box::new(|| {
+                ring.get_ring()
+                    .from_doublerns(base.from(base.base_ring().int_hom().map(102)))
+            }),
+            Box::new(|| {
+                ring.get_ring().from_sum(
+                    base.from_non_fft(base.base_ring().int_hom().map(100)),
+                    base.from(base.base_ring().int_hom().map(2)),
+                )
+            }),
+            Box::new(|| {
+                ring.get_ring().from_both(
+                    base.from_non_fft(base.base_ring().int_hom().map(102)),
+                    base.from(base.base_ring().int_hom().map(102)),
+                )
+            }),
+        ];
+        for a in &reprs_of_11 {
+            for b in &reprs_of_102 {
+                let x = a();
+                assert_el_eq!(
+                    RingRef::new(base),
+                    base.from_int(22),
+                    ring.get_ring().to_doublerns(&ring.add_ref(&x, &x)).unwrap()
+                );
+
+                let x = a();
+                let y = b();
+                assert_el_eq!(
+                    RingRef::new(base),
+                    base.from_int(113),
+                    ring.get_ring().to_doublerns(&ring.add_ref(&x, &y)).unwrap()
+                );
+
+                let x = a();
+                let y = b();
+                assert!(base.eq_el_non_fft(
+                    &base.from_non_fft(base.base_ring().int_hom().map(113)),
+                    &*ring.get_ring().to_small_basis(&ring.add_ref(&x, &y)).unwrap()
+                ));
+
+                let x = a();
+                let y = b();
+                assert_el_eq!(
+                    RingRef::new(base),
+                    base.from_int(-91),
+                    ring.get_ring().to_doublerns(&ring.sub_ref(&x, &y)).unwrap()
+                );
+
+                let x = a();
+                let y = b();
+                assert!(base.eq_el_non_fft(
+                    &base.from_non_fft(base.base_ring().int_hom().map(-91)),
+                    &*ring.get_ring().to_small_basis(&ring.sub_ref(&x, &y)).unwrap()
+                ));
+
+                let x = a();
+                assert_el_eq!(
+                    RingRef::new(base),
+                    base.from_int(121),
+                    ring.get_ring().to_doublerns(&ring.mul_ref(&x, &x)).unwrap()
+                );
+
+                let x = a();
+                let y = b();
+                assert_el_eq!(
+                    RingRef::new(base),
+                    base.from_int(1122),
+                    ring.get_ring().to_doublerns(&ring.mul_ref(&x, &y)).unwrap()
+                );
+
+                let x = a();
+                let y = b();
+                assert!(base.eq_el_non_fft(
+                    &base.from_non_fft(base.base_ring().int_hom().map(1122)),
+                    &*ring.get_ring().to_small_basis(&ring.mul_ref(&x, &y)).unwrap()
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn test_serialization() {
+        feanor_tracing::DelayedLogger::init_test();
+        let (ring, elements) = ring_and_elements();
+        feanor_math::serialization::generic_tests::test_serialization(&ring, elements.iter().map(|x| ring.clone_el(x)));
+
+        for a in &elements {
+            if ring.is_zero(a) {
+                continue;
+            }
+            let a_small_basis = ring.get_ring().from_small_basis(
+                ring.get_ring()
+                    .unmanaged_ring()
+                    .get_ring()
+                    .clone_el_non_fft(ring.get_ring().to_small_basis(a).unwrap()),
+            );
+            let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
+            let tokens = ring.get_ring().serialize(&a_small_basis, &serializer).unwrap();
+            let mut deserializer = serde_assert::Deserializer::builder(tokens)
+                .is_human_readable(true)
+                .build();
+            let result = ring.get_ring().deserialize(&mut deserializer).unwrap();
+            assert_el_eq!(ring, &a_small_basis, &result);
+            match result.internal.get_repr() {
+                ManagedDoubleRNSElRepresentation::SmallBasis(_) => {}
+                _ => panic!("wrong representation"),
+            };
+
+            let a_small_basis = ring.get_ring().from_small_basis(
+                ring.get_ring()
+                    .unmanaged_ring()
+                    .get_ring()
+                    .clone_el_non_fft(ring.get_ring().to_small_basis(a).unwrap()),
+            );
+            let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
+            let tokens = ring.get_ring().serialize(&a_small_basis, &serializer).unwrap();
+            let mut deserializer = serde_assert::Deserializer::builder(tokens)
+                .is_human_readable(false)
+                .build();
+            let result = ring.get_ring().deserialize(&mut deserializer).unwrap();
+            assert_el_eq!(ring, &a_small_basis, &result);
+            match result.internal.get_repr() {
+                ManagedDoubleRNSElRepresentation::SmallBasis(_) => {}
+                _ => panic!("wrong representation"),
+            };
+
+            let a_doublerns = ring.get_ring().from_doublerns(
+                ring.get_ring()
+                    .unmanaged_ring()
+                    .clone_el(ring.get_ring().to_doublerns(a).unwrap()),
+            );
+            let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
+            let tokens = ring.get_ring().serialize(&a_doublerns, &serializer).unwrap();
+            let mut deserializer = serde_assert::Deserializer::builder(tokens)
+                .is_human_readable(true)
+                .build();
+            let result = ring.get_ring().deserialize(&mut deserializer).unwrap();
+            assert_el_eq!(ring, &a_doublerns, &result);
+            match result.internal.get_repr() {
+                ManagedDoubleRNSElRepresentation::SmallBasis(_) => {}
+                _ => panic!("wrong representation"),
+            };
+
+            let a_doublerns = ring.get_ring().from_doublerns(
+                ring.get_ring()
+                    .unmanaged_ring()
+                    .clone_el(ring.get_ring().to_doublerns(a).unwrap()),
+            );
+            let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
+            let tokens = ring.get_ring().serialize(&a_doublerns, &serializer).unwrap();
+            let mut deserializer = serde_assert::Deserializer::builder(tokens)
+                .is_human_readable(false)
+                .build();
+            let result = ring.get_ring().deserialize(&mut deserializer).unwrap();
+            assert_el_eq!(ring, &a_doublerns, &result);
+            match result.internal.get_repr() {
+                ManagedDoubleRNSElRepresentation::DoubleRNS(_) => {}
+                _ => panic!("wrong representation"),
+            };
+        }
+    }
+
+    #[test]
+    fn test_deadlock() {
+        feanor_tracing::DelayedLogger::init_test();
+        let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
+        let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
+        let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
+        let rns_base = ring.base_ring();
+
+        let el = ring.get_ring().from_sum(
+            ring.get_ring().base.from_non_fft(rns_base.int_hom().map(10)),
+            ring.get_ring().base.from(rns_base.int_hom().map(-10)),
+        );
+        assert!(ring.is_zero(&el));
+        assert!(ring.eq_el(&el, &el));
+    }
 }

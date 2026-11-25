@@ -109,8 +109,8 @@ impl GeneralRNSMatrixBaseConversion {
             "temporarily unreduced modular lift sum will overflow"
         );
 
-        // When computing the approximate lifted value, we can work with `gamma` in place of `Q`, where
-        // `gamma >= 4 r max(q)` (`q` runs through the input factors)
+        // When computing the approximate lifted value, we can work with `gamma` in place of `Q`,
+        // where `gamma >= 4 r max(q)` (`q` runs through the input factors)
         let log2_r = ZZi64.abs_log2_ceil(&(in_rings.len() as i64)).unwrap_or(0);
         let log2_qmax = ZZi64
             .abs_log2_ceil(
@@ -122,8 +122,8 @@ impl GeneralRNSMatrixBaseConversion {
             .unwrap_or(0);
         let log2_any_lift_factor = ZZi64.abs_log2_ceil(&ZN_ANY_LIFT_FACTOR).unwrap_or(0);
         let gamma = ZZbig.power_of_two(log2_r + log2_qmax + log2_any_lift_factor + 2);
-        // we compute a sum of `r` summands, each being a product of a lifted value (mod `q`, `q | Q`) and
-        // `gamma/q`; this must not overflow
+        // we compute a sum of `r` summands, each being a product of a lifted value (mod `q`, `q |
+        // Q`) and `gamma/q`; this must not overflow
         assert!(
             ZZbig.abs_log2_ceil(&gamma).unwrap() + log2_r + log2_any_lift_factor + 1
                 < ZZi128.get_ring().representable_bits().unwrap(),
@@ -430,345 +430,344 @@ impl RNSOperation for RNSBaseConversion {
 }
 
 #[cfg(test)]
-use feanor_math::algorithms::miller_rabin::is_prime;
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::primitive_int::StaticRing;
-#[cfg(test)]
-use feanor_math::rings::finite::FiniteRingStore;
-#[cfg(test)]
-use test::Bencher;
+mod test {
+    use ::test::Bencher;
+    use feanor_math::algorithms::miller_rabin::is_prime;
+    use feanor_math::assert_el_eq;
+    use feanor_math::primitive_int::StaticRing;
+    use feanor_math::rings::finite::FiniteRingStore;
 
-#[cfg(test)]
-fn check_almost_exact_result<V>(to: &[Zn], k: i32, q: i32, actual: Column<V, ZnEl>, expected: &[ZnEl])
-where
-    V: AsPointerToSlice<ZnEl>,
-{
-    for j in 0..to.len() {
-        assert!(
-            to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), actual.at(j)))
-                || to.at(j).eq_el(
-                    &to.at(j).sub_ref(expected.at(j), actual.at(j)),
-                    &to.at(j).int_hom().map(q)
-                )
-                || to.at(j).eq_el(
-                    &to.at(j).sub_ref(expected.at(j), actual.at(j)),
-                    &to.at(j).int_hom().map(-q)
-                ),
-            "Expected {} to be {} +/- {}, input was {}",
-            to.at(j).format(actual.at(j)),
-            to.at(j).format(expected.at(j)),
-            q,
-            k
-        );
-    }
-}
+    use super::*;
 
-#[test]
-fn test_empty_rns_base_conversion() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![];
-    let to = vec![Zn::new(17), Zn::new(257)];
-
-    let table = RNSBaseConversion::new(from.clone(), to.clone());
-    let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
-
-    let actual = table.apply(
-        Submatrix::from_1d(&[], from.len(), 1),
-        SubmatrixMut::from_1d(&mut actual, to.len(), 1),
-    );
-    for j in 0..to.len() {
-        assert_el_eq!(to.at(j), to.at(j).zero(), actual.at(j, 0));
+    fn check_almost_exact_result<V>(to: &[Zn], k: i32, q: i32, actual: Column<V, ZnEl>, expected: &[ZnEl])
+    where
+        V: AsPointerToSlice<ZnEl>,
+    {
+        for j in 0..to.len() {
+            assert!(
+                to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), actual.at(j)))
+                    || to.at(j).eq_el(
+                        &to.at(j).sub_ref(expected.at(j), actual.at(j)),
+                        &to.at(j).int_hom().map(q)
+                    )
+                    || to.at(j).eq_el(
+                        &to.at(j).sub_ref(expected.at(j), actual.at(j)),
+                        &to.at(j).int_hom().map(-q)
+                    ),
+                "Expected {} to be {} +/- {}, input was {}",
+                to.at(j).format(actual.at(j)),
+                to.at(j).format(expected.at(j)),
+                q,
+                k
+            );
+        }
     }
 
-    let from = vec![Zn::new(17), Zn::new(257)];
-    let to = vec![];
-    let table = RNSBaseConversion::new(from.clone(), to.clone());
+    #[test]
+    fn test_empty_rns_base_conversion() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![];
+        let to = vec![Zn::new(17), Zn::new(257)];
 
-    let input = from.iter().map(|Zn| Zn.one()).collect::<Vec<_>>();
-    table.apply(
-        Submatrix::from_1d(&input, from.len(), 1),
-        SubmatrixMut::from_1d(&mut [], to.len(), 1),
-    );
-}
-
-#[test]
-fn test_rns_base_conversion() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(17), Zn::new(97)];
-    let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
-    let q = 17 * 97;
-
-    let table = RNSBaseConversion::new(from.clone(), to.clone());
-
-    for k in (-q / 2)..=(q / 2) {
-        let input = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let expected = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+        let table = RNSBaseConversion::new(from.clone(), to.clone());
         let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
         let actual = table.apply(
-            Submatrix::from_1d(&input, from.len(), 1),
+            Submatrix::from_1d(&[], from.len(), 1),
             SubmatrixMut::from_1d(&mut actual, to.len(), 1),
         );
+        for j in 0..to.len() {
+            assert_el_eq!(to.at(j), to.at(j).zero(), actual.at(j, 0));
+        }
 
-        check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
+        let from = vec![Zn::new(17), Zn::new(257)];
+        let to = vec![];
+        let table = RNSBaseConversion::new(from.clone(), to.clone());
+
+        let input = from.iter().map(|Zn| Zn.one()).collect::<Vec<_>>();
+        table.apply(
+            Submatrix::from_1d(&input, from.len(), 1),
+            SubmatrixMut::from_1d(&mut [], to.len(), 1),
+        );
     }
 
-    for k in -(q / 4)..=(q / 4) {
-        let input = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let expected = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+    #[test]
+    fn test_rns_base_conversion() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(17), Zn::new(97)];
+        let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
+        let q = 17 * 97;
 
-        let actual = table.apply(
-            Submatrix::from_1d(&input, from.len(), 1),
-            SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+        let table = RNSBaseConversion::new(from.clone(), to.clone());
+
+        for k in (-q / 2)..=(q / 2) {
+            let input = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+            let expected = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+
+            let actual = table.apply(
+                Submatrix::from_1d(&input, from.len(), 1),
+                SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+            );
+
+            check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
+        }
+
+        for k in -(q / 4)..=(q / 4) {
+            let input = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+            let expected = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+
+            let actual = table.apply(
+                Submatrix::from_1d(&input, from.len(), 1),
+                SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+            );
+
+            for j in 0..to.len() {
+                assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
+            }
+        }
+    }
+
+    #[test]
+    fn test_rns_base_conversion_both_unordered() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(31), Zn::new(29)];
+        let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
+        let q = 31 * 29;
+        let table = RNSBaseConversion::new(from.clone(), to.clone());
+
+        for k in -(q / 2)..=(q / 2) {
+            let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+            let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+
+            let actual = table.apply(
+                Submatrix::from_1d(&input, from.len(), 1),
+                SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+            );
+
+            check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
+        }
+    }
+
+    #[test]
+    fn test_rns_base_conversion_small() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(3), Zn::new(97)];
+        let to = vec![Zn::new(17)];
+        let q = 3 * 97;
+
+        let table = RNSBaseConversion::new(from.clone(), to.clone());
+
+        for k in -(q / 2)..=(q / 2) {
+            let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+            let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+
+            let actual = table.apply(
+                Submatrix::from_1d(&input, from.len(), 1),
+                SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+            );
+
+            check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
+        }
+    }
+
+    #[test]
+    fn test_rns_base_conversion_not_coprime() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
+        let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
+        let q = 17 * 97 * 113;
+
+        let table = RNSBaseConversion::new(from.clone(), to.clone());
+
+        for k in -(q / 4)..=(q / 4) {
+            let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+            let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+
+            let actual = table.apply(
+                Submatrix::from_1d(&input, from.len(), 1),
+                SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+            );
+
+            for i in 0..to.len() {
+                assert_el_eq!(to[i], expected[i], actual.at(i, 0));
+            }
+        }
+    }
+
+    #[test]
+    fn test_rns_base_conversion_not_coprime_from_unordered() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(113), Zn::new(17), Zn::new(97)];
+        let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
+        let q = 113 * 17 * 97;
+
+        let table = RNSBaseConversion::new(from.clone(), to.clone());
+
+        for k in -(q / 4)..=(q / 4) {
+            let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+            let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+
+            let actual = table.apply(
+                Submatrix::from_1d(&input, from.len(), 1),
+                SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+            );
+
+            for i in 0..to.len() {
+                assert_el_eq!(to[i], expected[i], actual.at(i, 0));
+            }
+        }
+    }
+
+    #[test]
+    fn test_rns_base_conversion_coprime() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
+        let to = vec![Zn::new(19), Zn::new(23), Zn::new(257)];
+        let q = 113 * 17 * 97;
+
+        let table = RNSBaseConversion::new(from.clone(), to.clone());
+
+        for k in -(q / 4)..=(q / 4) {
+            let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+            let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+
+            let actual = table.apply(
+                Submatrix::from_1d(&input, from.len(), 1),
+                SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+            );
+
+            for i in 0..to.len() {
+                assert_el_eq!(to[i], expected[i], actual.at(i, 0));
+            }
+        }
+    }
+
+    #[bench]
+    fn bench_rns_base_conversion(bencher: &mut Bencher) {
+        feanor_tracing::DelayedLogger::init_test();
+        let in_moduli_count = 20;
+        let out_moduli_count = 40;
+        let cols = 1000;
+        let mut primes = ((1 << 30)..)
+            .map(|k| (1 << 10) * k + 1)
+            .filter(|p| is_prime(&StaticRing::<i64>::RING, p, 10))
+            .map(|p| Zn::new(p as u64));
+        let in_moduli = primes.by_ref().take(in_moduli_count).collect::<Vec<_>>();
+        let out_moduli = primes.take(out_moduli_count).collect::<Vec<_>>();
+        let conv = RNSBaseConversion::new(in_moduli.clone(), out_moduli.clone());
+
+        let mut rng = oorandom::Rand64::new(1);
+        let mut in_data = (0..(in_moduli_count * cols))
+            .map(|idx| in_moduli[idx / cols].zero())
+            .collect::<Vec<_>>();
+        let mut in_matrix = SubmatrixMut::from_1d(&mut in_data, in_moduli_count, cols);
+        let mut out_data = (0..(out_moduli_count * cols))
+            .map(|_| MaybeUninit::uninit())
+            .collect::<Vec<_>>();
+        let mut out_matrix = SubmatrixMut::from_1d(&mut out_data, out_moduli_count, cols);
+
+        bencher.iter(|| {
+            for i in 0..in_moduli_count {
+                for j in 0..cols {
+                    *in_matrix.at_mut(i, j) = in_moduli[i].random_element(|| rng.rand_u64());
+                }
+            }
+            let result = conv.apply(in_matrix.as_const(), out_matrix.reborrow());
+            for i in 0..out_moduli_count {
+                for j in 0..cols {
+                    std::hint::black_box(result.at(i, j));
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn test_base_conversion_large() {
+        feanor_tracing::DelayedLogger::init_test();
+        let primes: [i64; 34] = [
+            72057594040066049,
+            288230376150870017,
+            288230376150876161,
+            288230376150878209,
+            288230376150890497,
+            288230376150945793,
+            288230376150956033,
+            288230376151062529,
+            288230376151123969,
+            288230376151130113,
+            288230376151191553,
+            288230376151388161,
+            288230376151422977,
+            288230376151529473,
+            288230376151545857,
+            288230376151554049,
+            288230376151601153,
+            288230376151625729,
+            288230376151683073,
+            288230376151748609,
+            288230376151760897,
+            288230376151779329,
+            288230376151812097,
+            288230376151902209,
+            288230376151951361,
+            288230376151994369,
+            288230376152027137,
+            288230376152061953,
+            288230376152137729,
+            288230376152154113,
+            288230376152156161,
+            288230376152205313,
+            288230376152227841,
+            288230376152340481,
+        ];
+        let in_len = 17;
+        let from = &primes[..in_len];
+        let from_prod = ZZbig.prod(from.iter().map(|p| int_cast(*p, ZZbig, StaticRing::<i64>::RING)));
+        let to = &primes[in_len..];
+        let number = ZZbig.get_ring().parse("156545561910861509258548850310120795193837265771491906959215072510998373539323526014165281634346450795208120921520265422129013635769405993324585707811035953253906720513250161495607960734366886366296007741500531044904559075687514262946086011957808717474666493477109586105297965072817051127737667010", 10).unwrap();
+        assert!(ZZbig.is_lt(&number, &from_prod));
+
+        let from = from.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
+        let to = to.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
+        let conversion = RNSBaseConversion::new(from, to.clone());
+
+        let input = (0..in_len)
+            .map(|i| conversion.input_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number)))
+            .collect::<Vec<_>>();
+        let expected = (0..(primes.len() - in_len))
+            .map(|i| conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number)))
+            .collect::<Vec<_>>();
+        let mut output = (0..(primes.len() - in_len))
+            .map(|_| MaybeUninit::uninit())
+            .collect::<Vec<_>>();
+        let output = conversion.apply(
+            Submatrix::from_1d(&input, in_len, 1),
+            SubmatrixMut::from_1d(&mut output, primes.len() - in_len, 1),
         );
 
         for j in 0..to.len() {
-            assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
+            assert!(
+                to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), output.at(j, 0)))
+                    || to.at(j).eq_el(
+                        &to.at(j).sub_ref(expected.at(j), output.at(j, 0)),
+                        &to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod))
+                    )
+                    || to.at(j).eq_el(
+                        &to.at(j).sub_ref(expected.at(j), output.at(j, 0)),
+                        &to.at(j).negate(to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod)))
+                    ),
+                "Expected {} to be {} +/- {}",
+                to.at(j).format(output.at(j, 0)),
+                to.at(j).format(expected.at(j)),
+                ZZbig.format(&from_prod)
+            );
         }
-    }
-}
-
-#[test]
-fn test_rns_base_conversion_both_unordered() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(31), Zn::new(29)];
-    let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
-    let q = 31 * 29;
-    let table = RNSBaseConversion::new(from.clone(), to.clone());
-
-    for k in -(q / 2)..=(q / 2) {
-        let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
-
-        let actual = table.apply(
-            Submatrix::from_1d(&input, from.len(), 1),
-            SubmatrixMut::from_1d(&mut actual, to.len(), 1),
-        );
-
-        check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
-    }
-}
-
-#[test]
-fn test_rns_base_conversion_small() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(3), Zn::new(97)];
-    let to = vec![Zn::new(17)];
-    let q = 3 * 97;
-
-    let table = RNSBaseConversion::new(from.clone(), to.clone());
-
-    for k in -(q / 2)..=(q / 2) {
-        let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
-
-        let actual = table.apply(
-            Submatrix::from_1d(&input, from.len(), 1),
-            SubmatrixMut::from_1d(&mut actual, to.len(), 1),
-        );
-
-        check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
-    }
-}
-
-#[test]
-fn test_rns_base_conversion_not_coprime() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
-    let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
-    let q = 17 * 97 * 113;
-
-    let table = RNSBaseConversion::new(from.clone(), to.clone());
-
-    for k in -(q / 4)..=(q / 4) {
-        let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
-
-        let actual = table.apply(
-            Submatrix::from_1d(&input, from.len(), 1),
-            SubmatrixMut::from_1d(&mut actual, to.len(), 1),
-        );
-
-        for i in 0..to.len() {
-            assert_el_eq!(to[i], expected[i], actual.at(i, 0));
-        }
-    }
-}
-
-#[test]
-fn test_rns_base_conversion_not_coprime_from_unordered() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(113), Zn::new(17), Zn::new(97)];
-    let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
-    let q = 113 * 17 * 97;
-
-    let table = RNSBaseConversion::new(from.clone(), to.clone());
-
-    for k in -(q / 4)..=(q / 4) {
-        let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
-
-        let actual = table.apply(
-            Submatrix::from_1d(&input, from.len(), 1),
-            SubmatrixMut::from_1d(&mut actual, to.len(), 1),
-        );
-
-        for i in 0..to.len() {
-            assert_el_eq!(to[i], expected[i], actual.at(i, 0));
-        }
-    }
-}
-
-#[test]
-fn test_rns_base_conversion_coprime() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
-    let to = vec![Zn::new(19), Zn::new(23), Zn::new(257)];
-    let q = 113 * 17 * 97;
-
-    let table = RNSBaseConversion::new(from.clone(), to.clone());
-
-    for k in -(q / 4)..=(q / 4) {
-        let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
-
-        let actual = table.apply(
-            Submatrix::from_1d(&input, from.len(), 1),
-            SubmatrixMut::from_1d(&mut actual, to.len(), 1),
-        );
-
-        for i in 0..to.len() {
-            assert_el_eq!(to[i], expected[i], actual.at(i, 0));
-        }
-    }
-}
-
-#[bench]
-fn bench_rns_base_conversion(bencher: &mut Bencher) {
-    feanor_tracing::DelayedLogger::init_test();
-    let in_moduli_count = 20;
-    let out_moduli_count = 40;
-    let cols = 1000;
-    let mut primes = ((1 << 30)..)
-        .map(|k| (1 << 10) * k + 1)
-        .filter(|p| is_prime(&StaticRing::<i64>::RING, p, 10))
-        .map(|p| Zn::new(p as u64));
-    let in_moduli = primes.by_ref().take(in_moduli_count).collect::<Vec<_>>();
-    let out_moduli = primes.take(out_moduli_count).collect::<Vec<_>>();
-    let conv = RNSBaseConversion::new(in_moduli.clone(), out_moduli.clone());
-
-    let mut rng = oorandom::Rand64::new(1);
-    let mut in_data = (0..(in_moduli_count * cols))
-        .map(|idx| in_moduli[idx / cols].zero())
-        .collect::<Vec<_>>();
-    let mut in_matrix = SubmatrixMut::from_1d(&mut in_data, in_moduli_count, cols);
-    let mut out_data = (0..(out_moduli_count * cols))
-        .map(|_| MaybeUninit::uninit())
-        .collect::<Vec<_>>();
-    let mut out_matrix = SubmatrixMut::from_1d(&mut out_data, out_moduli_count, cols);
-
-    bencher.iter(|| {
-        for i in 0..in_moduli_count {
-            for j in 0..cols {
-                *in_matrix.at_mut(i, j) = in_moduli[i].random_element(|| rng.rand_u64());
-            }
-        }
-        let result = conv.apply(in_matrix.as_const(), out_matrix.reborrow());
-        for i in 0..out_moduli_count {
-            for j in 0..cols {
-                std::hint::black_box(result.at(i, j));
-            }
-        }
-    });
-}
-
-#[test]
-fn test_base_conversion_large() {
-    feanor_tracing::DelayedLogger::init_test();
-    let primes: [i64; 34] = [
-        72057594040066049,
-        288230376150870017,
-        288230376150876161,
-        288230376150878209,
-        288230376150890497,
-        288230376150945793,
-        288230376150956033,
-        288230376151062529,
-        288230376151123969,
-        288230376151130113,
-        288230376151191553,
-        288230376151388161,
-        288230376151422977,
-        288230376151529473,
-        288230376151545857,
-        288230376151554049,
-        288230376151601153,
-        288230376151625729,
-        288230376151683073,
-        288230376151748609,
-        288230376151760897,
-        288230376151779329,
-        288230376151812097,
-        288230376151902209,
-        288230376151951361,
-        288230376151994369,
-        288230376152027137,
-        288230376152061953,
-        288230376152137729,
-        288230376152154113,
-        288230376152156161,
-        288230376152205313,
-        288230376152227841,
-        288230376152340481,
-    ];
-    let in_len = 17;
-    let from = &primes[..in_len];
-    let from_prod = ZZbig.prod(from.iter().map(|p| int_cast(*p, ZZbig, StaticRing::<i64>::RING)));
-    let to = &primes[in_len..];
-    let number = ZZbig.get_ring().parse("156545561910861509258548850310120795193837265771491906959215072510998373539323526014165281634346450795208120921520265422129013635769405993324585707811035953253906720513250161495607960734366886366296007741500531044904559075687514262946086011957808717474666493477109586105297965072817051127737667010", 10).unwrap();
-    assert!(ZZbig.is_lt(&number, &from_prod));
-
-    let from = from.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
-    let to = to.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
-    let conversion = RNSBaseConversion::new(from, to.clone());
-
-    let input = (0..in_len)
-        .map(|i| conversion.input_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number)))
-        .collect::<Vec<_>>();
-    let expected = (0..(primes.len() - in_len))
-        .map(|i| conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number)))
-        .collect::<Vec<_>>();
-    let mut output = (0..(primes.len() - in_len))
-        .map(|_| MaybeUninit::uninit())
-        .collect::<Vec<_>>();
-    let output = conversion.apply(
-        Submatrix::from_1d(&input, in_len, 1),
-        SubmatrixMut::from_1d(&mut output, primes.len() - in_len, 1),
-    );
-
-    for j in 0..to.len() {
-        assert!(
-            to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), output.at(j, 0)))
-                || to.at(j).eq_el(
-                    &to.at(j).sub_ref(expected.at(j), output.at(j, 0)),
-                    &to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod))
-                )
-                || to.at(j).eq_el(
-                    &to.at(j).sub_ref(expected.at(j), output.at(j, 0)),
-                    &to.at(j).negate(to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod)))
-                ),
-            "Expected {} to be {} +/- {}",
-            to.at(j).format(output.at(j, 0)),
-            to.at(j).format(expected.at(j)),
-            ZZbig.format(&from_prod)
-        );
     }
 }

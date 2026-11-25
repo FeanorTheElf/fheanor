@@ -103,42 +103,40 @@ where
 }
 
 #[cfg(test)]
-use std::alloc::Global;
+mod test {
+    use std::alloc::Global;
 
-#[cfg(test)]
-use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::primitive_int::StaticRing;
-#[cfg(test)]
-use feanor_math::rings::extension::FreeAlgebraStore;
-#[cfg(test)]
-use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::{Zn, ZnBase};
+    use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
+    use feanor_math::assert_el_eq;
+    use feanor_math::primitive_int::StaticRing;
+    use feanor_math::rings::extension::FreeAlgebraStore;
+    use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
+    use feanor_math::rings::zn::zn_64::{Zn, ZnBase};
 
-#[test]
-fn test_dyn_convolution_is_dyn_compatible() {
-    feanor_tracing::DelayedLogger::init_test();
-    #[allow(unused)]
-    fn test(_: &dyn DynConvolutionAlgorithm<StaticRing<i64>>) {}
-}
+    use super::*;
 
-#[test]
-fn test_dyn_convolution_convolution_use_build_ring() {
-    feanor_tracing::DelayedLogger::init_test();
-    fn do_test(conv: Box<dyn DynConvolutionAlgorithm<ZnBase>>) {
-        let base_ring = Zn::new(2);
-        let ring = FreeAlgebraImpl::new_with_convolution(
-            base_ring,
-            3,
-            [base_ring.one(), base_ring.one()],
-            "a",
-            Global,
-            DynConvolutionAlgorithmConvolution::<ZnBase>::new(conv),
-        );
-        assert_el_eq!(&ring, ring.one(), ring.pow(ring.canonical_gen(), 7));
+    #[test]
+    fn test_dyn_convolution_is_dyn_compatible() {
+        feanor_tracing::DelayedLogger::init_test();
+        #[allow(unused)]
+        fn test(_: &dyn DynConvolutionAlgorithm<StaticRing<i64>>) {}
     }
-    do_test(Box::new(STANDARD_CONVOLUTION));
+
+    #[test]
+    fn test_dyn_convolution_convolution_use_build_ring() {
+        feanor_tracing::DelayedLogger::init_test();
+        fn do_test(conv: Box<dyn DynConvolutionAlgorithm<ZnBase>>) {
+            let base_ring = Zn::new(2);
+            let ring = FreeAlgebraImpl::new_with_convolution(
+                base_ring,
+                3,
+                [base_ring.one(), base_ring.one()],
+                "a",
+                Global,
+                DynConvolutionAlgorithmConvolution::<ZnBase>::new(conv),
+            );
+            assert_el_eq!(&ring, ring.one(), ring.pow(ring.canonical_gen(), 7));
+        }
+        do_test(Box::new(STANDARD_CONVOLUTION));
+    }
 }

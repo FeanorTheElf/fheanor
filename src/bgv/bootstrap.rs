@@ -4,7 +4,6 @@ use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::assert_el_eq;
 use feanor_math::delegate::DelegateRing;
 use feanor_math::group::AbelianGroupStore;
-use feanor_math::ring::*;
 use feanor_math::serialization::SerializableElementRing;
 use tracing::{Level, event};
 
@@ -452,8 +451,8 @@ where
     ) -> (CiphertextRing<Inst>, Ciphertext<Inst>) {
         let P_base = self.base_plaintext_ring();
         let C_master = self.master_ciphertext_ring();
-        // First, we mod-switch the input ciphertext so that it only has `self.slots_to_coeffs_rns_factors`
-        // many RNS factors
+        // First, we mod-switch the input ciphertext so that it only has
+        // `self.slots_to_coeffs_rns_factors` many RNS factors
         let input_dropped_rns_factors = {
             assert!(C_master.base_ring().len() - ct_dropped_moduli.len() >= self.slots_to_coeffs_rns_factors);
             let (drop_additional, _) = compute_optimal_special_modulus(
@@ -533,11 +532,11 @@ where
         let P_base = self.base_plaintext_ring();
         let P_main = self.intermediate_plaintext_ring();
         let C_master = self.master_ciphertext_ring();
-        // this is slightly more complicated than in BFV, since we cannot mod-switch to a ciphertext modulus
-        // that is not coprime to `t = p^r`. Instead, we first multiply by `p^v`, then mod-switch to
-        // `p^e + 1`, and then reduce the shortest lift of the result modulo `p^e`.
-        // This will introduce the overflow modulo `p^e + 1` as error in the lower bits, which we will later
-        // remove during digit extraction
+        // this is slightly more complicated than in BFV, since we cannot mod-switch to a ciphertext
+        // modulus that is not coprime to `t = p^r`. Instead, we first multiply by `p^v`,
+        // then mod-switch to `p^e + 1`, and then reduce the shortest lift of the result
+        // modulo `p^e`. This will introduce the overflow modulo `p^e + 1` as error in the
+        // lower bits, which we will later remove during digit extraction
         let perform_noisy_expansion = |C: &CiphertextRing<Inst>, ct: Ciphertext<Inst>, enc_sk: Ciphertext<Inst>| {
             let ZZbig_to_C = C.inclusion().compose(C.base_ring().can_hom(&ZZbig).unwrap());
             let values_scaled = Ciphertext {
@@ -879,385 +878,390 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
 }
 
 #[cfg(test)]
-use crate::bgv::noise_estimator::NaiveBGVNoiseEstimator;
+mod test {
+    use rand::rngs::StdRng;
 
-#[test]
-fn test_digit_extract_homomorphic() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
+    use super::*;
+    use crate::bgv::noise_estimator::NaiveBGVNoiseEstimator;
 
-    let params = Pow2BGV::new(1 << 7);
-    let P1 = params.create_plaintext_ring(int_cast(17 * 17, ZZbig, ZZi64));
-    let P2 = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
-    let C_master = params.create_ciphertext_ring(790..800);
+    #[test]
+    fn test_digit_extract_homomorphic() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
 
-    let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(
-        &P2,
-        &C_master,
-        &mut rng,
-        &sk,
-        &RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len()),
-        3.2,
-    );
-    let m = P2.int_hom().map(17 * 17 + 2 * 17 - 3);
-    let ct = Pow2BGV::enc_sym(&P2, &C_master, &mut rng, &m, &sk, 3.2);
+        let params = Pow2BGV::new(1 << 7);
+        let P1 = params.create_plaintext_ring(int_cast(17 * 17, ZZbig, ZZi64));
+        let P2 = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
+        let C_master = params.create_ciphertext_ring(790..800);
 
-    let digitextract = DigitExtract::new_digit_retain_based(&[P1.base_ring(), P2.base_ring()]);
-    let strategy = DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator);
-    let (ct_high, ct_low) = digitextract.evaluate_bgv::<_, Pow2BGV, _>(
-        &[P1.base_ring(), P2.base_ring()],
-        &strategy,
-        &[&P1, &P2],
-        &C_master,
-        ModulusAwareCiphertext {
-            data: ct,
-            dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-            info: strategy.info_for_fresh_encryption(&P2, &C_master, SecretKeyDistribution::UniformTernary),
-        },
-        &rk,
-        &[],
-        Some(&sk),
-    );
-    let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_high.dropped_rns_factor_indices);
-    let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
-    let m_high = Pow2BGV::dec(
-        &P1,
-        &C_result,
-        Pow2BGV::clone_ct(&P1, &C_result, &ct_high.data),
-        &sk_result,
-    );
-    assert!(
-        P1.wrt_canonical_basis(&m_high)
-            .iter()
-            .skip(1)
-            .all(|x| P1.base_ring().is_zero(&x))
-    );
-    let m_high = P1.base_ring().smallest_lift(P1.wrt_canonical_basis(&m_high).at(0));
-    assert_eq!(17 + 2, m_high);
+        let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
+        let rk = Pow2BGV::gen_rk(
+            &P2,
+            &C_master,
+            &mut rng,
+            &sk,
+            &RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len()),
+            3.2,
+        );
+        let m = P2.int_hom().map(17 * 17 + 2 * 17 - 3);
+        let ct = Pow2BGV::enc_sym(&P2, &C_master, &mut rng, &m, &sk, 3.2);
 
-    let m_low = Pow2BGV::dec(
-        &P2,
-        &C_result,
-        Pow2BGV::clone_ct(&P2, &C_result, &ct_low.data),
-        &sk_result,
-    );
-    assert!(
-        P2.wrt_canonical_basis(&m_low)
-            .iter()
-            .skip(1)
-            .all(|x| P2.base_ring().is_zero(&x))
-    );
-    let m_low = P2.base_ring().smallest_lift(P2.wrt_canonical_basis(&m_low).at(0));
-    assert_eq!(-3, m_low);
-}
+        let digitextract = DigitExtract::new_digit_retain_based(&[P1.base_ring(), P2.base_ring()]);
+        let strategy = DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator);
+        let (ct_high, ct_low) = digitextract.evaluate_bgv::<_, Pow2BGV, _>(
+            &[P1.base_ring(), P2.base_ring()],
+            &strategy,
+            &[&P1, &P2],
+            &C_master,
+            ModulusAwareCiphertext {
+                data: ct,
+                dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+                info: strategy.info_for_fresh_encryption(&P2, &C_master, SecretKeyDistribution::UniformTernary),
+            },
+            &rk,
+            &[],
+            Some(&sk),
+        );
+        let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_high.dropped_rns_factor_indices);
+        let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
+        let m_high = Pow2BGV::dec(
+            &P1,
+            &C_result,
+            Pow2BGV::clone_ct(&P1, &C_result, &ct_high.data),
+            &sk_result,
+        );
+        assert!(
+            P1.wrt_canonical_basis(&m_high)
+                .iter()
+                .skip(1)
+                .all(|x| P1.base_ring().is_zero(&x))
+        );
+        let m_high = P1.base_ring().smallest_lift(P1.wrt_canonical_basis(&m_high).at(0));
+        assert_eq!(17 + 2, m_high);
 
-#[test]
-fn test_pow2_bgv_thin_bootstrapping_17() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = StdRng::from_seed([0; 32]);
+        let m_low = Pow2BGV::dec(
+            &P2,
+            &C_result,
+            Pow2BGV::clone_ct(&P2, &C_result, &ct_low.data),
+            &sk_result,
+        );
+        assert!(
+            P2.wrt_canonical_basis(&m_low)
+                .iter()
+                .skip(1)
+                .all(|x| P2.base_ring().is_zero(&x))
+        );
+        let m_low = P2.base_ring().smallest_lift(P2.wrt_canonical_basis(&m_low).at(0));
+        assert_eq!(-3, m_low);
+    }
 
-    // 8 slots of rank 16
-    let params = Pow2BGV::new(1 << 7);
-    let t = int_cast(17, ZZbig, ZZi64);
-    let P = params.create_plaintext_ring(t);
-    let C_master = params.create_ciphertext_ring(790..800);
-    let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(
-        &params,
-        &P,
-        &C_master,
-        2,
-        None,
-        4,
-        &key_switch_params,
-        DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator),
-        Some("./cache"),
-    );
+    #[test]
+    fn test_pow2_bgv_thin_bootstrapping_17() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = StdRng::from_seed([0; 32]);
 
-    let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = Pow2BGV::gen_gks(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &mut rng,
-        &sk,
-        bootstrapper.required_galois_keys(&P),
-        &key_switch_params,
-        3.2,
-    );
-    let rk = Pow2BGV::gen_rk(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &mut rng,
-        &sk,
-        &key_switch_params,
-        3.2,
-    );
+        // 8 slots of rank 16
+        let params = Pow2BGV::new(1 << 7);
+        let t = int_cast(17, ZZbig, ZZi64);
+        let P = params.create_plaintext_ring(t);
+        let C_master = params.create_ciphertext_ring(790..800);
+        let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
+        let bootstrapper = ThinBootstrapper::build_pow2(
+            &params,
+            &P,
+            &C_master,
+            2,
+            None,
+            4,
+            &key_switch_params,
+            DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator),
+            Some("./cache"),
+        );
 
-    let m = P.int_hom().map(2);
-    let ct = Pow2BGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
-    let ct_result = bootstrapper.bootstrap_thin(
-        &RNSFactorIndexList::empty(),
-        ct,
-        &rk,
-        &gk,
-        SecretKeyDistribution::UniformTernary,
-        None,
-        Some(&sk),
-    );
-    let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
-    let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
+        let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
+        let gk = Pow2BGV::gen_gks(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &mut rng,
+            &sk,
+            bootstrapper.required_galois_keys(&P),
+            &key_switch_params,
+            3.2,
+        );
+        let rk = Pow2BGV::gen_rk(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &mut rng,
+            &sk,
+            &key_switch_params,
+            3.2,
+        );
 
-    assert_el_eq!(
-        P,
-        P.int_hom().map(2),
-        Pow2BGV::dec(&P, &C_result, ct_result.data, &sk_result)
-    );
-}
+        let m = P.int_hom().map(2);
+        let ct = Pow2BGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
+        let ct_result = bootstrapper.bootstrap_thin(
+            &RNSFactorIndexList::empty(),
+            ct,
+            &rk,
+            &gk,
+            SecretKeyDistribution::UniformTernary,
+            None,
+            Some(&sk),
+        );
+        let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
+        let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
 
-#[test]
-fn test_composite_bgv_thin_bootstrapping_2_sparse_key_encapsulation() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = StdRng::from_seed([0; 32]);
+        assert_el_eq!(
+            P,
+            P.int_hom().map(2),
+            Pow2BGV::dec(&P, &C_result, ct_result.data, &sk_result)
+        );
+    }
 
-    // 8 slots of rank 16
-    let params = CompositeBGV::new(31, 11);
-    let t = int_cast(8, ZZbig, ZZi64);
-    let P = params.create_plaintext_ring(t);
-    let C_master = params.create_ciphertext_ring(790..800);
-    let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd(
-        &params,
-        &P,
-        &C_master,
-        4,
-        None,
-        4,
-        &key_switch_params,
-        DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator),
-        Some("./cache"),
-    );
+    #[test]
+    fn test_composite_bgv_thin_bootstrapping_2_sparse_key_encapsulation() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = StdRng::from_seed([0; 32]);
 
-    let sk = CompositeBGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = CompositeBGV::gen_gks(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &mut rng,
-        &sk,
-        bootstrapper.required_galois_keys(&P),
-        &key_switch_params,
-        3.2,
-    );
-    let rk = CompositeBGV::gen_rk(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &mut rng,
-        &sk,
-        &key_switch_params,
-        3.2,
-    );
-    let encaps = SparseKeyEncapsulationKey::new(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &sk,
-        2,
-        14,
-        &mut rng,
-        3.2,
-    );
+        // 8 slots of rank 16
+        let params = CompositeBGV::new(31, 11);
+        let t = int_cast(8, ZZbig, ZZi64);
+        let P = params.create_plaintext_ring(t);
+        let C_master = params.create_ciphertext_ring(790..800);
+        let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
+        let bootstrapper = ThinBootstrapper::build_odd(
+            &params,
+            &P,
+            &C_master,
+            4,
+            None,
+            4,
+            &key_switch_params,
+            DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator),
+            Some("./cache"),
+        );
 
-    let m = P.int_hom().map(2);
-    let ct = CompositeBGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
-    let ct_result = bootstrapper.bootstrap_thin(
-        &RNSFactorIndexList::empty(),
-        ct,
-        &rk,
-        &gk,
-        SecretKeyDistribution::UniformTernary,
-        Some(&encaps),
-        Some(&sk),
-    );
-    let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
-    let sk_result = CompositeBGV::mod_switch_sk(&C_result, &C_master, &sk);
+        let sk = CompositeBGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
+        let gk = CompositeBGV::gen_gks(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &mut rng,
+            &sk,
+            bootstrapper.required_galois_keys(&P),
+            &key_switch_params,
+            3.2,
+        );
+        let rk = CompositeBGV::gen_rk(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &mut rng,
+            &sk,
+            &key_switch_params,
+            3.2,
+        );
+        let encaps = SparseKeyEncapsulationKey::new(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &sk,
+            2,
+            14,
+            &mut rng,
+            3.2,
+        );
 
-    assert_el_eq!(
-        P,
-        P.int_hom().map(2),
-        CompositeBGV::dec(&P, &C_result, ct_result.data, &sk_result)
-    );
-}
+        let m = P.int_hom().map(2);
+        let ct = CompositeBGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
+        let ct_result = bootstrapper.bootstrap_thin(
+            &RNSFactorIndexList::empty(),
+            ct,
+            &rk,
+            &gk,
+            SecretKeyDistribution::UniformTernary,
+            Some(&encaps),
+            Some(&sk),
+        );
+        let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
+        let sk_result = CompositeBGV::mod_switch_sk(&C_result, &C_master, &sk);
 
-#[ignore]
-#[test]
-fn measure_time_single_rns_composite_bgv_thin_bootstrapping() {
-    feanor_tracing::DelayedLogger::init_test();
+        assert_el_eq!(
+            P,
+            P.int_hom().map(2),
+            CompositeBGV::dec(&P, &C_result, ct_result.data, &sk_result)
+        );
+    }
 
-    let mut rng = StdRng::from_seed([0; 32]);
+    #[ignore]
+    #[test]
+    fn measure_time_single_rns_composite_bgv_thin_bootstrapping() {
+        feanor_tracing::DelayedLogger::init_test();
 
-    let t = int_cast(4, ZZbig, ZZi64);
-    let sk_distr = SecretKeyDistribution::SparseWithHwt(256);
-    let params = CompositeSingleRNSBGV::new(37, 949);
-    let P = params.create_plaintext_ring(t);
-    let C_master = params.create_ciphertext_ring(805..820);
-    assert_eq!(15, C_master.base_ring().len());
-    let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd(
-        &params,
-        &P,
-        &C_master,
-        7,
-        None,
-        4,
-        &key_switch_params,
-        DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator),
-        Some("./cache"),
-    );
+        let mut rng = StdRng::from_seed([0; 32]);
 
-    let sk = CompositeSingleRNSBGV::gen_sk(&C_master, &mut rng, sk_distr);
-    let gk = CompositeSingleRNSBGV::gen_gks(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &mut rng,
-        &sk,
-        bootstrapper.required_galois_keys(&P),
-        &key_switch_params,
-        3.2,
-    );
-    let rk = CompositeSingleRNSBGV::gen_rk(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &mut rng,
-        &sk,
-        &key_switch_params,
-        3.2,
-    );
+        let t = int_cast(4, ZZbig, ZZi64);
+        let sk_distr = SecretKeyDistribution::SparseWithHwt(256);
+        let params = CompositeSingleRNSBGV::new(37, 949);
+        let P = params.create_plaintext_ring(t);
+        let C_master = params.create_ciphertext_ring(805..820);
+        assert_eq!(15, C_master.base_ring().len());
+        let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
+        let bootstrapper = ThinBootstrapper::build_odd(
+            &params,
+            &P,
+            &C_master,
+            7,
+            None,
+            4,
+            &key_switch_params,
+            DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator),
+            Some("./cache"),
+        );
 
-    let m = P.int_hom().map(2);
-    let ct = CompositeSingleRNSBGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
-    let ct_result = bootstrapper.bootstrap_thin(&RNSFactorIndexList::empty(), ct, &rk, &gk, sk_distr, None, None);
-    let C_result = CompositeSingleRNSBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
-    let sk_result = CompositeSingleRNSBGV::mod_switch_sk(&C_result, &C_master, &sk);
-    println!(
-        "final noise budget: {}",
-        CompositeSingleRNSBGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result)
-    );
-    let result = CompositeSingleRNSBGV::dec(&P, &C_result, ct_result.data, &sk_result);
-    assert_el_eq!(P, P.int_hom().map(2), result);
-}
+        let sk = CompositeSingleRNSBGV::gen_sk(&C_master, &mut rng, sk_distr);
+        let gk = CompositeSingleRNSBGV::gen_gks(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &mut rng,
+            &sk,
+            bootstrapper.required_galois_keys(&P),
+            &key_switch_params,
+            3.2,
+        );
+        let rk = CompositeSingleRNSBGV::gen_rk(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &mut rng,
+            &sk,
+            &key_switch_params,
+            3.2,
+        );
 
-#[ignore]
-#[test]
-fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
-    feanor_tracing::DelayedLogger::init_test();
+        let m = P.int_hom().map(2);
+        let ct = CompositeSingleRNSBGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
+        let ct_result = bootstrapper.bootstrap_thin(&RNSFactorIndexList::empty(), ct, &rk, &gk, sk_distr, None, None);
+        let C_result = CompositeSingleRNSBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
+        let sk_result = CompositeSingleRNSBGV::mod_switch_sk(&C_result, &C_master, &sk);
+        println!(
+            "final noise budget: {}",
+            CompositeSingleRNSBGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result)
+        );
+        let result = CompositeSingleRNSBGV::dec(&P, &C_result, ct_result.data, &sk_result);
+        assert_el_eq!(P, P.int_hom().map(2), result);
+    }
 
-    let mut rng = StdRng::from_seed([0; 32]);
+    #[ignore]
+    #[test]
+    fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
+        feanor_tracing::DelayedLogger::init_test();
 
-    let t = int_cast(4, ZZbig, ZZi64);
-    let sk_distr = SecretKeyDistribution::SparseWithHwt(256);
-    let params = CompositeBGV::new(37, 949);
-    let P = params.create_plaintext_ring(t);
-    let C_master = params.create_ciphertext_ring(805..820);
-    assert_eq!(15, C_master.base_ring().len());
-    let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_odd(
-        &params,
-        &P,
-        &C_master,
-        7,
-        None,
-        4,
-        &key_switch_params,
-        DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator),
-        Some("./cache"),
-    );
+        let mut rng = StdRng::from_seed([0; 32]);
 
-    let sk = CompositeBGV::gen_sk(&C_master, &mut rng, sk_distr);
-    let gk = CompositeBGV::gen_gks(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &mut rng,
-        &sk,
-        bootstrapper.required_galois_keys(&P),
-        &key_switch_params,
-        3.2,
-    );
-    let rk = CompositeBGV::gen_rk(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &mut rng,
-        &sk,
-        &key_switch_params,
-        3.2,
-    );
+        let t = int_cast(4, ZZbig, ZZi64);
+        let sk_distr = SecretKeyDistribution::SparseWithHwt(256);
+        let params = CompositeBGV::new(37, 949);
+        let P = params.create_plaintext_ring(t);
+        let C_master = params.create_ciphertext_ring(805..820);
+        assert_eq!(15, C_master.base_ring().len());
+        let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
+        let bootstrapper = ThinBootstrapper::build_odd(
+            &params,
+            &P,
+            &C_master,
+            7,
+            None,
+            4,
+            &key_switch_params,
+            DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator),
+            Some("./cache"),
+        );
 
-    let m = P.int_hom().map(2);
-    let ct = CompositeBGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
-    let ct_result = bootstrapper.bootstrap_thin(&RNSFactorIndexList::empty(), ct, &rk, &gk, sk_distr, None, None);
-    let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
-    let sk_result = CompositeBGV::mod_switch_sk(&C_result, &C_master, &sk);
-    println!(
-        "final noise budget: {}",
-        CompositeBGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result)
-    );
-    let result = CompositeBGV::dec(&P, &C_result, ct_result.data, &sk_result);
-    assert_el_eq!(P, P.int_hom().map(2), result);
-}
+        let sk = CompositeBGV::gen_sk(&C_master, &mut rng, sk_distr);
+        let gk = CompositeBGV::gen_gks(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &mut rng,
+            &sk,
+            bootstrapper.required_galois_keys(&P),
+            &key_switch_params,
+            3.2,
+        );
+        let rk = CompositeBGV::gen_rk(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &mut rng,
+            &sk,
+            &key_switch_params,
+            3.2,
+        );
 
-#[ignore]
-#[test]
-fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
-    feanor_tracing::DelayedLogger::init_test();
+        let m = P.int_hom().map(2);
+        let ct = CompositeBGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
+        let ct_result = bootstrapper.bootstrap_thin(&RNSFactorIndexList::empty(), ct, &rk, &gk, sk_distr, None, None);
+        let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
+        let sk_result = CompositeBGV::mod_switch_sk(&C_result, &C_master, &sk);
+        println!(
+            "final noise budget: {}",
+            CompositeBGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result)
+        );
+        let result = CompositeBGV::dec(&P, &C_result, ct_result.data, &sk_result);
+        assert_el_eq!(P, P.int_hom().map(2), result);
+    }
 
-    let mut rng = StdRng::from_seed([0; 32]);
+    #[ignore]
+    #[test]
+    fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
+        feanor_tracing::DelayedLogger::init_test();
 
-    let t = int_cast(17, ZZbig, ZZi64);
-    let sk_distr = SecretKeyDistribution::SparseWithHwt(256);
-    let params = Pow2BGV::new(1 << 16);
-    let P = params.create_plaintext_ring(t);
-    let C_master = params.create_ciphertext_ring(805..820);
-    assert_eq!(15, C_master.base_ring().len());
-    let gk_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
-    let rk_params = RNSGadgetVectorDigitIndices::select_digits(3, C_master.base_ring().len());
-    let bootstrapper = ThinBootstrapper::build_pow2(
-        &params,
-        &P,
-        &C_master,
-        2,
-        None,
-        4,
-        &gk_params,
-        DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator),
-        Some("./cache"),
-    );
+        let mut rng = StdRng::from_seed([0; 32]);
 
-    let sk = Pow2BGV::gen_sk(&C_master, &mut rng, sk_distr);
-    let gk = Pow2BGV::gen_gks(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &mut rng,
-        &sk,
-        bootstrapper.required_galois_keys(&P),
-        &gk_params,
-        3.2,
-    );
-    let rk = Pow2BGV::gen_rk(
-        bootstrapper.intermediate_plaintext_ring(),
-        &C_master,
-        &mut rng,
-        &sk,
-        &rk_params,
-        3.2,
-    );
+        let t = int_cast(17, ZZbig, ZZi64);
+        let sk_distr = SecretKeyDistribution::SparseWithHwt(256);
+        let params = Pow2BGV::new(1 << 16);
+        let P = params.create_plaintext_ring(t);
+        let C_master = params.create_ciphertext_ring(805..820);
+        assert_eq!(15, C_master.base_ring().len());
+        let gk_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
+        let rk_params = RNSGadgetVectorDigitIndices::select_digits(3, C_master.base_ring().len());
+        let bootstrapper = ThinBootstrapper::build_pow2(
+            &params,
+            &P,
+            &C_master,
+            2,
+            None,
+            4,
+            &gk_params,
+            DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator),
+            Some("./cache"),
+        );
 
-    let m = P.int_hom().map(2);
-    let ct = Pow2BGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
-    let ct_result = bootstrapper.bootstrap_thin(&RNSFactorIndexList::empty(), ct, &rk, &gk, sk_distr, None, None);
-    let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
-    let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
-    println!(
-        "final noise budget: {}",
-        Pow2BGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result)
-    );
-    let result = Pow2BGV::dec(&P, &C_result, ct_result.data, &sk_result);
-    assert_el_eq!(P, P.int_hom().map(2), result);
+        let sk = Pow2BGV::gen_sk(&C_master, &mut rng, sk_distr);
+        let gk = Pow2BGV::gen_gks(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &mut rng,
+            &sk,
+            bootstrapper.required_galois_keys(&P),
+            &gk_params,
+            3.2,
+        );
+        let rk = Pow2BGV::gen_rk(
+            bootstrapper.intermediate_plaintext_ring(),
+            &C_master,
+            &mut rng,
+            &sk,
+            &rk_params,
+            3.2,
+        );
+
+        let m = P.int_hom().map(2);
+        let ct = Pow2BGV::enc_sym(&P, &C_master, &mut rng, &m, &sk, 3.2);
+        let ct_result = bootstrapper.bootstrap_thin(&RNSFactorIndexList::empty(), ct, &rk, &gk, sk_distr, None, None);
+        let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
+        let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);
+        println!(
+            "final noise budget: {}",
+            Pow2BGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result)
+        );
+        let result = Pow2BGV::dec(&P, &C_result, ct_result.data, &sk_result);
+        assert_el_eq!(P, P.int_hom().map(2), result);
+    }
 }

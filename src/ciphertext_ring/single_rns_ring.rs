@@ -1294,33 +1294,20 @@ where
     }
 }
 
-#[cfg(test)]
-use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::rings::poly::PolyRingStore;
-
-#[cfg(test)]
-use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
-#[cfg(test)]
-use crate::number_ring::tensor_ring::TensorProductNumberRing;
-
 #[cfg(any(test, feature = "generic_tests"))]
 pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ring: NumberRing) {
-    use feanor_math::algorithms::eea::signed_lcm;
     use feanor_math::assert_el_eq;
+    use feanor_math::pid::PrincipalIdealRingStore;
 
-    use crate::number_ring::largest_prime_leq_congruent_to_one;
-
-    let required_root_of_unity = signed_lcm(
-        number_ring.mod_p_required_root_of_unity() as i64,
-        1 << (StaticRing::<i64>::RING
-            .abs_log2_ceil(&(number_ring.galois_group().m() as i64))
-            .unwrap()
-            + 2),
-        StaticRing::<i64>::RING,
-    );
+    let required_root_of_unity = StaticRing::<i64>::RING
+        .lcm(
+            &(number_ring.mod_p_required_root_of_unity() as i64),
+            &(1 << (StaticRing::<i64>::RING
+                .abs_log2_ceil(&(number_ring.galois_group().m() as i64))
+                .unwrap()
+                + 2)),
+        )
+        .abs();
     let p1 = largest_prime_leq_congruent_to_one(20000, required_root_of_unity).unwrap();
     let p2 = largest_prime_leq_congruent_to_one(p1 - 1, required_root_of_unity).unwrap();
     assert!(p1 != p2);
@@ -1458,153 +1445,166 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
     feanor_math::serialization::generic_tests::test_serialization(&ring, elements.iter().map(|x| ring.clone_el(x)));
 }
 
-#[test]
-fn test_multiple_representations() {
-    feanor_tracing::DelayedLogger::init_test();
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(2113), Zn::new(2689)], BigIntRing::RING);
-    let ring: SingleRNSRing<_> = SingleRNSRingBase::new(OddSquarefreeCyclotomicNumberRing::new(3), rns_base.clone());
+#[cfg(test)]
+mod test {
+    use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
+    use feanor_math::assert_el_eq;
+    use feanor_math::rings::poly::PolyRingStore;
 
-    let from_raw_representation = |data: [i32; 3]| SingleRNSRingEl {
-        coefficients: ring
-            .get_ring()
-            .base_ring()
-            .as_iter()
-            .flat_map(|Zp| data.iter().map(|x| Zp.int_hom().map(*x)))
-            .collect(),
-        convolutions: PhantomData,
-        number_ring: PhantomData,
-    };
-    let from_reduced_representation =
-        |data: [i32; 2]| ring.from_canonical_basis(data.iter().map(|x| ring.base_ring().int_hom().map(*x)));
+    use super::*;
+    use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
+    use crate::number_ring::tensor_ring::TensorProductNumberRing;
 
-    let elements = [
-        (from_reduced_representation([0, 0]), from_raw_representation([1, 1, 1])),
-        (
-            from_reduced_representation([1, 0]),
-            from_raw_representation([0, -1, -1]),
-        ),
-        (from_reduced_representation([1, 1]), from_raw_representation([0, 0, -1])),
-        (
-            from_reduced_representation([0, 1]),
-            from_raw_representation([-1, 0, -1]),
-        ),
-        (from_reduced_representation([2, 2]), from_raw_representation([1, 1, -1])),
-        (
-            from_reduced_representation([1, 2]),
-            from_raw_representation([-1, 0, -2]),
-        ),
-    ];
+    #[test]
+    fn test_multiple_representations() {
+        feanor_tracing::DelayedLogger::init_test();
+        let rns_base = zn_rns::Zn::new(vec![Zn::new(2113), Zn::new(2689)], BigIntRing::RING);
+        let ring: SingleRNSRing<_> =
+            SingleRNSRingBase::new(OddSquarefreeCyclotomicNumberRing::new(3), rns_base.clone());
 
-    for (red, unred) in &elements {
-        assert_el_eq!(&ring, red, unred);
-        assert_el_eq!(
-            &ring,
-            red,
-            ring.from_canonical_basis(ring.wrt_canonical_basis(unred).iter())
-        );
-        assert_el_eq!(
-            &ring,
-            ring.negate(ring.clone_el(red)),
-            ring.negate(ring.clone_el(unred))
-        );
-    }
-    for (red1, unred1) in &elements {
-        for (red2, unred2) in &elements {
-            assert_el_eq!(&ring, ring.add_ref(red1, red2), ring.add_ref(red1, unred2));
-            assert_el_eq!(&ring, ring.add_ref(red1, red2), ring.add_ref(unred1, red2));
-            assert_el_eq!(&ring, ring.add_ref(red1, red2), ring.add_ref(unred1, unred2));
+        let from_raw_representation = |data: [i32; 3]| SingleRNSRingEl {
+            coefficients: ring
+                .get_ring()
+                .base_ring()
+                .as_iter()
+                .flat_map(|Zp| data.iter().map(|x| Zp.int_hom().map(*x)))
+                .collect(),
+            convolutions: PhantomData,
+            number_ring: PhantomData,
+        };
+        let from_reduced_representation =
+            |data: [i32; 2]| ring.from_canonical_basis(data.iter().map(|x| ring.base_ring().int_hom().map(*x)));
 
-            assert_el_eq!(&ring, ring.sub_ref(red1, red2), ring.sub_ref(red1, unred2));
-            assert_el_eq!(&ring, ring.sub_ref(red1, red2), ring.sub_ref(unred1, red2));
-            assert_el_eq!(&ring, ring.sub_ref(red1, red2), ring.sub_ref(unred1, unred2));
+        let elements = [
+            (from_reduced_representation([0, 0]), from_raw_representation([1, 1, 1])),
+            (
+                from_reduced_representation([1, 0]),
+                from_raw_representation([0, -1, -1]),
+            ),
+            (from_reduced_representation([1, 1]), from_raw_representation([0, 0, -1])),
+            (
+                from_reduced_representation([0, 1]),
+                from_raw_representation([-1, 0, -1]),
+            ),
+            (from_reduced_representation([2, 2]), from_raw_representation([1, 1, -1])),
+            (
+                from_reduced_representation([1, 2]),
+                from_raw_representation([-1, 0, -2]),
+            ),
+        ];
 
-            assert_el_eq!(&ring, ring.mul_ref(red1, red2), ring.mul_ref(red1, unred2));
-            assert_el_eq!(&ring, ring.mul_ref(red1, red2), ring.mul_ref(unred1, red2));
-            assert_el_eq!(&ring, ring.mul_ref(red1, red2), ring.mul_ref(unred1, unred2));
+        for (red, unred) in &elements {
+            assert_el_eq!(&ring, red, unred);
+            assert_el_eq!(
+                &ring,
+                red,
+                ring.from_canonical_basis(ring.wrt_canonical_basis(unred).iter())
+            );
+            assert_el_eq!(
+                &ring,
+                ring.negate(ring.clone_el(red)),
+                ring.negate(ring.clone_el(unred))
+            );
+        }
+        for (red1, unred1) in &elements {
+            for (red2, unred2) in &elements {
+                assert_el_eq!(&ring, ring.add_ref(red1, red2), ring.add_ref(red1, unred2));
+                assert_el_eq!(&ring, ring.add_ref(red1, red2), ring.add_ref(unred1, red2));
+                assert_el_eq!(&ring, ring.add_ref(red1, red2), ring.add_ref(unred1, unred2));
+
+                assert_el_eq!(&ring, ring.sub_ref(red1, red2), ring.sub_ref(red1, unred2));
+                assert_el_eq!(&ring, ring.sub_ref(red1, red2), ring.sub_ref(unred1, red2));
+                assert_el_eq!(&ring, ring.sub_ref(red1, red2), ring.sub_ref(unred1, unred2));
+
+                assert_el_eq!(&ring, ring.mul_ref(red1, red2), ring.mul_ref(red1, unred2));
+                assert_el_eq!(&ring, ring.mul_ref(red1, red2), ring.mul_ref(unred1, red2));
+                assert_el_eq!(&ring, ring.mul_ref(red1, red2), ring.mul_ref(unred1, unred2));
+            }
+        }
+
+        let doublerns_ring = DoubleRNSRingBase::new(OddSquarefreeCyclotomicNumberRing::new(3), rns_base);
+        let iso = doublerns_ring.can_iso(&ring).unwrap();
+        for (red, unred) in &elements {
+            assert_el_eq!(&doublerns_ring, iso.inv().map_ref(red), iso.inv().map_ref(unred));
+            assert_el_eq!(
+                &ring,
+                iso.map(iso.inv().map_ref(red)),
+                iso.map(iso.inv().map_ref(unred))
+            );
         }
     }
 
-    let doublerns_ring = DoubleRNSRingBase::new(OddSquarefreeCyclotomicNumberRing::new(3), rns_base);
-    let iso = doublerns_ring.can_iso(&ring).unwrap();
-    for (red, unred) in &elements {
-        assert_el_eq!(&doublerns_ring, iso.inv().map_ref(red), iso.inv().map_ref(unred));
-        assert_el_eq!(
-            &ring,
-            iso.map(iso.inv().map_ref(red)),
-            iso.map(iso.inv().map_ref(unred))
-        );
-    }
-}
+    #[test]
+    fn test_two_by_two_convolution() {
+        feanor_tracing::DelayedLogger::init_test();
+        let rns_base = zn_rns::Zn::new(vec![Zn::new(65537), Zn::new(2689)], BigIntRing::RING);
+        let ring: SingleRNSRing<_> =
+            SingleRNSRingBase::new(OddSquarefreeCyclotomicNumberRing::new(3), rns_base.clone());
 
-#[test]
-fn test_two_by_two_convolution() {
-    feanor_tracing::DelayedLogger::init_test();
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(65537), Zn::new(2689)], BigIntRing::RING);
-    let ring: SingleRNSRing<_> = SingleRNSRingBase::new(OddSquarefreeCyclotomicNumberRing::new(3), rns_base.clone());
+        let a = ring.from_canonical_basis([1, 2].into_iter().map(|c| ring.base_ring().int_hom().map(c)));
+        let b = ring.from_canonical_basis([3, 5].into_iter().map(|c| ring.base_ring().int_hom().map(c)));
+        let c = ring.from_canonical_basis([7, 2].into_iter().map(|c| ring.base_ring().int_hom().map(c)));
+        let d = ring.from_canonical_basis([9, 8].into_iter().map(|c| ring.base_ring().int_hom().map(c)));
 
-    let a = ring.from_canonical_basis([1, 2].into_iter().map(|c| ring.base_ring().int_hom().map(c)));
-    let b = ring.from_canonical_basis([3, 5].into_iter().map(|c| ring.base_ring().int_hom().map(c)));
-    let c = ring.from_canonical_basis([7, 2].into_iter().map(|c| ring.base_ring().int_hom().map(c)));
-    let d = ring.from_canonical_basis([9, 8].into_iter().map(|c| ring.base_ring().int_hom().map(c)));
-
-    for lhs0 in [&a, &b, &c, &d] {
-        for lhs1 in [&a, &b, &c, &d] {
-            for rhs0 in [&a, &b, &c, &d] {
-                for rhs1 in [&a, &b, &c, &d] {
-                    let [res0, res1, res2] = ring.get_ring().two_by_two_convolution(
-                        [ring.clone_el(lhs0), ring.clone_el(lhs1)],
-                        [ring.clone_el(rhs0), ring.clone_el(rhs1)],
-                    );
-                    assert_el_eq!(&ring, ring.mul_ref(lhs0, rhs0), res0);
-                    assert_el_eq!(
-                        &ring,
-                        ring.add(ring.mul_ref(lhs0, rhs1), ring.mul_ref(lhs1, rhs0)),
-                        res1
-                    );
-                    assert_el_eq!(&ring, ring.mul_ref(lhs1, rhs1), res2);
+        for lhs0 in [&a, &b, &c, &d] {
+            for lhs1 in [&a, &b, &c, &d] {
+                for rhs0 in [&a, &b, &c, &d] {
+                    for rhs1 in [&a, &b, &c, &d] {
+                        let [res0, res1, res2] = ring.get_ring().two_by_two_convolution(
+                            [ring.clone_el(lhs0), ring.clone_el(lhs1)],
+                            [ring.clone_el(rhs0), ring.clone_el(rhs1)],
+                        );
+                        assert_el_eq!(&ring, ring.mul_ref(lhs0, rhs0), res0);
+                        assert_el_eq!(
+                            &ring,
+                            ring.add(ring.mul_ref(lhs0, rhs1), ring.mul_ref(lhs1, rhs0)),
+                            res1
+                        );
+                        assert_el_eq!(&ring, ring.mul_ref(lhs1, rhs1), res2);
+                    }
                 }
             }
         }
     }
-}
 
-#[test]
-fn test_galois_automorphisms() {
-    feanor_tracing::DelayedLogger::init_test();
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(65537), Zn::new(4481)], BigIntRing::RING);
-    let ring: SingleRNSRing<_> = SingleRNSRingBase::new(TensorProductNumberRing::new(5, 7), rns_base.clone());
-    let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
-    let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
-    let Phi_m = poly_ring.coerce(&ZZX, cyclotomic_polynomial(&ZZX, 35));
-    let Gal = ring.acting_galois_group();
-    let g = Gal.from_representative(4);
-    let from_poly = |f| {
-        ring.from_canonical_basis_extended(
-            (0..=poly_ring.degree(&f).unwrap())
-                .map(|k| poly_ring.base_ring().clone_el(poly_ring.coefficient_at(&f, k))),
-        )
-    };
+    #[test]
+    fn test_galois_automorphisms() {
+        feanor_tracing::DelayedLogger::init_test();
+        let rns_base = zn_rns::Zn::new(vec![Zn::new(65537), Zn::new(4481)], BigIntRing::RING);
+        let ring: SingleRNSRing<_> = SingleRNSRingBase::new(TensorProductNumberRing::new(5, 7), rns_base.clone());
+        let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
+        let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
+        let Phi_m = poly_ring.coerce(&ZZX, cyclotomic_polynomial(&ZZX, 35));
+        let Gal = ring.acting_galois_group();
+        let g = Gal.from_representative(4);
+        let from_poly = |f| {
+            ring.from_canonical_basis_extended(
+                (0..=poly_ring.degree(&f).unwrap())
+                    .map(|k| poly_ring.base_ring().clone_el(poly_ring.coefficient_at(&f, k))),
+            )
+        };
 
-    for i in 0..24 {
-        for j in 0..24 {
-            let input = poly_ring.from_terms([
-                (poly_ring.base_ring().one(), i),
-                (poly_ring.base_ring().int_hom().map(10), j),
-            ]);
-            let expected = from_poly(
-                poly_ring
-                    .div_rem_monic(
-                        poly_ring.evaluate(
-                            &input,
-                            &poly_ring.pow(poly_ring.indeterminate(), 4),
-                            poly_ring.inclusion(),
-                        ),
-                        &Phi_m,
-                    )
-                    .1,
-            );
-            let actual = ring.apply_galois_action(&from_poly(input), &g);
-            assert_el_eq!(&ring, &expected, &actual);
+        for i in 0..24 {
+            for j in 0..24 {
+                let input = poly_ring.from_terms([
+                    (poly_ring.base_ring().one(), i),
+                    (poly_ring.base_ring().int_hom().map(10), j),
+                ]);
+                let expected = from_poly(
+                    poly_ring
+                        .div_rem_monic(
+                            poly_ring.evaluate(
+                                &input,
+                                &poly_ring.pow(poly_ring.indeterminate(), 4),
+                                poly_ring.inclusion(),
+                            ),
+                            &Phi_m,
+                        )
+                        .1,
+                );
+                let actual = ring.apply_galois_action(&from_poly(input), &g);
+                assert_el_eq!(&ring, &expected, &actual);
+            }
         }
     }
 }

@@ -478,46 +478,43 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
 }
 
 #[cfg(test)]
-use std::slice::from_ref;
+mod test {
+    use std::slice::from_ref;
 
-#[cfg(test)]
-use feanor_math::rings::finite::FiniteRingStore;
-#[cfg(test)]
-use feanor_math::rings::poly::dense_poly::DensePolyRing;
-#[cfg(test)]
-use feanor_math::rings::zn::ZnRingStore;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::*;
+    use feanor_math::rings::finite::FiniteRingStore;
+    use feanor_math::rings::poly::dense_poly::DensePolyRing;
+    use feanor_math::rings::zn::zn_64::*;
 
-#[cfg(test)]
-use crate::bfv::{Pow2BFV, test_setup_bfv};
-#[cfg(test)]
-use crate::poly_eval::to_circuit::poly_to_circuit;
+    use super::*;
+    use crate::bfv::Pow2BFV;
+    use crate::bfv::test::test_setup_bfv;
+    use crate::poly_eval::to_circuit::poly_to_circuit;
 
-#[test]
-fn test_hom_evaluate_circuit() {
-    feanor_tracing::DelayedLogger::init_test();
-    let (P, C, C_mul, sk, rk, _, ct) = test_setup_bfv(Pow2BFV::new(1 << 8));
-    let FpX = DensePolyRing::new(Zn::new(17), "X");
-    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(7) - 3 * X.pow_ref(3) + 2 * X + 10]);
-    let circuit = poly_to_circuit(&FpX, from_ref(&f));
-    for x in FpX.base_ring().elements() {
+    #[test]
+    fn test_hom_evaluate_circuit() {
+        feanor_tracing::DelayedLogger::init_test();
+        let (P, C, C_mul, sk, rk, _, ct) = test_setup_bfv(Pow2BFV::new(1 << 8));
+        let FpX = DensePolyRing::new(Zn::new(17), "X");
+        let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(7) - 3 * X.pow_ref(3) + 2 * X + 10]);
+        let circuit = poly_to_circuit(&FpX, from_ref(&f));
+        for x in FpX.base_ring().elements() {
+            assert_el_eq!(
+                FpX.base_ring(),
+                FpX.evaluate(&f, &x, FpX.base_ring().identity()),
+                &circuit.evaluate_generic(&[x], HomEvaluator::new(FpX.base_ring().identity()))[0]
+            );
+        }
+
+        let res = circuit
+            .evaluate_bfv::<Pow2BFV, _>(FpX.base_ring(), &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], None)
+            .into_iter()
+            .next()
+            .unwrap();
         assert_el_eq!(
-            FpX.base_ring(),
-            FpX.evaluate(&f, &x, FpX.base_ring().identity()),
-            &circuit.evaluate_generic(&[x], HomEvaluator::new(FpX.base_ring().identity()))[0]
+            &P,
+            P.inclusion()
+                .map(FpX.evaluate(&f, &FpX.base_ring().int_hom().map(2), FpX.base_ring().identity())),
+            &Pow2BFV::dec(&P, &C, res, &sk)
         );
     }
-
-    let res = circuit
-        .evaluate_bfv::<Pow2BFV, _>(FpX.base_ring(), &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], None)
-        .into_iter()
-        .next()
-        .unwrap();
-    assert_el_eq!(
-        &P,
-        P.inclusion()
-            .map(FpX.evaluate(&f, &FpX.base_ring().int_hom().map(2), FpX.base_ring().identity())),
-        &Pow2BFV::dec(&P, &C, res, &sk)
-    );
 }

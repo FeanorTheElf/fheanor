@@ -1050,381 +1050,378 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::rings::zn::zn_64::*;
+mod test {
+    use feanor_math::rings::zn::zn_64::*;
 
-#[cfg(test)]
-use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
-#[cfg(test)]
-use crate::number_ring::hypercube::structure::HypercubeStructure;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
+    use super::*;
+    use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
+    use crate::number_ring::hypercube::structure::HypercubeStructure;
+    use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 
-#[cfg(test)]
-pub fn cmod(x: i64, y: i64) -> i64 { x - y * ZZi64.rounded_div(x, &y) }
+    pub fn cmod(x: i64, y: i64) -> i64 { x - y * ZZi64.rounded_div(x, &y) }
 
-#[cfg(test)]
-pub fn high_part_mod(x: i64, y: i64, z: i64) -> i64 { cmod((x - cmod(x, y)) / y, z) }
-
-#[test]
-fn test_centered_digit_retain_poly() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Zn = Zn::new(17 * 17 * 17);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = centered_digit_retain_poly(&P, 3);
-    assert_eq!(Some(33), P.degree(&digit_retain));
-    for k in 0..(17 * 17 * 17) {
-        assert_el_eq!(
-            &Zn,
-            &Zn.coerce(&ZZi64, cmod(k, 17)),
-            &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())
-        );
-    }
-
-    let Zn = Zn::new(19 * 19 * 19);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = centered_digit_retain_poly(&P, 2);
-    for k in 0..(19 * 19 * 19) {
-        assert_eq!(
-            cmod(k, 19),
-            cmod(
-                Zn.smallest_lift(P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())),
-                19 * 19
-            )
-        );
-    }
-    assert_eq!(Some(19), P.degree(&digit_retain));
-
-    let Zn = Zn::new(1024);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = centered_digit_retain_poly(&P, 3);
-    assert_eq!(Some(3), P.degree(&digit_retain));
-    for k in 0..1024 {
-        assert_eq!(
-            k % 2,
-            Zn.smallest_positive_lift(P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())) % 8
-        );
-    }
-    let digit_retain = centered_digit_retain_poly(&P, 6);
-    assert_eq!(Some(6), P.degree(&digit_retain));
-    for k in 0..1024 {
-        assert_eq!(
-            k % 2,
-            Zn.smallest_positive_lift(P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())) % 64
-        );
-    }
-
-    let Zn = Zn::new(257 * 257);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = centered_digit_retain_poly(&P, 2);
-    assert_eq!(Some(257), P.degree(&digit_retain));
-    for k in 0..257 {
-        assert_el_eq!(
-            &Zn,
-            &Zn.coerce(&ZZi64, 2),
-            &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, 2 + k * 257), &Zn.identity())
-        );
-    }
-
-    let Zn = Zn::new(17);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = centered_digit_retain_poly(&P, 1);
-    assert_el_eq!(&P, P.indeterminate(), digit_retain);
-}
-
-#[test]
-fn test_centered_digit_extract_poly() {
-    feanor_tracing::DelayedLogger::init_test();
-    let cmod = |x, y| x - ZZi64.rounded_div(x, &y) * y;
-
-    let Zn = Zn::new(17 * 17 * 17);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_extract = centered_digit_extract_poly(&P, 3);
-    for k in 0..(17 * 17 * 17) {
-        assert_eq!(
-            cmod(k, 17),
-            cmod(
-                Zn.smallest_lift(P.evaluate(&digit_extract, &Zn.coerce(&ZZi64, k), Zn.identity())),
-                17 * 17
-            )
-        );
-        assert_eq!(
-            cmod(k, 17),
-            Zn.smallest_lift(P.evaluate(
-                &digit_extract,
-                &P.evaluate(&digit_extract, &Zn.coerce(&ZZi64, k), Zn.identity()),
-                Zn.identity()
-            ))
-        );
-    }
-    assert_eq!(Some(17), P.degree(&digit_extract));
-
-    let Zn = Zn::new(19 * 19 * 19);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_extract = centered_digit_extract_poly(&P, 2);
-    for k in 0..(19 * 19 * 19) {
-        assert_eq!(
-            cmod(k, 19),
-            cmod(
-                Zn.smallest_lift(P.evaluate(&digit_extract, &Zn.coerce(&ZZi64, k), Zn.identity())),
-                19 * 19
-            )
-        );
-        assert_eq!(
-            cmod(k, 19),
-            Zn.smallest_lift(P.evaluate(
-                &digit_extract,
-                &P.evaluate(&digit_extract, &Zn.coerce(&ZZi64, k), Zn.identity()),
-                Zn.identity()
-            ))
-        );
-    }
-    assert_eq!(Some(19), P.degree(&digit_extract));
-
-    let Zn = Zn::new(257 * 257);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_extract = centered_digit_extract_poly(&P, 2);
-    for k in 0..257 {
-        assert_el_eq!(
-            &Zn,
-            &Zn.coerce(&ZZi64, 2),
-            &P.evaluate(&digit_extract, &Zn.coerce(&ZZi64, 2 + k * 257), &Zn.identity())
-        );
-    }
-    assert_eq!(Some(257), P.degree(&digit_extract));
-
-    let Zn = Zn::new(17);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_extract = centered_digit_extract_poly(&P, 1);
-    assert_el_eq!(&P, P.indeterminate(), digit_extract);
-}
-
-#[test]
-fn test_digit_retain_poly_small() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Zn = Zn::new(17 * 17 * 17);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = digit_retain_poly(&P, 3);
-    for k in 0..(17 * 17 * 17) {
-        assert_el_eq!(
-            &Zn,
-            &Zn.coerce(&ZZi64, k % 17),
-            &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())
-        );
-    }
-    assert_eq!(Some(33), P.degree(&digit_retain));
-
-    let Zn = Zn::new(1024);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = digit_retain_poly(&P, 3);
-    for k in 0..1024 {
-        assert_eq!(
-            k % 2,
-            Zn.smallest_positive_lift(P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())) % 8
-        );
-    }
-    assert_eq!(Some(3), P.degree(&digit_retain));
-    let digit_retain = digit_retain_poly(&P, 6);
-    for k in 0..1024 {
-        assert_eq!(
-            k % 2,
-            Zn.smallest_positive_lift(P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())) % 64
-        );
-    }
-    assert_eq!(Some(6), P.degree(&digit_retain));
-
-    let Zn = Zn::new(257 * 257);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = digit_retain_poly(&P, 2);
-    for k in 0..257 {
-        assert_el_eq!(
-            &Zn,
-            &Zn.coerce(&ZZi64, 2),
-            &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, 2 + k * 257), &Zn.identity())
-        );
-    }
-    assert_eq!(Some(257), P.degree(&digit_retain));
-
-    let Zn = Zn::new(17);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = digit_retain_poly(&P, 1);
-    assert_el_eq!(&P, P.indeterminate(), digit_retain);
-}
-
-#[test]
-fn test_bounded_digit_retain_poly() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Zn = Zn::new(17 * 17 * 17);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = bounded_digit_retain_poly(&P, 3);
-    for x in -3..=3 {
-        for y in 0..(17 * 17) {
+    #[test]
+    fn test_centered_digit_retain_poly() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Zn = Zn::new(17 * 17 * 17);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = centered_digit_retain_poly(&P, 3);
+        assert_eq!(Some(33), P.degree(&digit_retain));
+        for k in 0..(17 * 17 * 17) {
             assert_el_eq!(
                 &Zn,
-                &Zn.coerce(&ZZi64, x),
-                &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, x + 17 * y), &Zn.identity())
+                &Zn.coerce(&ZZi64, cmod(k, 17)),
+                &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())
             );
         }
-    }
-    assert_eq!(Some(17), P.degree(&digit_retain));
 
-    let Zn = Zn::new(257 * 257 * 257);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = bounded_digit_retain_poly(&P, 4);
-    for x in -4..=4 {
-        for y in 0..(257 * 257) {
+        let Zn = Zn::new(19 * 19 * 19);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = centered_digit_retain_poly(&P, 2);
+        for k in 0..(19 * 19 * 19) {
+            assert_eq!(
+                cmod(k, 19),
+                cmod(
+                    Zn.smallest_lift(P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())),
+                    19 * 19
+                )
+            );
+        }
+        assert_eq!(Some(19), P.degree(&digit_retain));
+
+        let Zn = Zn::new(1024);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = centered_digit_retain_poly(&P, 3);
+        assert_eq!(Some(3), P.degree(&digit_retain));
+        for k in 0..1024 {
+            assert_eq!(
+                k % 2,
+                Zn.smallest_positive_lift(P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())) % 8
+            );
+        }
+        let digit_retain = centered_digit_retain_poly(&P, 6);
+        assert_eq!(Some(6), P.degree(&digit_retain));
+        for k in 0..1024 {
+            assert_eq!(
+                k % 2,
+                Zn.smallest_positive_lift(P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())) % 64
+            );
+        }
+
+        let Zn = Zn::new(257 * 257);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = centered_digit_retain_poly(&P, 2);
+        assert_eq!(Some(257), P.degree(&digit_retain));
+        for k in 0..257 {
             assert_el_eq!(
                 &Zn,
-                &Zn.coerce(&ZZi64, x),
-                &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, x + 257 * y), &Zn.identity())
+                &Zn.coerce(&ZZi64, 2),
+                &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, 2 + k * 257), &Zn.identity())
             );
         }
+
+        let Zn = Zn::new(17);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = centered_digit_retain_poly(&P, 1);
+        assert_el_eq!(&P, P.indeterminate(), digit_retain);
     }
-    assert_eq!(Some(25), P.degree(&digit_retain));
 
-    let Zn = Zn::new(17);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = bounded_digit_retain_poly(&P, 3);
-    assert_el_eq!(&P, P.indeterminate(), digit_retain);
-}
+    #[test]
+    fn test_centered_digit_extract_poly() {
+        feanor_tracing::DelayedLogger::init_test();
+        let cmod = |x, y| x - ZZi64.rounded_div(x, &y) * y;
 
-#[test]
-fn test_digit_retain_poly_large() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Zn = Zn::new(257 * 257 * 257);
-    let P = DensePolyRing::new(Zn, "X");
-    let digit_retain = digit_retain_poly(&P, 3);
-    assert_el_eq!(
-        &Zn,
-        &Zn.coerce(&ZZi64, 251),
-        &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, 132092), &Zn.identity())
-    );
-    for k in 0..(257 * 257) {
+        let Zn = Zn::new(17 * 17 * 17);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_extract = centered_digit_extract_poly(&P, 3);
+        for k in 0..(17 * 17 * 17) {
+            assert_eq!(
+                cmod(k, 17),
+                cmod(
+                    Zn.smallest_lift(P.evaluate(&digit_extract, &Zn.coerce(&ZZi64, k), Zn.identity())),
+                    17 * 17
+                )
+            );
+            assert_eq!(
+                cmod(k, 17),
+                Zn.smallest_lift(P.evaluate(
+                    &digit_extract,
+                    &P.evaluate(&digit_extract, &Zn.coerce(&ZZi64, k), Zn.identity()),
+                    Zn.identity()
+                ))
+            );
+        }
+        assert_eq!(Some(17), P.degree(&digit_extract));
+
+        let Zn = Zn::new(19 * 19 * 19);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_extract = centered_digit_extract_poly(&P, 2);
+        for k in 0..(19 * 19 * 19) {
+            assert_eq!(
+                cmod(k, 19),
+                cmod(
+                    Zn.smallest_lift(P.evaluate(&digit_extract, &Zn.coerce(&ZZi64, k), Zn.identity())),
+                    19 * 19
+                )
+            );
+            assert_eq!(
+                cmod(k, 19),
+                Zn.smallest_lift(P.evaluate(
+                    &digit_extract,
+                    &P.evaluate(&digit_extract, &Zn.coerce(&ZZi64, k), Zn.identity()),
+                    Zn.identity()
+                ))
+            );
+        }
+        assert_eq!(Some(19), P.degree(&digit_extract));
+
+        let Zn = Zn::new(257 * 257);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_extract = centered_digit_extract_poly(&P, 2);
+        for k in 0..257 {
+            assert_el_eq!(
+                &Zn,
+                &Zn.coerce(&ZZi64, 2),
+                &P.evaluate(&digit_extract, &Zn.coerce(&ZZi64, 2 + k * 257), &Zn.identity())
+            );
+        }
+        assert_eq!(Some(257), P.degree(&digit_extract));
+
+        let Zn = Zn::new(17);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_extract = centered_digit_extract_poly(&P, 1);
+        assert_el_eq!(&P, P.indeterminate(), digit_extract);
+    }
+
+    #[test]
+    fn test_digit_retain_poly_small() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Zn = Zn::new(17 * 17 * 17);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = digit_retain_poly(&P, 3);
+        for k in 0..(17 * 17 * 17) {
+            assert_el_eq!(
+                &Zn,
+                &Zn.coerce(&ZZi64, k % 17),
+                &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())
+            );
+        }
+        assert_eq!(Some(33), P.degree(&digit_retain));
+
+        let Zn = Zn::new(1024);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = digit_retain_poly(&P, 3);
+        for k in 0..1024 {
+            assert_eq!(
+                k % 2,
+                Zn.smallest_positive_lift(P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())) % 8
+            );
+        }
+        assert_eq!(Some(3), P.degree(&digit_retain));
+        let digit_retain = digit_retain_poly(&P, 6);
+        for k in 0..1024 {
+            assert_eq!(
+                k % 2,
+                Zn.smallest_positive_lift(P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, k), &Zn.identity())) % 64
+            );
+        }
+        assert_eq!(Some(6), P.degree(&digit_retain));
+
+        let Zn = Zn::new(257 * 257);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = digit_retain_poly(&P, 2);
+        for k in 0..257 {
+            assert_el_eq!(
+                &Zn,
+                &Zn.coerce(&ZZi64, 2),
+                &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, 2 + k * 257), &Zn.identity())
+            );
+        }
+        assert_eq!(Some(257), P.degree(&digit_retain));
+
+        let Zn = Zn::new(17);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = digit_retain_poly(&P, 1);
+        assert_el_eq!(&P, P.indeterminate(), digit_retain);
+    }
+
+    #[test]
+    fn test_bounded_digit_retain_poly() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Zn = Zn::new(17 * 17 * 17);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = bounded_digit_retain_poly(&P, 3);
+        for x in -3..=3 {
+            for y in 0..(17 * 17) {
+                assert_el_eq!(
+                    &Zn,
+                    &Zn.coerce(&ZZi64, x),
+                    &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, x + 17 * y), &Zn.identity())
+                );
+            }
+        }
+        assert_eq!(Some(17), P.degree(&digit_retain));
+
+        let Zn = Zn::new(257 * 257 * 257);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = bounded_digit_retain_poly(&P, 4);
+        for x in -4..=4 {
+            for y in 0..(257 * 257) {
+                assert_el_eq!(
+                    &Zn,
+                    &Zn.coerce(&ZZi64, x),
+                    &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, x + 257 * y), &Zn.identity())
+                );
+            }
+        }
+        assert_eq!(Some(25), P.degree(&digit_retain));
+
+        let Zn = Zn::new(17);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = bounded_digit_retain_poly(&P, 3);
+        assert_el_eq!(&P, P.indeterminate(), digit_retain);
+    }
+
+    #[test]
+    fn test_digit_retain_poly_large() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Zn = Zn::new(257 * 257 * 257);
+        let P = DensePolyRing::new(Zn, "X");
+        let digit_retain = digit_retain_poly(&P, 3);
         assert_el_eq!(
             &Zn,
-            &Zn.coerce(&ZZi64, 2),
-            &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, 2 + k * 257), &Zn.identity())
+            &Zn.coerce(&ZZi64, 251),
+            &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, 132092), &Zn.identity())
         );
-    }
-}
-
-#[test]
-fn test_digit_extract_precomputed_p_2() {
-    feanor_tracing::DelayedLogger::init_test();
-    for (r, v) in [(5, 7), (3, 2)] {
-        let p = 2;
-        let e = r + v;
-        let rings = (0..=v)
-            .map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r + 1)))
-            .collect::<Vec<_>>();
-        let digit_extract = DigitExtract::new_precomputed_p_is_2(&rings);
-        for x in 0..ZZi64.pow(p, e) {
-            let (actual_high, actual_low) =
-                digit_extract.evaluate_plain(rings.last().unwrap().coerce(&ZZi64, x), &rings);
-            assert_el_eq!(&rings[v], rings[v].coerce(&ZZi64, cmod(x, ZZi64.pow(p, v))), actual_low);
+        for k in 0..(257 * 257) {
             assert_el_eq!(
-                &rings[0],
-                rings[0].coerce(&ZZi64, (x - cmod(x, ZZi64.pow(p, v))) / ZZi64.pow(p, v)),
-                actual_high
+                &Zn,
+                &Zn.coerce(&ZZi64, 2),
+                &P.evaluate(&digit_retain, &Zn.coerce(&ZZi64, 2 + k * 257), &Zn.identity())
             );
         }
     }
-}
 
-#[test]
-fn test_digit_retain_based_right_digits() {
-    feanor_tracing::DelayedLogger::init_test();
-    let v = 5;
-    let r = 3;
-    let p = 2;
-    let rings = (0..=v)
-        .map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r)))
-        .collect::<Vec<_>>();
-    let extraction = DigitExtract::new_digit_retain_based(&rings);
-    let mut circuits = extraction.extraction_circuits;
-    circuits.sort_unstable_by_key(|circuit| circuit.global_mod_exp);
-    assert_eq!(5, circuits.len());
-    assert_eq!(4, circuits[0].global_mod_exp);
-    assert_eq!(5, circuits[1].global_mod_exp);
-    assert_eq!(6, circuits[2].global_mod_exp);
-    assert_eq!(7, circuits[3].global_mod_exp);
-    assert_eq!(8, circuits[4].global_mod_exp);
-    assert_eq!(vec![4], circuits[0].extracted_digit_mod_exp);
-    assert_eq!(vec![2, 5], circuits[1].extracted_digit_mod_exp);
-    assert_eq!(vec![2, 3, 6], circuits[2].extracted_digit_mod_exp);
-    assert_eq!(vec![2, 3, 4, 7], circuits[3].extracted_digit_mod_exp);
-    assert_eq!(vec![2, 3, 4, 5, 8], circuits[4].extracted_digit_mod_exp);
-
-    let plaintext_rings = rings
-        .iter()
-        .map(|ring| NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(3), ring))
-        .collect::<Vec<_>>();
-    let h = HypercubeStructure::halevi_shoup_hypercube(
-        plaintext_rings.last().unwrap().acting_galois_group(),
-        int_cast(p, ZZbig, ZZi64),
-    );
-    let H = HypercubeIsomorphism::new(plaintext_rings.last().unwrap(), &h, None);
-    let plaintext_rings = plaintext_rings.iter().collect::<Vec<_>>();
-    let extraction = DigitExtract::new_digit_retain_based_with_galois(&plaintext_rings, &H, &DEFAULT_EVALUATOR_COSTS);
-    let mut circuits = extraction.extraction_circuits;
-    circuits.sort_unstable_by_key(|circuit| circuit.global_mod_exp);
-    assert_eq!(5, circuits.len());
-    assert_eq!(4, circuits[0].global_mod_exp);
-    assert_eq!(5, circuits[1].global_mod_exp);
-    assert_eq!(6, circuits[2].global_mod_exp);
-    assert_eq!(7, circuits[3].global_mod_exp);
-    assert_eq!(8, circuits[4].global_mod_exp);
-    assert_eq!(vec![4], circuits[0].extracted_digit_mod_exp);
-    assert_eq!(vec![2, 5], circuits[1].extracted_digit_mod_exp);
-    assert_eq!(vec![2, 3, 6], circuits[2].extracted_digit_mod_exp);
-    assert_eq!(vec![2, 3, 4, 7], circuits[3].extracted_digit_mod_exp);
-    assert_eq!(vec![2, 3, 4, 5, 8], circuits[4].extracted_digit_mod_exp);
-}
-
-#[test]
-fn test_digit_retain_based() {
-    feanor_tracing::DelayedLogger::init_test();
-    for (p, r, v) in [
-        (2, 3, 7),
-        (2, 7, 4),
-        (3, 2, 1),
-        (3, 1, 2),
-        (5, 2, 1),
-        (5, 1, 2),
-        (7, 1, 1),
-    ] {
-        let e = r + v;
-        let rings = (0..=v)
-            .map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r + 1)))
-            .collect::<Vec<_>>();
-        let digit_extract = DigitExtract::new_digit_retain_based(&rings);
-        for x in 0..ZZi64.pow(p, e) {
-            let (actual_high, actual_low) =
-                digit_extract.evaluate_plain(rings.last().unwrap().coerce(&ZZi64, x), &rings);
-            assert_el_eq!(&rings[v], rings[v].coerce(&ZZi64, cmod(x, ZZi64.pow(p, v))), actual_low);
-            assert_el_eq!(
-                &rings[0],
-                rings[0].coerce(&ZZi64, (x - cmod(x, ZZi64.pow(p, v))) / ZZi64.pow(p, v)),
-                actual_high
-            );
-        }
-    }
-}
-
-#[test]
-fn test_bounded_error() {
-    feanor_tracing::DelayedLogger::init_test();
-    let B = 4;
-    for (p, r, v) in [(11, 2, 1), (17, 1, 1), (19, 1, 1)] {
-        let rings = (0..=v)
-            .map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r + 1)))
-            .collect::<Vec<_>>();
-        let digit_extract = DigitExtract::new_bounded_error(&rings, B);
-        for x in 0..ZZi64.pow(p, r) {
-            for error in -B..=B {
+    #[test]
+    fn test_digit_extract_precomputed_p_2() {
+        feanor_tracing::DelayedLogger::init_test();
+        for (r, v) in [(5, 7), (3, 2)] {
+            let p = 2;
+            let e = r + v;
+            let rings = (0..=v)
+                .map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r + 1)))
+                .collect::<Vec<_>>();
+            let digit_extract = DigitExtract::new_precomputed_p_is_2(&rings);
+            for x in 0..ZZi64.pow(p, e) {
                 let (actual_high, actual_low) =
-                    digit_extract.evaluate_plain(rings.last().unwrap().coerce(&ZZi64, x * p + error), &rings);
-                assert_el_eq!(&rings[v], rings[v].coerce(&ZZi64, error), actual_low);
-                assert_el_eq!(&rings[0], rings[0].coerce(&ZZi64, x), actual_high);
+                    digit_extract.evaluate_plain(rings.last().unwrap().coerce(&ZZi64, x), &rings);
+                assert_el_eq!(&rings[v], rings[v].coerce(&ZZi64, cmod(x, ZZi64.pow(p, v))), actual_low);
+                assert_el_eq!(
+                    &rings[0],
+                    rings[0].coerce(&ZZi64, (x - cmod(x, ZZi64.pow(p, v))) / ZZi64.pow(p, v)),
+                    actual_high
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_digit_retain_based_right_digits() {
+        feanor_tracing::DelayedLogger::init_test();
+        let v = 5;
+        let r = 3;
+        let p = 2;
+        let rings = (0..=v)
+            .map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r)))
+            .collect::<Vec<_>>();
+        let extraction = DigitExtract::new_digit_retain_based(&rings);
+        let mut circuits = extraction.extraction_circuits;
+        circuits.sort_unstable_by_key(|circuit| circuit.global_mod_exp);
+        assert_eq!(5, circuits.len());
+        assert_eq!(4, circuits[0].global_mod_exp);
+        assert_eq!(5, circuits[1].global_mod_exp);
+        assert_eq!(6, circuits[2].global_mod_exp);
+        assert_eq!(7, circuits[3].global_mod_exp);
+        assert_eq!(8, circuits[4].global_mod_exp);
+        assert_eq!(vec![4], circuits[0].extracted_digit_mod_exp);
+        assert_eq!(vec![2, 5], circuits[1].extracted_digit_mod_exp);
+        assert_eq!(vec![2, 3, 6], circuits[2].extracted_digit_mod_exp);
+        assert_eq!(vec![2, 3, 4, 7], circuits[3].extracted_digit_mod_exp);
+        assert_eq!(vec![2, 3, 4, 5, 8], circuits[4].extracted_digit_mod_exp);
+
+        let plaintext_rings = rings
+            .iter()
+            .map(|ring| NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(3), ring))
+            .collect::<Vec<_>>();
+        let h = HypercubeStructure::halevi_shoup_hypercube(
+            plaintext_rings.last().unwrap().acting_galois_group(),
+            int_cast(p, ZZbig, ZZi64),
+        );
+        let H = HypercubeIsomorphism::new(plaintext_rings.last().unwrap(), &h, None);
+        let plaintext_rings = plaintext_rings.iter().collect::<Vec<_>>();
+        let extraction =
+            DigitExtract::new_digit_retain_based_with_galois(&plaintext_rings, &H, &DEFAULT_EVALUATOR_COSTS);
+        let mut circuits = extraction.extraction_circuits;
+        circuits.sort_unstable_by_key(|circuit| circuit.global_mod_exp);
+        assert_eq!(5, circuits.len());
+        assert_eq!(4, circuits[0].global_mod_exp);
+        assert_eq!(5, circuits[1].global_mod_exp);
+        assert_eq!(6, circuits[2].global_mod_exp);
+        assert_eq!(7, circuits[3].global_mod_exp);
+        assert_eq!(8, circuits[4].global_mod_exp);
+        assert_eq!(vec![4], circuits[0].extracted_digit_mod_exp);
+        assert_eq!(vec![2, 5], circuits[1].extracted_digit_mod_exp);
+        assert_eq!(vec![2, 3, 6], circuits[2].extracted_digit_mod_exp);
+        assert_eq!(vec![2, 3, 4, 7], circuits[3].extracted_digit_mod_exp);
+        assert_eq!(vec![2, 3, 4, 5, 8], circuits[4].extracted_digit_mod_exp);
+    }
+
+    #[test]
+    fn test_digit_retain_based() {
+        feanor_tracing::DelayedLogger::init_test();
+        for (p, r, v) in [
+            (2, 3, 7),
+            (2, 7, 4),
+            (3, 2, 1),
+            (3, 1, 2),
+            (5, 2, 1),
+            (5, 1, 2),
+            (7, 1, 1),
+        ] {
+            let e = r + v;
+            let rings = (0..=v)
+                .map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r + 1)))
+                .collect::<Vec<_>>();
+            let digit_extract = DigitExtract::new_digit_retain_based(&rings);
+            for x in 0..ZZi64.pow(p, e) {
+                let (actual_high, actual_low) =
+                    digit_extract.evaluate_plain(rings.last().unwrap().coerce(&ZZi64, x), &rings);
+                assert_el_eq!(&rings[v], rings[v].coerce(&ZZi64, cmod(x, ZZi64.pow(p, v))), actual_low);
+                assert_el_eq!(
+                    &rings[0],
+                    rings[0].coerce(&ZZi64, (x - cmod(x, ZZi64.pow(p, v))) / ZZi64.pow(p, v)),
+                    actual_high
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_bounded_error() {
+        feanor_tracing::DelayedLogger::init_test();
+        let B = 4;
+        for (p, r, v) in [(11, 2, 1), (17, 1, 1), (19, 1, 1)] {
+            let rings = (0..=v)
+                .map(|i| zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(p, ZZbig, ZZi64), i + r + 1)))
+                .collect::<Vec<_>>();
+            let digit_extract = DigitExtract::new_bounded_error(&rings, B);
+            for x in 0..ZZi64.pow(p, r) {
+                for error in -B..=B {
+                    let (actual_high, actual_low) =
+                        digit_extract.evaluate_plain(rings.last().unwrap().coerce(&ZZi64, x * p + error), &rings);
+                    assert_el_eq!(&rings[v], rings[v].coerce(&ZZi64, error), actual_low);
+                    assert_el_eq!(&rings[0], rings[0].coerce(&ZZi64, x), actual_high);
+                }
             }
         }
     }

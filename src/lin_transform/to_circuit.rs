@@ -49,7 +49,7 @@ impl<'a> BSGSPlan<'a> {
 
     /// Creates a [`BSGSPlan`] that covers the given grid of automorphisms. It uses a search and
     /// heuristics to obtain a plan with costs that are as low as we can find.
-    /// 
+    ///
     /// Note that in many scenarios, it it is not optimal.
     pub fn plan(
         Gal: &'a Subgroup<CyclotomicGaloisGroup>,
@@ -64,7 +64,7 @@ impl<'a> BSGSPlan<'a> {
             giant_step_dims: Vec<(GaloisGroupEl, usize)>,
             unhoisted_baby_step_count: usize,
             gk_key_limit: usize,
-            _cost_model: &CircuitEvaluatorCosts
+            _cost_model: &CircuitEvaluatorCosts,
         ) -> Option<BSGSPlan<'a>> {
             baby_step_dims.sort_unstable_by_key(|(_, len)| *len);
 
@@ -140,7 +140,7 @@ impl<'a> BSGSPlan<'a> {
                         giant_steps.clone(),
                         count,
                         gk_key_limit,
-                        cost_model
+                        cost_model,
                     )
                     .map(|plan| (plan.cost(cost_model) * 256.).floor() as i64)
                     .unwrap_or(i64::MAX)
@@ -154,7 +154,7 @@ impl<'a> BSGSPlan<'a> {
                 giant_steps.clone(),
                 unhoisted_baby_step_count,
                 gk_key_limit,
-                cost_model
+                cost_model,
             )
         }
 
@@ -167,10 +167,11 @@ impl<'a> BSGSPlan<'a> {
             })
             .collect::<Vec<_>>();
 
-        // long dimensions are better put into the giant steps; the reason is that for multiple short
-        // dimensions, we need a lot of Galois keys, whether we evaluate them hoisted or unhoisted; on the
-        // other hand, the evaluations along a single long dimension can be done with a single Galois when
-        // evaluating it a sequential, unhoisted manner
+        // long dimensions are better put into the giant steps; the reason is that for multiple
+        // short dimensions, we need a lot of Galois keys, whether we evaluate them hoisted
+        // or unhoisted; on the other hand, the evaluations along a single long dimension
+        // can be done with a single Galois when evaluating it a sequential, unhoisted
+        // manner
         grid.sort_unstable_by_key(|(_, len)| *len);
 
         let total_count = grid.iter().map(|(_, len)| *len).product();
@@ -501,199 +502,193 @@ fn gal_iter<'a, I: IntoIterator<Item = (GaloisGroupEl, usize)>>(
 }
 
 #[cfg(test)]
-use feanor_math::algorithms::matmul::ComputeInnerProduct;
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::homomorphism::Homomorphism;
-#[cfg(test)]
-use feanor_math::rings::extension::FreeAlgebraStore;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::Zn;
+mod test {
+    use feanor_math::algorithms::matmul::ComputeInnerProduct;
+    use feanor_math::assert_el_eq;
+    use feanor_math::homomorphism::Homomorphism;
+    use feanor_math::rings::extension::FreeAlgebraStore;
+    use feanor_math::rings::zn::zn_64::Zn;
 
-#[cfg(test)]
-use crate::circuit::evaluator::CircuitEvaluator;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int::*;
-#[cfg(test)]
-use crate::number_ring::tensor_ring::TensorProductNumberRing;
+    use super::*;
+    use crate::circuit::evaluator::CircuitEvaluator;
+    use crate::number_ring::quotient_by_int::*;
+    use crate::number_ring::tensor_ring::TensorProductNumberRing;
 
-#[test]
-fn test_baby_step_circuit() {
-    struct GalEvaluator<'a>(&'a Subgroup<CyclotomicGaloisGroup>);
+    #[test]
+    fn test_baby_step_circuit() {
+        struct GalEvaluator<'a>(&'a Subgroup<CyclotomicGaloisGroup>);
 
-    impl<'a, 'b, R: RingBase + ?Sized> CircuitEvaluator<'b, GaloisGroupEl, R> for GalEvaluator<'a> {
-        fn add_constant(&mut self, _: GaloisGroupEl, _: &'b Coefficient<R>) -> GaloisGroupEl { unreachable!() }
-        fn mul(&mut self, _: GaloisGroupEl, _: GaloisGroupEl) -> GaloisGroupEl { unreachable!() }
-        fn square(&mut self, _: GaloisGroupEl) -> GaloisGroupEl { unreachable!() }
-        fn supports_gal(&self) -> bool { true }
-        fn supports_mul(&self) -> bool { false }
+        impl<'a, 'b, R: RingBase + ?Sized> CircuitEvaluator<'b, GaloisGroupEl, R> for GalEvaluator<'a> {
+            fn add_constant(&mut self, _: GaloisGroupEl, _: &'b Coefficient<R>) -> GaloisGroupEl { unreachable!() }
+            fn mul(&mut self, _: GaloisGroupEl, _: GaloisGroupEl) -> GaloisGroupEl { unreachable!() }
+            fn square(&mut self, _: GaloisGroupEl) -> GaloisGroupEl { unreachable!() }
+            fn supports_gal(&self) -> bool { true }
+            fn supports_mul(&self) -> bool { false }
 
-        fn inner_prod<'c, I>(&mut self, data: I) -> GaloisGroupEl
-        where
-            I: Iterator<Item = (&'b Coefficient<R>, &'c GaloisGroupEl)>,
-            R: 'b,
-        {
-            data.filter_map(|(coeff, val)| match coeff {
-                Coefficient::One => Some(val),
-                Coefficient::Zero => None,
-                _ => unreachable!(),
-            })
-            .reduce(|_, _| unreachable!())
-            .unwrap()
-            .clone()
+            fn inner_prod<'c, I>(&mut self, data: I) -> GaloisGroupEl
+            where
+                I: Iterator<Item = (&'b Coefficient<R>, &'c GaloisGroupEl)>,
+                R: 'b,
+            {
+                data.filter_map(|(coeff, val)| match coeff {
+                    Coefficient::One => Some(val),
+                    Coefficient::Zero => None,
+                    _ => unreachable!(),
+                })
+                .reduce(|_, _| unreachable!())
+                .unwrap()
+                .clone()
+            }
+
+            fn gal(&mut self, val: GaloisGroupEl, gs: &'b [GaloisGroupEl]) -> Vec<GaloisGroupEl> {
+                gs.iter().map(|g| self.0.op_ref(&val, g)).collect::<Vec<_>>()
+            }
         }
 
-        fn gal(&mut self, val: GaloisGroupEl, gs: &'b [GaloisGroupEl]) -> Vec<GaloisGroupEl> {
-            gs.iter().map(|g| self.0.op_ref(&val, g)).collect::<Vec<_>>()
+        let Gal = CyclotomicGaloisGroupBase::new(5 * 7).into().full_subgroup();
+        let plan = BSGSPlan {
+            Gal: &Gal,
+            base_auto: Gal.identity(),
+            baby_step_dims: vec![(Gal.from_representative(22), 2, 2), (Gal.from_representative(31), 3, 2)],
+            giant_step_dims: Vec::new(),
+        };
+        let circuit = plan.baby_step_circuit(ZZi64);
+        let results = circuit.evaluate_generic(&[Gal.identity()], GalEvaluator(&Gal));
+        let expected = plan.baby_step_conjugates();
+        assert_eq!(expected.len(), results.len());
+        for (expected, actual) in expected.iter().zip(&results) {
+            assert!(Gal.eq_el(expected, actual));
         }
-    }
-
-    let Gal = CyclotomicGaloisGroupBase::new(5 * 7).into().full_subgroup();
-    let plan = BSGSPlan {
-        Gal: &Gal,
-        base_auto: Gal.identity(),
-        baby_step_dims: vec![(Gal.from_representative(22), 2, 2), (Gal.from_representative(31), 3, 2)],
-        giant_step_dims: Vec::new(),
-    };
-    let circuit = plan.baby_step_circuit(ZZi64);
-    let results = circuit.evaluate_generic(&[Gal.identity()], GalEvaluator(&Gal));
-    let expected = plan.baby_step_conjugates();
-    assert_eq!(expected.len(), results.len());
-    for (expected, actual) in expected.iter().zip(&results) {
-        assert!(Gal.eq_el(expected, actual));
-    }
-    assert_eq!(18, plan.hoisted_automorphism_count());
-    assert_eq!(6, plan.hoisting_setup_count());
-    assert_eq!(5, plan.unhoisted_automorphism_count());
-    assert_eq!(plan.hoisted_automorphism_count(), circuit.hoisted_automorphism_count());
-    assert_eq!(plan.hoisting_setup_count(), circuit.hoisting_setup_count());
-    assert_eq!(
-        plan.unhoisted_automorphism_count(),
-        circuit.unhoisted_automorphism_count()
-    );
-}
-
-#[test]
-fn test_create_circuit() {
-    let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 7), Zn::new(65537));
-    let Gal = ring.acting_galois_group();
-    let plan = BSGSPlan {
-        Gal,
-        base_auto: Gal.identity(),
-        baby_step_dims: vec![(Gal.from_representative(22), 1, 2), (Gal.from_representative(31), 3, 2)],
-        giant_step_dims: vec![(Gal.from_representative(29), 2)],
-    };
-    let coefficients = || {
-        vec![
-            (Gal.from_representative(1), ring.int_hom().map(1)),
-            (Gal.from_representative(2), ring.int_hom().map(2)),
-            (Gal.from_representative(3), ring.int_hom().map(4)),
-            (Gal.from_representative(9), ring.int_hom().map(8)),
-            (Gal.from_representative(11), ring.int_hom().map(16)),
-            (Gal.from_representative(12), ring.int_hom().map(32)),
-            (Gal.from_representative(22), ring.int_hom().map(64)),
-            (Gal.from_representative(32), ring.int_hom().map(128)),
-        ]
-    };
-    let circuit = plan.create_circuit(&ring, coefficients());
-    let coefficients = coefficients();
-    for x in [
-        ring.one(),
-        ring.canonical_gen(),
-        ring.pow(ring.canonical_gen(), 2),
-        ring.sub(ring.canonical_gen(), ring.one()),
-    ] {
-        let expected = ComputeInnerProduct::inner_product_ref_fst(
-            ring.get_ring(),
-            coefficients
-                .iter()
-                .map(|(g, coeff)| (coeff, ring.apply_galois_action(&x, g))),
+        assert_eq!(18, plan.hoisted_automorphism_count());
+        assert_eq!(6, plan.hoisting_setup_count());
+        assert_eq!(5, plan.unhoisted_automorphism_count());
+        assert_eq!(plan.hoisted_automorphism_count(), circuit.hoisted_automorphism_count());
+        assert_eq!(plan.hoisting_setup_count(), circuit.hoisting_setup_count());
+        assert_eq!(
+            plan.unhoisted_automorphism_count(),
+            circuit.unhoisted_automorphism_count()
         );
-        assert_el_eq!(&ring, expected, &circuit.evaluate(&[x], ring.identity())[0]);
     }
-    assert_eq!(plan.hoisted_automorphism_count(), circuit.hoisted_automorphism_count());
-    assert_eq!(plan.hoisting_setup_count(), circuit.hoisting_setup_count());
-    assert_eq!(
-        plan.unhoisted_automorphism_count(),
-        circuit.unhoisted_automorphism_count()
-    );
 
-    let plan = BSGSPlan {
-        Gal,
-        base_auto: Gal.identity(),
-        baby_step_dims: vec![],
-        giant_step_dims: vec![(Gal.from_representative(29), 2)],
-    };
-    let coefficients = || {
-        vec![
-            (Gal.from_representative(1), ring.int_hom().map(1)),
-            (Gal.from_representative(29), ring.int_hom().map(2)),
-        ]
-    };
-    let circuit = plan.create_circuit(&ring, coefficients());
-    let coefficients = coefficients();
-    for x in [
-        ring.one(),
-        ring.canonical_gen(),
-        ring.pow(ring.canonical_gen(), 2),
-        ring.sub(ring.canonical_gen(), ring.one()),
-    ] {
-        let expected = ComputeInnerProduct::inner_product_ref_fst(
-            ring.get_ring(),
-            coefficients
-                .iter()
-                .map(|(g, coeff)| (coeff, ring.apply_galois_action(&x, g))),
+    #[test]
+    fn test_create_circuit() {
+        let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 7), Zn::new(65537));
+        let Gal = ring.acting_galois_group();
+        let plan = BSGSPlan {
+            Gal,
+            base_auto: Gal.identity(),
+            baby_step_dims: vec![(Gal.from_representative(22), 1, 2), (Gal.from_representative(31), 3, 2)],
+            giant_step_dims: vec![(Gal.from_representative(29), 2)],
+        };
+        let coefficients = || {
+            vec![
+                (Gal.from_representative(1), ring.int_hom().map(1)),
+                (Gal.from_representative(2), ring.int_hom().map(2)),
+                (Gal.from_representative(3), ring.int_hom().map(4)),
+                (Gal.from_representative(9), ring.int_hom().map(8)),
+                (Gal.from_representative(11), ring.int_hom().map(16)),
+                (Gal.from_representative(12), ring.int_hom().map(32)),
+                (Gal.from_representative(22), ring.int_hom().map(64)),
+                (Gal.from_representative(32), ring.int_hom().map(128)),
+            ]
+        };
+        let circuit = plan.create_circuit(&ring, coefficients());
+        let coefficients = coefficients();
+        for x in [
+            ring.one(),
+            ring.canonical_gen(),
+            ring.pow(ring.canonical_gen(), 2),
+            ring.sub(ring.canonical_gen(), ring.one()),
+        ] {
+            let expected = ComputeInnerProduct::inner_product_ref_fst(
+                ring.get_ring(),
+                coefficients
+                    .iter()
+                    .map(|(g, coeff)| (coeff, ring.apply_galois_action(&x, g))),
+            );
+            assert_el_eq!(&ring, expected, &circuit.evaluate(&[x], ring.identity())[0]);
+        }
+        assert_eq!(plan.hoisted_automorphism_count(), circuit.hoisted_automorphism_count());
+        assert_eq!(plan.hoisting_setup_count(), circuit.hoisting_setup_count());
+        assert_eq!(
+            plan.unhoisted_automorphism_count(),
+            circuit.unhoisted_automorphism_count()
         );
-        assert_el_eq!(&ring, expected, &circuit.evaluate(&[x], ring.identity())[0]);
+
+        let plan = BSGSPlan {
+            Gal,
+            base_auto: Gal.identity(),
+            baby_step_dims: vec![],
+            giant_step_dims: vec![(Gal.from_representative(29), 2)],
+        };
+        let coefficients = || {
+            vec![
+                (Gal.from_representative(1), ring.int_hom().map(1)),
+                (Gal.from_representative(29), ring.int_hom().map(2)),
+            ]
+        };
+        let circuit = plan.create_circuit(&ring, coefficients());
+        let coefficients = coefficients();
+        for x in [
+            ring.one(),
+            ring.canonical_gen(),
+            ring.pow(ring.canonical_gen(), 2),
+            ring.sub(ring.canonical_gen(), ring.one()),
+        ] {
+            let expected = ComputeInnerProduct::inner_product_ref_fst(
+                ring.get_ring(),
+                coefficients
+                    .iter()
+                    .map(|(g, coeff)| (coeff, ring.apply_galois_action(&x, g))),
+            );
+            assert_el_eq!(&ring, expected, &circuit.evaluate(&[x], ring.identity())[0]);
+        }
+        assert_eq!(plan.hoisted_automorphism_count(), circuit.hoisted_automorphism_count());
+        assert_eq!(plan.hoisting_setup_count(), circuit.hoisting_setup_count());
+        assert_eq!(
+            plan.unhoisted_automorphism_count(),
+            circuit.unhoisted_automorphism_count()
+        );
     }
-    assert_eq!(plan.hoisted_automorphism_count(), circuit.hoisted_automorphism_count());
-    assert_eq!(plan.hoisting_setup_count(), circuit.hoisting_setup_count());
-    assert_eq!(
-        plan.unhoisted_automorphism_count(),
-        circuit.unhoisted_automorphism_count()
-    );
-}
 
-#[test]
-fn test_plan() {
-    let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5 * 7, 13), Zn::new(65537));
-    let Gal = ring.acting_galois_group();
-    let grid = vec![
-        (Gal.from_representative(183), Gal.from_representative(92), 3), // { g_2^-1, 1, g_2 }
-        (Gal.from_representative(131), Gal.from_representative(66), 4), // { g_3^-1, 1, g_3, g_3^2 }
-        (Gal.from_representative(106), Gal.from_representative(106), 4), // { g_13^1, g_13^2, g_13^3, g_13^4 }
-    ];
+    #[test]
+    fn test_plan() {
+        let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5 * 7, 13), Zn::new(65537));
+        let Gal = ring.acting_galois_group();
+        let grid = vec![
+            (Gal.from_representative(183), Gal.from_representative(92), 3), // { g_2^-1, 1, g_2 }
+            (Gal.from_representative(131), Gal.from_representative(66), 4), // { g_3^-1, 1, g_3, g_3^2 }
+            (Gal.from_representative(106), Gal.from_representative(106), 4), // { g_13^1, g_13^2, g_13^3, g_13^4 }
+        ];
 
-    let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, 4).unwrap();
-    _ = plan.create_circuit(&ring, Vec::new());
-    assert_eq!(4, plan.required_galois_keys().len());
-    assert_eq!(20, plan.unhoisted_automorphism_count());
-    assert_eq!(0, plan.hoisting_setup_count());
-    assert_eq!(0, plan.hoisted_automorphism_count());
+        let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, 4).unwrap();
+        _ = plan.create_circuit(&ring, Vec::new());
+        assert_eq!(4, plan.required_galois_keys().len());
+        assert_eq!(20, plan.unhoisted_automorphism_count());
+        assert_eq!(0, plan.hoisting_setup_count());
+        assert_eq!(0, plan.hoisted_automorphism_count());
 
-    let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, usize::MAX).unwrap();
-    _ = plan.create_circuit(&ring, Vec::new());
-    assert_eq!(12, plan.required_galois_keys().len());
-    assert_eq!(3, plan.unhoisted_automorphism_count());
-    assert_eq!(1, plan.hoisting_setup_count());
-    assert_eq!(12, plan.hoisted_automorphism_count());
+        let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, usize::MAX).unwrap();
+        _ = plan.create_circuit(&ring, Vec::new());
+        assert_eq!(12, plan.required_galois_keys().len());
+        assert_eq!(3, plan.unhoisted_automorphism_count());
+        assert_eq!(1, plan.hoisting_setup_count());
+        assert_eq!(12, plan.hoisted_automorphism_count());
 
-    let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, 6).unwrap();
-    _ = plan.create_circuit(&ring, Vec::new());
-    assert_eq!(6, plan.required_galois_keys().len());
-    assert_eq!(8, plan.unhoisted_automorphism_count());
-    assert_eq!(2, plan.hoisting_setup_count());
-    assert_eq!(8, plan.hoisted_automorphism_count());
+        let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, 6).unwrap();
+        _ = plan.create_circuit(&ring, Vec::new());
+        assert_eq!(6, plan.required_galois_keys().len());
+        assert_eq!(8, plan.unhoisted_automorphism_count());
+        assert_eq!(2, plan.hoisting_setup_count());
+        assert_eq!(8, plan.hoisted_automorphism_count());
 
-    let grid = vec![
-        (Gal.identity(), Gal.from_representative(106), 11),
-    ];
+        let grid = vec![(Gal.identity(), Gal.from_representative(106), 11)];
 
-    let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, usize::MAX).unwrap();
-    _ = plan.create_circuit(&ring, Vec::new());
-    assert_eq!(6, plan.required_galois_keys().len());
-    assert_eq!(1, plan.unhoisted_automorphism_count());
-    assert_eq!(1, plan.hoisting_setup_count());
-    assert_eq!(5, plan.hoisted_automorphism_count());
+        let plan = BSGSPlan::plan(&Gal, grid.clone(), &DEFAULT_EVALUATOR_COSTS, usize::MAX).unwrap();
+        _ = plan.create_circuit(&ring, Vec::new());
+        assert_eq!(6, plan.required_galois_keys().len());
+        assert_eq!(1, plan.unhoisted_automorphism_count());
+        assert_eq!(1, plan.hoisting_setup_count());
+        assert_eq!(5, plan.hoisted_automorphism_count());
+    }
 }

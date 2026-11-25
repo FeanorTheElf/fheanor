@@ -303,41 +303,45 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::pid::EuclideanRingStore;
+mod test {
+    use feanor_math::pid::EuclideanRingStore;
 
-#[test]
-fn test_sample_primes() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ZZbig = BigIntRing::RING;
-    let result = sample_primes(60, 62, 58, |b| largest_prime_leq_congruent_to_one(b, 422144)).unwrap();
-    assert_eq!(result.len(), 2);
-    let prod = ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64)));
-    assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 60);
-    assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 62);
-    assert!(result.iter().all(|p| ZZbig.is_one(&ZZbig.euclidean_rem(
-        int_cast(*p, ZZbig, ZZi64),
-        &int_cast(422144, ZZbig, StaticRing::<i64>::RING)
-    ))));
+    use super::*;
 
-    let ZZbig = BigIntRing::RING;
-    let result = sample_primes(135, 138, 58, |b| largest_prime_leq_congruent_to_one(b, 422144)).unwrap();
-    assert_eq!(result.len(), 3);
-    let prod = ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64)));
-    assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 135);
-    assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 138);
-    assert!(result.iter().all(|p| ZZbig.is_one(&ZZbig.euclidean_rem(
-        int_cast(*p, ZZbig, ZZi64),
-        &int_cast(422144, ZZbig, StaticRing::<i64>::RING)
-    ))));
+    #[test]
+    fn test_sample_primes() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ZZbig = BigIntRing::RING;
+        let result = sample_primes(60, 62, 58, |b| largest_prime_leq_congruent_to_one(b, 422144)).unwrap();
+        assert_eq!(result.len(), 2);
+        let prod = ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64)));
+        assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 60);
+        assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 62);
+        assert!(result.iter().all(|p| ZZbig.is_one(&ZZbig.euclidean_rem(
+            int_cast(*p, ZZbig, ZZi64),
+            &int_cast(422144, ZZbig, StaticRing::<i64>::RING)
+        ))));
 
-    let ZZbig = BigIntRing::RING;
-    let result = sample_primes(115, 118, 58, |b| largest_prime_leq_congruent_to_one(b, 422144)).unwrap();
-    assert_eq!(result.len(), 2);
-    let prod = ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64)));
-    assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 115);
-    assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 118);
-    assert!(result.iter().all(|p| ZZbig.is_one(&ZZbig.euclidean_rem(
-        int_cast(*p, ZZbig, ZZi64),
-        &int_cast(422144, ZZbig, StaticRing::<i64>::RING)
-    ))));
+        let ZZbig = BigIntRing::RING;
+        let result = sample_primes(135, 138, 58, |b| largest_prime_leq_congruent_to_one(b, 422144)).unwrap();
+        assert_eq!(result.len(), 3);
+        let prod = ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64)));
+        assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 135);
+        assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 138);
+        assert!(result.iter().all(|p| ZZbig.is_one(&ZZbig.euclidean_rem(
+            int_cast(*p, ZZbig, ZZi64),
+            &int_cast(422144, ZZbig, StaticRing::<i64>::RING)
+        ))));
+
+        let ZZbig = BigIntRing::RING;
+        let result = sample_primes(115, 118, 58, |b| largest_prime_leq_congruent_to_one(b, 422144)).unwrap();
+        assert_eq!(result.len(), 2);
+        let prod = ZZbig.prod(result.iter().map(|p| int_cast(*p, ZZbig, ZZi64)));
+        assert!(ZZbig.abs_log2_floor(&prod).unwrap() >= 115);
+        assert!(ZZbig.abs_log2_ceil(&prod).unwrap() <= 118);
+        assert!(result.iter().all(|p| ZZbig.is_one(&ZZbig.euclidean_rem(
+            int_cast(*p, ZZbig, ZZi64),
+            &int_cast(422144, ZZbig, StaticRing::<i64>::RING)
+        ))));
+    }
 }

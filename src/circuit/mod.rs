@@ -1468,328 +1468,327 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::primitive_int::*;
-#[cfg(test)]
-use feanor_math::rings::extension::FreeAlgebraStore;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::Zn;
+mod test {
+    use feanor_math::assert_el_eq;
+    use feanor_math::primitive_int::*;
+    use feanor_math::rings::extension::FreeAlgebraStore;
+    use feanor_math::rings::zn::zn_64::Zn;
 
-#[cfg(test)]
-use crate::ZZi64;
-#[cfg(test)]
-use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
-
-#[test]
-fn test_circuit_tensor_compose() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = StaticRing::<i64>::RING;
-    let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
-    let x_sqr = PlaintextCircuit::mul(ring).compose(x.output_twice(ring), ring);
-    assert!(
-        PlaintextCircuit {
-            input_count: 1,
-            gates: vec![PlaintextCircuitGate::Mul(
-                LinearCombination {
-                    constant: Coefficient::Zero,
-                    factors: vec![Coefficient::One]
-                },
-                LinearCombination {
-                    constant: Coefficient::Zero,
-                    factors: vec![Coefficient::One]
-                }
-            )],
-            output_transforms: vec![LinearCombination {
-                constant: Coefficient::Zero,
-                factors: vec![Coefficient::Zero, Coefficient::One]
-            }]
-        }
-        .eq(&x_sqr, ring, None)
-    );
-
-    let x = PlaintextCircuit::identity(1, ring);
-    let y = PlaintextCircuit::identity(1, ring);
-    let x_y_x_y = x.clone(&ring).tensor(y, ring).output_twice(ring);
-    // z = 2 * x + 3 * y
-    let x_y_z = x
-        .clone(ring)
-        .tensor(x.clone(ring), ring)
-        .tensor(PlaintextCircuit::linear_transform_ring(&[2, 3], ring), ring)
-        .compose(x_y_x_y, ring);
-    let xy_z = PlaintextCircuit::mul(ring).tensor(x, ring).compose(x_y_z, ring);
-    // w = x * y * (2 * x + 3 * y)
-    let w = PlaintextCircuit::mul(ring).compose(xy_z, ring);
-    for x in -5..5 {
-        for y in -5..5 {
-            assert_eq!(
-                x * y * (2 * x + 3 * y),
-                w.evaluate_no_galois(&[x, y], ring.identity())
-                    .into_iter()
-                    .next()
-                    .unwrap()
-            );
-        }
-    }
-
-    let w_1_sqr = PlaintextCircuit::mul(ring).compose(
-        PlaintextCircuit::add(ring)
-            .compose(w.tensor(PlaintextCircuit::constant(1, ring), ring), ring)
-            .output_twice(ring),
-        ring,
-    );
-    for x in -5..5 {
-        for y in -5..5 {
-            assert_eq!(
-                StaticRing::<i64>::RING.pow(x * y * (2 * x + 3 * y) + 1, 2),
-                w_1_sqr
-                    .evaluate_no_galois(&[x, y], ring.identity())
-                    .into_iter()
-                    .next()
-                    .unwrap()
-            );
-        }
-    }
-}
-
-#[test]
-fn test_circuit_tensor_compose_with_galois() {
-    feanor_tracing::DelayedLogger::init_test();
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(17));
-
-    let x = PlaintextCircuit::identity(1, &ring);
-    let y = PlaintextCircuit::identity(1, &ring);
-    let xy = PlaintextCircuit::mul(&ring).compose(x.tensor(y, &ring), &ring);
-    let conj_xy = PlaintextCircuit::gal(
-        ring.acting_galois_group().from_representative(-1),
-        &ring.acting_galois_group(),
-        &ring,
-    )
-    .compose(xy.clone(&ring), &ring);
-    let partial_trace_xy = PlaintextCircuit::add(&ring)
-        .compose(xy.tensor(conj_xy, &ring), &ring)
-        .compose(PlaintextCircuit::identity(2, &ring).output_twice(&ring), &ring);
-
-    for x_e in 0..8 {
-        for y_e in 0..8 {
-            let x = ring.pow(ring.canonical_gen(), x_e);
-            let y = ring.pow(ring.canonical_gen(), y_e);
-            let xy = ring.mul_ref(&x, &y);
-            let conj_xy = ring.mul(
-                ring.pow(ring.canonical_gen(), 16 - x_e),
-                ring.pow(ring.canonical_gen(), 16 - y_e),
-            );
-            assert_el_eq!(
-                &ring,
-                ring.add(xy, conj_xy),
-                partial_trace_xy
-                    .evaluate(&[x, y], ring.identity())
-                    .into_iter()
-                    .next()
-                    .unwrap()
-            );
-        }
-    }
-}
-
-#[test]
-fn test_giant_step_circuit() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = StaticRing::<i64>::RING;
-    let powers = PlaintextCircuit::identity(1, ring)
-        .tensor(PlaintextCircuit::mul(ring), ring)
-        .tensor(PlaintextCircuit::mul(ring), ring)
-        .compose(
-            PlaintextCircuit::mul(ring)
-                .output_times(4, ring)
-                .tensor(PlaintextCircuit::identity(1, ring), ring),
-            ring,
-        )
-        .compose(PlaintextCircuit::identity(1, ring).output_times(3, ring), ring);
-    assert_eq!(vec![4, 16, 8], powers.evaluate_no_galois(&[2], ring.identity()));
-
-    let permuted_baby_step_dupl_input = PlaintextCircuit::constant(1, ring)
-        .tensor(PlaintextCircuit::identity(1, ring), ring)
-        .tensor(powers, ring);
-    assert_eq!(
-        vec![1, 2, 4, 16, 8],
-        permuted_baby_step_dupl_input.evaluate_no_galois(&[2, 2], ring.identity())
-    );
-
-    let copy_input = PlaintextCircuit::identity(1, ring).output_twice(ring);
-    assert_eq!(vec![2, 2], copy_input.evaluate_no_galois(&[2], ring.identity()));
-
-    let permuted_baby_steps = permuted_baby_step_dupl_input.compose(copy_input, ring);
-    assert_eq!(
-        vec![1, 2, 4, 16, 8],
-        permuted_baby_steps.evaluate_no_galois(&[2], ring.identity())
-    );
-
-    let baby_steps = PlaintextCircuit::select(5, &[0, 1, 2, 4, 3], ring).compose(permuted_baby_steps, ring);
-    assert_eq!(1, baby_steps.input_count());
-    assert_eq!(5, baby_steps.output_count());
-    assert_eq!(
-        vec![1, 2, 4, 8, 16],
-        baby_steps.evaluate_no_galois(&[2], ring.identity())
-    );
-
-    let giant_steps_before_baby_steps =
-        PlaintextCircuit::constant(1, ring).tensor(PlaintextCircuit::identity(1, ring), ring);
-    let baby_and_giant_steps = PlaintextCircuit::identity(4, ring)
-        .tensor(giant_steps_before_baby_steps, ring)
-        .compose(baby_steps, ring);
-    assert_eq!(
-        vec![1, 2, 4, 8, 1, 16],
-        baby_and_giant_steps.evaluate_no_galois(&[2], ring.identity())
-    );
-}
-
-#[test]
-fn test_serialization() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = StaticRing::<i64>::RING;
-    let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
-    let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
-    let x_neg_x = PlaintextCircuit::mul(ring)
-        .compose(x.clone(ring).tensor(neg_x, ring), ring)
-        .compose(x.output_twice(ring), ring);
-    let two_minus_x_neg_x =
-        PlaintextCircuit::add(ring).compose(x_neg_x.tensor(PlaintextCircuit::constant(2, ring), ring), ring);
-    let circuit = PlaintextCircuit::square(ring).compose(two_minus_x_neg_x, ring);
-
-    for x in -100..100 {
-        assert_eq!(
-            (2 - x * x) * (2 - x * x),
-            circuit
-                .evaluate_no_galois(&[x], ring.identity())
-                .into_iter()
-                .next()
-                .unwrap()
-        );
-    }
-
-    let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
-    let tokens = circuit.serialize_with_data(&(ring,), &serializer).unwrap();
-    let mut deserializer = serde_assert::Deserializer::builder(tokens)
-        .is_human_readable(true)
-        .build();
-    let deserialized_circuit = PlaintextCircuit::deserialize_with_data((ring,), &mut deserializer).unwrap();
-    assert!(deserialized_circuit.eq(&circuit, ring, None));
-
-    let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
-    let tokens = circuit.serialize_with_data(&(ring,), &serializer).unwrap();
-    let mut deserializer = serde_assert::Deserializer::builder(tokens)
-        .is_human_readable(false)
-        .build();
-    let deserialized_circuit = PlaintextCircuit::deserialize_with_data((ring,), &mut deserializer).unwrap();
-    assert!(deserialized_circuit.eq(&circuit, ring, None));
-}
-
-#[test]
-fn test_identity_galois() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Gal = CyclotomicGaloisGroupBase::new(5).into().full_subgroup();
-    let ring = StaticRing::<i64>::RING;
-    let circuit = PlaintextCircuit::gal(Gal.identity(), &Gal, ring);
-    assert!(circuit.eq(&PlaintextCircuit::identity(1, ring), &ring, None));
-}
-
-#[test]
-fn test_evaluate() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = StaticRing::<i64>::RING;
-    let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
-    let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
-    let x_neg_x = PlaintextCircuit::mul(ring)
-        .compose(x.clone(ring).tensor(neg_x, ring), ring)
-        .compose(x.output_twice(ring), ring);
-    let two_minus_x_neg_x =
-        PlaintextCircuit::add(ring).compose(x_neg_x.tensor(PlaintextCircuit::constant(2, ring), ring), ring);
-    let circuit = PlaintextCircuit::square(ring).compose(two_minus_x_neg_x, ring); // (2 - x * x) * (2 - x * x)
-
-    for x in -10..=10 {
-        assert_eq!(
-            vec![(2 - x * x) * (2 - x * x)],
-            circuit.evaluate_generic(&[x], HomEvaluator::new(ZZi64.identity()))
-        );
-    }
-}
-
-#[test]
-#[ignore]
-fn generate_slots_to_coeffs() {
-    feanor_tracing::DelayedLogger::init_test();
-    use std::cell::LazyCell;
-    use std::fs::File;
-    use std::io::{BufWriter, Write};
-
-    use feanor_math::integer::int_cast;
-
-    use crate::circuit::create_circuit_cached;
-    use crate::lin_transform::pow2;
-    use crate::number_ring::NumberRingQuotientStore;
-    use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
-    use crate::number_ring::hypercube::structure::HypercubeStructure;
+    use super::*;
+    use crate::ZZi64;
     use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-    use crate::{ZZbig, filename_keys};
+    use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 
-    let m = 1 << 14;
-    let e = 1;
+    #[test]
+    fn test_circuit_tensor_compose() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = StaticRing::<i64>::RING;
+        let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
+        let x_sqr = PlaintextCircuit::mul(ring).compose(x.output_twice(ring), ring);
+        assert!(
+            PlaintextCircuit {
+                input_count: 1,
+                gates: vec![PlaintextCircuitGate::Mul(
+                    LinearCombination {
+                        constant: Coefficient::Zero,
+                        factors: vec![Coefficient::One]
+                    },
+                    LinearCombination {
+                        constant: Coefficient::Zero,
+                        factors: vec![Coefficient::One]
+                    }
+                )],
+                output_transforms: vec![LinearCombination {
+                    constant: Coefficient::Zero,
+                    factors: vec![Coefficient::Zero, Coefficient::One]
+                }]
+            }
+            .eq(&x_sqr, ring, None)
+        );
 
-    let P = NumberRingQuotientByIntBase::new(
-        Pow2CyclotomicNumberRing::new(m),
-        zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)),
-    );
-    let H = LazyCell::new(|| {
-        let hypercube =
-            HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
-        HypercubeIsomorphism::new(&P, &hypercube, Some("./cache"))
-    });
-    let coeffs_to_slots = create_circuit_cached(
-        &P,
-        &filename_keys![coeffs2slots, m: m, p: 65537, e: e + 1, levels: 4],
-        Some("./cache"),
-        || pow2::coeffs_to_slots_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS),
-    );
-    let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));
-    write!(
-        BufWriter::new(
-            File::create(format!("./coeffs_to_slots_m{}_p65537_e{}_levels4.fheir", m, e + 1).as_str()).unwrap()
-        ),
-        "{}",
-        program
-    )
-    .unwrap();
-    assert!(coeffs_to_slots.eq(
-        &PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program),
-        &P,
-        Some(P.acting_galois_group())
-    ));
+        let x = PlaintextCircuit::identity(1, ring);
+        let y = PlaintextCircuit::identity(1, ring);
+        let x_y_x_y = x.clone(&ring).tensor(y, ring).output_twice(ring);
+        // z = 2 * x + 3 * y
+        let x_y_z = x
+            .clone(ring)
+            .tensor(x.clone(ring), ring)
+            .tensor(PlaintextCircuit::linear_transform_ring(&[2, 3], ring), ring)
+            .compose(x_y_x_y, ring);
+        let xy_z = PlaintextCircuit::mul(ring).tensor(x, ring).compose(x_y_z, ring);
+        // w = x * y * (2 * x + 3 * y)
+        let w = PlaintextCircuit::mul(ring).compose(xy_z, ring);
+        for x in -5..5 {
+            for y in -5..5 {
+                assert_eq!(
+                    x * y * (2 * x + 3 * y),
+                    w.evaluate_no_galois(&[x, y], ring.identity())
+                        .into_iter()
+                        .next()
+                        .unwrap()
+                );
+            }
+        }
 
-    let P = NumberRingQuotientByIntBase::new(
-        Pow2CyclotomicNumberRing::new(m),
-        zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e)),
-    );
-    let H = LazyCell::new(|| H.change_modulus(&P));
-    let slots_to_coeffs = create_circuit_cached(
-        &P,
-        &filename_keys![slots2coeffs, m: m, p: 65537, e: e, levels: 4],
-        Some("./cache"),
-        || pow2::slots_to_coeffs_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS),
-    );
-    let program = slots_to_coeffs.to_ir(&P, Some(P.acting_galois_group()));
-    write!(
-        BufWriter::new(File::create(format!("./slots_to_coeffs_m{}_p65537_e{}_levels4.fheir", m, e).as_str()).unwrap()),
-        "{}",
-        program
-    )
-    .unwrap();
-    assert!(slots_to_coeffs.eq(
-        &PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program),
-        &P,
-        Some(P.acting_galois_group())
-    ));
+        let w_1_sqr = PlaintextCircuit::mul(ring).compose(
+            PlaintextCircuit::add(ring)
+                .compose(w.tensor(PlaintextCircuit::constant(1, ring), ring), ring)
+                .output_twice(ring),
+            ring,
+        );
+        for x in -5..5 {
+            for y in -5..5 {
+                assert_eq!(
+                    StaticRing::<i64>::RING.pow(x * y * (2 * x + 3 * y) + 1, 2),
+                    w_1_sqr
+                        .evaluate_no_galois(&[x, y], ring.identity())
+                        .into_iter()
+                        .next()
+                        .unwrap()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_circuit_tensor_compose_with_galois() {
+        feanor_tracing::DelayedLogger::init_test();
+        let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
+        let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(17));
+
+        let x = PlaintextCircuit::identity(1, &ring);
+        let y = PlaintextCircuit::identity(1, &ring);
+        let xy = PlaintextCircuit::mul(&ring).compose(x.tensor(y, &ring), &ring);
+        let conj_xy = PlaintextCircuit::gal(
+            ring.acting_galois_group().from_representative(-1),
+            &ring.acting_galois_group(),
+            &ring,
+        )
+        .compose(xy.clone(&ring), &ring);
+        let partial_trace_xy = PlaintextCircuit::add(&ring)
+            .compose(xy.tensor(conj_xy, &ring), &ring)
+            .compose(PlaintextCircuit::identity(2, &ring).output_twice(&ring), &ring);
+
+        for x_e in 0..8 {
+            for y_e in 0..8 {
+                let x = ring.pow(ring.canonical_gen(), x_e);
+                let y = ring.pow(ring.canonical_gen(), y_e);
+                let xy = ring.mul_ref(&x, &y);
+                let conj_xy = ring.mul(
+                    ring.pow(ring.canonical_gen(), 16 - x_e),
+                    ring.pow(ring.canonical_gen(), 16 - y_e),
+                );
+                assert_el_eq!(
+                    &ring,
+                    ring.add(xy, conj_xy),
+                    partial_trace_xy
+                        .evaluate(&[x, y], ring.identity())
+                        .into_iter()
+                        .next()
+                        .unwrap()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_giant_step_circuit() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = StaticRing::<i64>::RING;
+        let powers = PlaintextCircuit::identity(1, ring)
+            .tensor(PlaintextCircuit::mul(ring), ring)
+            .tensor(PlaintextCircuit::mul(ring), ring)
+            .compose(
+                PlaintextCircuit::mul(ring)
+                    .output_times(4, ring)
+                    .tensor(PlaintextCircuit::identity(1, ring), ring),
+                ring,
+            )
+            .compose(PlaintextCircuit::identity(1, ring).output_times(3, ring), ring);
+        assert_eq!(vec![4, 16, 8], powers.evaluate_no_galois(&[2], ring.identity()));
+
+        let permuted_baby_step_dupl_input = PlaintextCircuit::constant(1, ring)
+            .tensor(PlaintextCircuit::identity(1, ring), ring)
+            .tensor(powers, ring);
+        assert_eq!(
+            vec![1, 2, 4, 16, 8],
+            permuted_baby_step_dupl_input.evaluate_no_galois(&[2, 2], ring.identity())
+        );
+
+        let copy_input = PlaintextCircuit::identity(1, ring).output_twice(ring);
+        assert_eq!(vec![2, 2], copy_input.evaluate_no_galois(&[2], ring.identity()));
+
+        let permuted_baby_steps = permuted_baby_step_dupl_input.compose(copy_input, ring);
+        assert_eq!(
+            vec![1, 2, 4, 16, 8],
+            permuted_baby_steps.evaluate_no_galois(&[2], ring.identity())
+        );
+
+        let baby_steps = PlaintextCircuit::select(5, &[0, 1, 2, 4, 3], ring).compose(permuted_baby_steps, ring);
+        assert_eq!(1, baby_steps.input_count());
+        assert_eq!(5, baby_steps.output_count());
+        assert_eq!(
+            vec![1, 2, 4, 8, 16],
+            baby_steps.evaluate_no_galois(&[2], ring.identity())
+        );
+
+        let giant_steps_before_baby_steps =
+            PlaintextCircuit::constant(1, ring).tensor(PlaintextCircuit::identity(1, ring), ring);
+        let baby_and_giant_steps = PlaintextCircuit::identity(4, ring)
+            .tensor(giant_steps_before_baby_steps, ring)
+            .compose(baby_steps, ring);
+        assert_eq!(
+            vec![1, 2, 4, 8, 1, 16],
+            baby_and_giant_steps.evaluate_no_galois(&[2], ring.identity())
+        );
+    }
+
+    #[test]
+    fn test_serialization() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = StaticRing::<i64>::RING;
+        let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
+        let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
+        let x_neg_x = PlaintextCircuit::mul(ring)
+            .compose(x.clone(ring).tensor(neg_x, ring), ring)
+            .compose(x.output_twice(ring), ring);
+        let two_minus_x_neg_x =
+            PlaintextCircuit::add(ring).compose(x_neg_x.tensor(PlaintextCircuit::constant(2, ring), ring), ring);
+        let circuit = PlaintextCircuit::square(ring).compose(two_minus_x_neg_x, ring);
+
+        for x in -100..100 {
+            assert_eq!(
+                (2 - x * x) * (2 - x * x),
+                circuit
+                    .evaluate_no_galois(&[x], ring.identity())
+                    .into_iter()
+                    .next()
+                    .unwrap()
+            );
+        }
+
+        let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
+        let tokens = circuit.serialize_with_data(&(ring,), &serializer).unwrap();
+        let mut deserializer = serde_assert::Deserializer::builder(tokens)
+            .is_human_readable(true)
+            .build();
+        let deserialized_circuit = PlaintextCircuit::deserialize_with_data((ring,), &mut deserializer).unwrap();
+        assert!(deserialized_circuit.eq(&circuit, ring, None));
+
+        let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
+        let tokens = circuit.serialize_with_data(&(ring,), &serializer).unwrap();
+        let mut deserializer = serde_assert::Deserializer::builder(tokens)
+            .is_human_readable(false)
+            .build();
+        let deserialized_circuit = PlaintextCircuit::deserialize_with_data((ring,), &mut deserializer).unwrap();
+        assert!(deserialized_circuit.eq(&circuit, ring, None));
+    }
+
+    #[test]
+    fn test_identity_galois() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Gal = CyclotomicGaloisGroupBase::new(5).into().full_subgroup();
+        let ring = StaticRing::<i64>::RING;
+        let circuit = PlaintextCircuit::gal(Gal.identity(), &Gal, ring);
+        assert!(circuit.eq(&PlaintextCircuit::identity(1, ring), &ring, None));
+    }
+
+    #[test]
+    fn test_evaluate() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = StaticRing::<i64>::RING;
+        let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
+        let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
+        let x_neg_x = PlaintextCircuit::mul(ring)
+            .compose(x.clone(ring).tensor(neg_x, ring), ring)
+            .compose(x.output_twice(ring), ring);
+        let two_minus_x_neg_x =
+            PlaintextCircuit::add(ring).compose(x_neg_x.tensor(PlaintextCircuit::constant(2, ring), ring), ring);
+        let circuit = PlaintextCircuit::square(ring).compose(two_minus_x_neg_x, ring); // (2 - x * x) * (2 - x * x)
+
+        for x in -10..=10 {
+            assert_eq!(
+                vec![(2 - x * x) * (2 - x * x)],
+                circuit.evaluate_generic(&[x], HomEvaluator::new(ZZi64.identity()))
+            );
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn generate_slots_to_coeffs() {
+        feanor_tracing::DelayedLogger::init_test();
+        use std::cell::LazyCell;
+        use std::fs::File;
+        use std::io::{BufWriter, Write};
+
+        use feanor_math::integer::int_cast;
+
+        use crate::circuit::create_circuit_cached;
+        use crate::lin_transform::pow2;
+        use crate::number_ring::NumberRingQuotientStore;
+        use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
+        use crate::number_ring::hypercube::structure::HypercubeStructure;
+        use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+        use crate::{ZZbig, filename_keys};
+
+        let m = 1 << 14;
+        let e = 1;
+
+        let P = NumberRingQuotientByIntBase::new(
+            Pow2CyclotomicNumberRing::new(m),
+            zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)),
+        );
+        let H = LazyCell::new(|| {
+            let hypercube =
+                HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
+            HypercubeIsomorphism::new(&P, &hypercube, Some("./cache"))
+        });
+        let coeffs_to_slots = create_circuit_cached(
+            &P,
+            &filename_keys![coeffs2slots, m: m, p: 65537, e: e + 1, levels: 4],
+            Some("./cache"),
+            || pow2::coeffs_to_slots_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS),
+        );
+        let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));
+        write!(
+            BufWriter::new(
+                File::create(format!("./coeffs_to_slots_m{}_p65537_e{}_levels4.fheir", m, e + 1).as_str()).unwrap()
+            ),
+            "{}",
+            program
+        )
+        .unwrap();
+        assert!(coeffs_to_slots.eq(
+            &PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program),
+            &P,
+            Some(P.acting_galois_group())
+        ));
+
+        let P = NumberRingQuotientByIntBase::new(
+            Pow2CyclotomicNumberRing::new(m),
+            zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e)),
+        );
+        let H = LazyCell::new(|| H.change_modulus(&P));
+        let slots_to_coeffs = create_circuit_cached(
+            &P,
+            &filename_keys![slots2coeffs, m: m, p: 65537, e: e, levels: 4],
+            Some("./cache"),
+            || pow2::slots_to_coeffs_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS),
+        );
+        let program = slots_to_coeffs.to_ir(&P, Some(P.acting_galois_group()));
+        write!(
+            BufWriter::new(
+                File::create(format!("./slots_to_coeffs_m{}_p65537_e{}_levels4.fheir", m, e).as_str()).unwrap()
+            ),
+            "{}",
+            program
+        )
+        .unwrap();
+        assert!(slots_to_coeffs.eq(
+            &PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program),
+            &P,
+            Some(P.acting_galois_group())
+        ));
+    }
 }

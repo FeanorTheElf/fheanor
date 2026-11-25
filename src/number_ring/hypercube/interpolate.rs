@@ -5,6 +5,9 @@ use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 use feanor_math::rings::extension::*;
 use feanor_math::rings::poly::*;
 use feanor_math::rings::zn::ZnReductionMap;
+use tracing::instrument;
+
+use crate::NiceZn;
 
 /// Interpolation data for a list of moduli `f1, ..., fn` that can be used
 /// to derive from remainders `r1, ..., rn` an "interpolation polynomial" `h`
@@ -199,92 +202,93 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::rings::local::AsLocalPIR;
-#[cfg(test)]
-use feanor_math::rings::poly::dense_poly::DensePolyRing;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::Zn;
-use tracing::instrument;
+mod test {
+    use feanor_math::assert_el_eq;
+    use feanor_math::rings::local::AsLocalPIR;
+    use feanor_math::rings::poly::dense_poly::DensePolyRing;
+    use feanor_math::rings::zn::zn_64::Zn;
 
-use crate::NiceZn;
+    use super::*;
 
-#[test]
-fn test_interpolate() {
-    feanor_tracing::DelayedLogger::init_test();
-    let base_ring = AsLocalPIR::from_zn(Zn::new(257)).unwrap();
-    let poly_ring = DensePolyRing::new(base_ring, "X");
+    #[test]
+    fn test_interpolate() {
+        feanor_tracing::DelayedLogger::init_test();
+        let base_ring = AsLocalPIR::from_zn(Zn::new(257)).unwrap();
+        let poly_ring = DensePolyRing::new(base_ring, "X");
 
-    let moduli = poly_ring.with_wrapped_indeterminate(|X| {
-        [
-            X.pow_ref(2) - 1,
-            X.pow_ref(3) + X - 1,
-            X.pow_ref(2) - X + 2,
-            X.pow_ref(2) - 2 * X,
-        ]
-    });
-    let remainders = poly_ring
-        .with_wrapped_indeterminate(|X| [-1 * X + 3, -5 * X.pow_ref(2) + 21 * X - 12, -728 * X + 16, 720896 * X]);
-    let interpolation = FastPolyInterpolation::new(&poly_ring, moduli.iter().map(|f| poly_ring.clone_el(f)).collect());
-    let result = interpolation.interpolate_unreduced(remainders.iter().map(|f| poly_ring.clone_el(f)).collect());
-    for i in 0..4 {
-        assert_el_eq!(
-            &poly_ring,
-            &remainders[i],
-            poly_ring.div_rem_monic(poly_ring.clone_el(&result), &moduli[i]).1
-        );
-    }
+        let moduli = poly_ring.with_wrapped_indeterminate(|X| {
+            [
+                X.pow_ref(2) - 1,
+                X.pow_ref(3) + X - 1,
+                X.pow_ref(2) - X + 2,
+                X.pow_ref(2) - 2 * X,
+            ]
+        });
+        let remainders = poly_ring
+            .with_wrapped_indeterminate(|X| [-1 * X + 3, -5 * X.pow_ref(2) + 21 * X - 12, -728 * X + 16, 720896 * X]);
+        let interpolation =
+            FastPolyInterpolation::new(&poly_ring, moduli.iter().map(|f| poly_ring.clone_el(f)).collect());
+        let result = interpolation.interpolate_unreduced(remainders.iter().map(|f| poly_ring.clone_el(f)).collect());
+        for i in 0..4 {
+            assert_el_eq!(
+                &poly_ring,
+                &remainders[i],
+                poly_ring.div_rem_monic(poly_ring.clone_el(&result), &moduli[i]).1
+            );
+        }
 
-    let moduli =
-        poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(2) - 1, X.pow_ref(3) + X - 1, X.pow_ref(2) - X + 2]);
-    let remainders =
-        poly_ring.with_wrapped_indeterminate(|X| [-1 * X + 3, -5 * X.pow_ref(2) + 21 * X - 12, -728 * X + 16]);
-    let interpolation = FastPolyInterpolation::new(&poly_ring, moduli.iter().map(|f| poly_ring.clone_el(f)).collect());
-    let result = interpolation.interpolate_unreduced(remainders.iter().map(|f| poly_ring.clone_el(f)).collect());
-    for i in 0..3 {
-        assert_el_eq!(
-            &poly_ring,
-            &remainders[i],
-            poly_ring.div_rem_monic(poly_ring.clone_el(&result), &moduli[i]).1
-        );
-    }
+        let moduli =
+            poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(2) - 1, X.pow_ref(3) + X - 1, X.pow_ref(2) - X + 2]);
+        let remainders =
+            poly_ring.with_wrapped_indeterminate(|X| [-1 * X + 3, -5 * X.pow_ref(2) + 21 * X - 12, -728 * X + 16]);
+        let interpolation =
+            FastPolyInterpolation::new(&poly_ring, moduli.iter().map(|f| poly_ring.clone_el(f)).collect());
+        let result = interpolation.interpolate_unreduced(remainders.iter().map(|f| poly_ring.clone_el(f)).collect());
+        for i in 0..3 {
+            assert_el_eq!(
+                &poly_ring,
+                &remainders[i],
+                poly_ring.div_rem_monic(poly_ring.clone_el(&result), &moduli[i]).1
+            );
+        }
 
-    let moduli = poly_ring.with_wrapped_indeterminate(|X| {
-        [
-            X.pow_ref(2) - 1,
-            X.pow_ref(2) - 2,
-            X.pow_ref(2) - 3,
-            X.pow_ref(2) - 4,
-            X.pow_ref(2) - 5,
-            X.pow_ref(2) - 6,
-            X.pow_ref(2) - 7,
-            X.pow_ref(2) - 8,
-            X.pow_ref(2) - 9,
-            X.pow_ref(2) - 10,
-        ]
-    });
-    let remainders = poly_ring.with_wrapped_indeterminate(|X| {
-        [
-            5 * X + 10,
-            5 * X + 9,
-            5 * X + 8,
-            5 * X + 7,
-            5 * X + 6,
-            5 * X + 5,
-            5 * X + 4,
-            5 * X + 3,
-            5 * X + 2,
-            5 * X + 1,
-        ]
-    });
-    let interpolation = FastPolyInterpolation::new(&poly_ring, moduli.iter().map(|f| poly_ring.clone_el(f)).collect());
-    let result = interpolation.interpolate_unreduced(remainders.iter().map(|f| poly_ring.clone_el(f)).collect());
-    for i in 0..10 {
-        assert_el_eq!(
-            &poly_ring,
-            &remainders[i],
-            poly_ring.div_rem_monic(poly_ring.clone_el(&result), &moduli[i]).1
-        );
+        let moduli = poly_ring.with_wrapped_indeterminate(|X| {
+            [
+                X.pow_ref(2) - 1,
+                X.pow_ref(2) - 2,
+                X.pow_ref(2) - 3,
+                X.pow_ref(2) - 4,
+                X.pow_ref(2) - 5,
+                X.pow_ref(2) - 6,
+                X.pow_ref(2) - 7,
+                X.pow_ref(2) - 8,
+                X.pow_ref(2) - 9,
+                X.pow_ref(2) - 10,
+            ]
+        });
+        let remainders = poly_ring.with_wrapped_indeterminate(|X| {
+            [
+                5 * X + 10,
+                5 * X + 9,
+                5 * X + 8,
+                5 * X + 7,
+                5 * X + 6,
+                5 * X + 5,
+                5 * X + 4,
+                5 * X + 3,
+                5 * X + 2,
+                5 * X + 1,
+            ]
+        });
+        let interpolation =
+            FastPolyInterpolation::new(&poly_ring, moduli.iter().map(|f| poly_ring.clone_el(f)).collect());
+        let result = interpolation.interpolate_unreduced(remainders.iter().map(|f| poly_ring.clone_el(f)).collect());
+        for i in 0..10 {
+            assert_el_eq!(
+                &poly_ring,
+                &remainders[i],
+                poly_ring.div_rem_monic(poly_ring.clone_el(&result), &moduli[i]).1
+            );
+        }
     }
 }

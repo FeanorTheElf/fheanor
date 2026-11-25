@@ -296,128 +296,114 @@ where
 }
 
 #[cfg(test)]
-use std::alloc::Global;
-#[cfg(test)]
-use std::sync::Arc;
+mod test {
+    use std::alloc::Global;
+    use std::sync::Arc;
 
-#[cfg(test)]
-use feanor_math::algorithms::convolution::*;
-#[cfg(test)]
-use feanor_math::algorithms::unity_root::is_prim_root_of_unity;
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::homomorphism::Homomorphism;
-#[cfg(test)]
-use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
-#[cfg(test)]
-use feanor_math::rings::finite::FiniteRingStore;
-#[cfg(test)]
-use feanor_math::rings::local::*;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::*;
-#[cfg(test)]
-use feanor_math::seq::VectorFn;
-#[cfg(test)]
-use fhe_ir::Program;
+    use feanor_math::algorithms::convolution::*;
+    use feanor_math::algorithms::unity_root::is_prim_root_of_unity;
+    use feanor_math::assert_el_eq;
+    use feanor_math::homomorphism::Homomorphism;
+    use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
+    use feanor_math::rings::finite::FiniteRingStore;
+    use feanor_math::rings::local::*;
+    use feanor_math::rings::zn::zn_64::*;
+    use feanor_math::seq::VectorFn;
+    use fhe_ir::Program;
 
-#[cfg(test)]
-use crate::ntt::dyn_convolution::*;
-#[cfg(test)]
-use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
-#[cfg(test)]
-use crate::number_ring::tensor_ring::TensorProductNumberRing;
-#[cfg(test)]
-use crate::number_ring::*;
+    use super::*;
+    use crate::ntt::dyn_convolution::*;
+    use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
+    use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
+    use crate::number_ring::tensor_ring::TensorProductNumberRing;
+    use crate::number_ring::*;
 
-#[test]
-fn test_extract_coefficient_map() {
-    feanor_tracing::DelayedLogger::init_test();
-    let convolution = DynConvolutionAlgorithmConvolution::<ZnBase, Arc<dyn DynConvolutionAlgorithm<ZnBase>>>::new(
-        Arc::new(STANDARD_CONVOLUTION),
-    );
-    let base_ring = Zn::new(17 * 17);
-    let modulus = (0..4).map(|_| base_ring.neg_one()).collect::<Vec<_>>();
-    let slot_ring = FreeAlgebraImpl::new_with_convolution(base_ring, 4, modulus, "a", Global, convolution);
-    let max_ideal_gen = slot_ring.int_hom().map(17);
-    let slot_ring = AsLocalPIR::from(AsLocalPIRBase::promise_is_local_pir(slot_ring, max_ideal_gen, Some(2)));
-    assert!(is_prim_root_of_unity(&slot_ring, &slot_ring.canonical_gen(), 5));
+    #[test]
+    fn test_extract_coefficient_map() {
+        feanor_tracing::DelayedLogger::init_test();
+        let convolution = DynConvolutionAlgorithmConvolution::<ZnBase, Arc<dyn DynConvolutionAlgorithm<ZnBase>>>::new(
+            Arc::new(STANDARD_CONVOLUTION),
+        );
+        let base_ring = Zn::new(17 * 17);
+        let modulus = (0..4).map(|_| base_ring.neg_one()).collect::<Vec<_>>();
+        let slot_ring = FreeAlgebraImpl::new_with_convolution(base_ring, 4, modulus, "a", Global, convolution);
+        let max_ideal_gen = slot_ring.int_hom().map(17);
+        let slot_ring = AsLocalPIR::from(AsLocalPIRBase::promise_is_local_pir(slot_ring, max_ideal_gen, Some(2)));
+        assert!(is_prim_root_of_unity(&slot_ring, &slot_ring.canonical_gen(), 5));
 
-    let extract_constant_coeff = extract_linear_map(&slot_ring, |c| slot_ring.wrt_canonical_basis(&c).at(0));
-    for i in 0..4 {
-        let b = slot_ring.pow(slot_ring.canonical_gen(), i);
-        let actual = slot_ring.trace(slot_ring.mul_ref(&b, &extract_constant_coeff));
-        if i == 0 {
-            assert_el_eq!(slot_ring.base_ring(), slot_ring.base_ring().one(), actual);
-        } else {
-            assert_el_eq!(slot_ring.base_ring(), slot_ring.base_ring().zero(), actual);
+        let extract_constant_coeff = extract_linear_map(&slot_ring, |c| slot_ring.wrt_canonical_basis(&c).at(0));
+        for i in 0..4 {
+            let b = slot_ring.pow(slot_ring.canonical_gen(), i);
+            let actual = slot_ring.trace(slot_ring.mul_ref(&b, &extract_constant_coeff));
+            if i == 0 {
+                assert_el_eq!(slot_ring.base_ring(), slot_ring.base_ring().one(), actual);
+            } else {
+                assert_el_eq!(slot_ring.base_ring(), slot_ring.base_ring().zero(), actual);
+            }
         }
     }
-}
 
-#[test]
-fn test_trace_circuit() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(3));
-    let full_galois_group = ring.number_ring().galois_group();
-    let relative_galois_group = full_galois_group
-        .get_group()
-        .clone()
-        .subgroup([full_galois_group.from_representative(3)]);
-    let trace = trace_circuit(&ring, &relative_galois_group, &DEFAULT_EVALUATOR_COSTS);
-    for x in ring.elements() {
-        let actual = trace.evaluate(std::slice::from_ref(&x), ring.identity()).pop().unwrap();
-        assert_el_eq!(&ring, ring.inclusion().map(ring.trace(x)), actual);
-    }
+    #[test]
+    fn test_trace_circuit() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(3));
+        let full_galois_group = ring.number_ring().galois_group();
+        let relative_galois_group = full_galois_group
+            .get_group()
+            .clone()
+            .subgroup([full_galois_group.from_representative(3)]);
+        let trace = trace_circuit(&ring, &relative_galois_group, &DEFAULT_EVALUATOR_COSTS);
+        for x in ring.elements() {
+            let actual = trace.evaluate(std::slice::from_ref(&x), ring.identity()).pop().unwrap();
+            assert_el_eq!(&ring, ring.inclusion().map(ring.trace(x)), actual);
+        }
 
-    let relative_galois_group = full_galois_group
-        .get_group()
-        .clone()
-        .subgroup([full_galois_group.from_representative(2)]);
-    let relative_trace = trace_circuit(&ring, &relative_galois_group, &DEFAULT_EVALUATOR_COSTS);
-    assert_eq!(1, relative_trace.output_count());
-    let input = ring.canonical_gen();
-    let actual = relative_trace
-        .evaluate(std::slice::from_ref(&input), ring.identity())
-        .pop()
-        .unwrap();
-    let expected = ring.sum([
-        ring.canonical_gen(),
-        ring.pow(ring.canonical_gen(), 2),
-        ring.pow(ring.canonical_gen(), 4),
-    ]);
-    assert_el_eq!(&ring, expected, actual);
-
-    let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 7), Zn::new(65537));
-    let full_galois_group = ring.number_ring().galois_group();
-    let trace = trace_circuit(
-        &ring,
-        &full_galois_group.get_group().clone().full_subgroup(),
-        &DEFAULT_EVALUATOR_COSTS,
-    );
-    for i in 0..24 {
-        let actual = trace
-            .evaluate(&[ring.pow(ring.canonical_gen(), i)], ring.identity())
+        let relative_galois_group = full_galois_group
+            .get_group()
+            .clone()
+            .subgroup([full_galois_group.from_representative(2)]);
+        let relative_trace = trace_circuit(&ring, &relative_galois_group, &DEFAULT_EVALUATOR_COSTS);
+        assert_eq!(1, relative_trace.output_count());
+        let input = ring.canonical_gen();
+        let actual = relative_trace
+            .evaluate(std::slice::from_ref(&input), ring.identity())
             .pop()
             .unwrap();
-        assert_el_eq!(
-            &ring,
-            ring.inclusion().map(ring.trace(ring.pow(ring.canonical_gen(), i))),
-            actual
-        );
-    }
-}
+        let expected = ring.sum([
+            ring.canonical_gen(),
+            ring.pow(ring.canonical_gen(), 2),
+            ring.pow(ring.canonical_gen(), 4),
+        ]);
+        assert_el_eq!(&ring, expected, actual);
 
-#[test]
-fn test_cyclic_trace_circuit_window() {
-    feanor_tracing::DelayedLogger::init_test();
-    let galois_group = CyclotomicGaloisGroupBase::new(1 << 6).into().full_subgroup();
-    let generator = galois_group.parent().from_representative(5);
-    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 16, 4);
-    let expected: Program<i64> = Program::parse_check(
-        r#"
+        let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 7), Zn::new(65537));
+        let full_galois_group = ring.number_ring().galois_group();
+        let trace = trace_circuit(
+            &ring,
+            &full_galois_group.get_group().clone().full_subgroup(),
+            &DEFAULT_EVALUATOR_COSTS,
+        );
+        for i in 0..24 {
+            let actual = trace
+                .evaluate(&[ring.pow(ring.canonical_gen(), i)], ring.identity())
+                .pop()
+                .unwrap();
+            assert_el_eq!(
+                &ring,
+                ring.inclusion().map(ring.trace(ring.pow(ring.canonical_gen(), i))),
+                actual
+            );
+        }
+    }
+
+    #[test]
+    fn test_cyclic_trace_circuit_window() {
+        feanor_tracing::DelayedLogger::init_test();
+        let galois_group = CyclotomicGaloisGroupBase::new(1 << 6).into().full_subgroup();
+        let generator = galois_group.parent().from_representative(5);
+        let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 16, 4);
+        let expected: Program<i64> = Program::parse_check(
+            r#"
         func(%in) {
             %x1, %x2, %x3 = galois %in, exponents = [5, 25, 61]
             %s1 = inner_prod %in, %x1, %x2, %x3, coefficients = [@1, @1, @1, @1]
@@ -427,20 +413,20 @@ fn test_cyclic_trace_circuit_window() {
         }
         @1: 1
     "#
-        .as_bytes(),
-    )
-    .unwrap();
-    assert!(circuit.eq(
-        &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
-        ZZi64,
-        Some(&galois_group)
-    ));
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(circuit.eq(
+            &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
+            ZZi64,
+            Some(&galois_group)
+        ));
 
-    let galois_group = CyclotomicGaloisGroupBase::new(1 << 6).into().full_subgroup();
-    let generator = galois_group.parent().from_representative(5);
-    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 16, 3);
-    let expected: Program<i64> = Program::parse_check(
-        r#"
+        let galois_group = CyclotomicGaloisGroupBase::new(1 << 6).into().full_subgroup();
+        let generator = galois_group.parent().from_representative(5);
+        let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 16, 3);
+        let expected: Program<i64> = Program::parse_check(
+            r#"
         func(%in) {
             %x1, %x2 = galois %in, exponents = [5, 25]
             %s1 = inner_prod %in, %x1, %x2, coefficients = [@1, @1, @1]
@@ -452,19 +438,19 @@ fn test_cyclic_trace_circuit_window() {
         }
         @1: 1
     "#
-        .as_bytes(),
-    )
-    .unwrap();
-    assert!(circuit.eq(
-        &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
-        ZZi64,
-        Some(&galois_group)
-    ));
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(circuit.eq(
+            &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
+            ZZi64,
+            Some(&galois_group)
+        ));
 
-    let galois_group = CyclotomicGaloisGroupBase::new(1 << 6).into().full_subgroup();
-    let generator = galois_group.parent().from_representative(5);
-    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 16, 16);
-    let expected: Program<i64> = Program::parse_check(r#"
+        let galois_group = CyclotomicGaloisGroupBase::new(1 << 6).into().full_subgroup();
+        let generator = galois_group.parent().from_representative(5);
+        let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 16, 16);
+        let expected: Program<i64> = Program::parse_check(r#"
         func(%in) {
             %x1, %x2, %x3, %x4, %x5, %x6, %x7, %x8, %x9, %x10, %x11, %x12, %x13, %x14, %x15 = galois %in, exponents = [5, 25, 61, 49, 53, 9, 45, 33, 37, 57, 29, 17, 21, 41, 13]
             %s1 = inner_prod %in, %x1, %x2, %x3, %x4, %x5, %x6, %x7, %x8, %x9, %x10, %x11, %x12, %x13, %x14, %x15, coefficients = [@1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1, @1]
@@ -472,17 +458,17 @@ fn test_cyclic_trace_circuit_window() {
         }
         @1: 1
     "#.as_bytes()).unwrap();
-    assert!(circuit.eq(
-        &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
-        ZZi64,
-        Some(&galois_group)
-    ));
+        assert!(circuit.eq(
+            &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
+            ZZi64,
+            Some(&galois_group)
+        ));
 
-    let galois_group = CyclotomicGaloisGroupBase::new(7).into().full_subgroup();
-    let generator = galois_group.parent().from_representative(3);
-    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 6, 5);
-    let expected: Program<i64> = Program::parse_check(
-        r#"
+        let galois_group = CyclotomicGaloisGroupBase::new(7).into().full_subgroup();
+        let generator = galois_group.parent().from_representative(3);
+        let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 6, 5);
+        let expected: Program<i64> = Program::parse_check(
+            r#"
         func(%in) {
             %x1, %x2, %x3, %x4 = galois %in, exponents = [3, 2, 6, 4]
             %s1 = inner_prod %in, %x1, %x2, %x3, %x4, coefficients = [@1, @1, @1, @1, @1]
@@ -492,20 +478,20 @@ fn test_cyclic_trace_circuit_window() {
         }
         @1: 1
     "#
-        .as_bytes(),
-    )
-    .unwrap();
-    assert!(circuit.eq(
-        &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
-        ZZi64,
-        Some(&galois_group)
-    ));
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(circuit.eq(
+            &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
+            ZZi64,
+            Some(&galois_group)
+        ));
 
-    let galois_group = CyclotomicGaloisGroupBase::new(7).into().full_subgroup();
-    let generator = galois_group.parent().from_representative(2);
-    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 3, 3);
-    let expected: Program<i64> = Program::parse_check(
-        r#"
+        let galois_group = CyclotomicGaloisGroupBase::new(7).into().full_subgroup();
+        let generator = galois_group.parent().from_representative(2);
+        let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 3, 3);
+        let expected: Program<i64> = Program::parse_check(
+            r#"
         func(%in) {
             %x1, %x2 = galois %in, exponents = [2, 4]
             %s1 = inner_prod %in, %x1, %x2, coefficients = [@1, @1, @1]
@@ -513,20 +499,20 @@ fn test_cyclic_trace_circuit_window() {
         }
         @1: 1
     "#
-        .as_bytes(),
-    )
-    .unwrap();
-    assert!(circuit.eq(
-        &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
-        ZZi64,
-        Some(&galois_group)
-    ));
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(circuit.eq(
+            &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
+            ZZi64,
+            Some(&galois_group)
+        ));
 
-    let galois_group = CyclotomicGaloisGroupBase::new(29).into().full_subgroup();
-    let generator = galois_group.parent().from_representative(16);
-    let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 7, 3);
-    let expected: Program<i64> = Program::parse_check(
-        r#"
+        let galois_group = CyclotomicGaloisGroupBase::new(29).into().full_subgroup();
+        let generator = galois_group.parent().from_representative(16);
+        let circuit = cyclic_trace_circuit_window(ZZi64, &galois_group, &generator, 7, 3);
+        let expected: Program<i64> = Program::parse_check(
+            r#"
         func(%in) {
             %1, %2 = galois %in, exponents = [-13, -5]
             %3 = inner_prod %in, %1, coefficients = [@1, @1]
@@ -536,13 +522,14 @@ fn test_cyclic_trace_circuit_window() {
         }
         @1: 1
     "#
-        .as_bytes(),
-    )
-    .unwrap();
-    println!("{:?}", circuit.to_ir(ZZi64, Some(&galois_group)));
-    assert!(circuit.eq(
-        &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
-        ZZi64,
-        Some(&galois_group)
-    ));
+            .as_bytes(),
+        )
+        .unwrap();
+        println!("{:?}", circuit.to_ir(ZZi64, Some(&galois_group)));
+        assert!(circuit.eq(
+            &PlaintextCircuit::from_ir(ZZi64, Some(&galois_group), &expected),
+            ZZi64,
+            Some(&galois_group)
+        ));
+    }
 }

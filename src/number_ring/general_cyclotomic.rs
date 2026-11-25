@@ -1,6 +1,5 @@
 use std::alloc::Global;
 use std::fmt::{Debug, Formatter};
-use std::ptr::Alignment;
 use std::sync::Arc;
 
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
@@ -10,20 +9,15 @@ use feanor_math::algorithms::int_factor::factor;
 use feanor_math::algorithms::unity_root::get_prim_root_of_unity_zn;
 use feanor_math::divisibility::*;
 use feanor_math::homomorphism::*;
-use feanor_math::integer::*;
 use feanor_math::iters::multi_cartesian_product;
-use feanor_math::primitive_int::*;
-use feanor_math::ring::*;
 use feanor_math::rings::poly::sparse_poly::SparsePolyRing;
 use feanor_math::rings::poly::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
-use feanor_math::seq::*;
 use feanor_mempool::AllocArc;
-use feanor_mempool::dynsize::DynLayoutMempool;
+use feanor_mempool::dynsize::Mempool;
 use tracing::instrument;
 
-use crate::number_ring::galois::*;
 use crate::number_ring::*;
 use crate::{FheanorAllocator, ZZi64, euler_phi, euler_phi_squarefree};
 
@@ -39,11 +33,12 @@ impl OddSquarefreeCyclotomicNumberRing {
     pub fn new(m: usize) -> Self {
         assert!(m > 1);
         let factorization = factor(StaticRing::<i64>::RING, m as i64);
-        // while most of the arithmetic still works with non-squarefree m, our statements about the geometry
-        // of the number ring as lattice don't hold anymore (currently this refers to the
-        // `norm1_to_norm2_expansion_factor` functions)
+        // while most of the arithmetic still works with non-squarefree m, our statements about the
+        // geometry of the number ring as lattice don't hold anymore (currently this refers
+        // to the `norm1_to_norm2_expansion_factor` functions)
 
-        // why do we only support odd m? Because Bluestein FFT currently does not accept even lengths
+        // why do we only support odd m? Because Bluestein FFT currently does not accept even
+        // lengths
         for (_, e) in &factorization {
             assert!(*e == 1, "m = {} is not squarefree", m);
         }
@@ -278,8 +273,8 @@ impl PartialEq for OddSquarefreeCyclotomicNumberRing {
 
 impl NumberRingDescriptor for OddSquarefreeCyclotomicNumberRing {
     type NumberRingQuotientBases = OddSquarefreeCyclotomicDecomposedNumberRing<
-        BluesteinFFT<ZnBase, ZnFastmulBase, CanHom<ZnFastmul, Zn>, AllocArc<DynLayoutMempool<Global>>>,
-        AllocArc<DynLayoutMempool<Global>>,
+        BluesteinFFT<ZnBase, ZnFastmulBase, CanHom<ZnFastmul, Zn>, AllocArc<Mempool>>,
+        AllocArc<Mempool>,
     >;
 
     fn small_basis_product_expansion_factor(&self) -> f64 {
@@ -295,7 +290,7 @@ impl NumberRingDescriptor for OddSquarefreeCyclotomicNumberRing {
         let n_factorization = &self.m_factorization_squarefree;
         let m = n_factorization.iter().copied().product::<i64>();
 
-        let allocator = AllocArc(Arc::new(DynLayoutMempool::new(Alignment::of::<u64>())));
+        let allocator = AllocArc(Arc::new(Mempool::default()));
         let Fp_fastmul = ZnFastmul::new(Fp).unwrap();
         let zeta = get_prim_root_of_unity_zn(&Fp, 2 * m as usize).unwrap();
 
@@ -318,7 +313,7 @@ impl NumberRingDescriptor for OddSquarefreeCyclotomicNumberRing {
             Fp,
             &self.m_factorization_squarefree,
             self.galois_group.clone(),
-            AllocArc(Arc::new(DynLayoutMempool::new(Alignment::of::<u64>()))),
+            AllocArc(Arc::new(Mempool::default())),
         );
     }
 
@@ -532,81 +527,77 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
+mod test {
+    use feanor_math::assert_el_eq;
 
-#[cfg(test)]
-use crate::ciphertext_ring::double_rns_ring;
-#[cfg(test)]
-use crate::ciphertext_ring::single_rns_ring;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
-#[cfg(test)]
-use crate::ring_literal;
+    use super::*;
+    use crate::ciphertext_ring::{double_rns_ring, single_rns_ring};
+    use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
+    use crate::ring_literal;
 
-#[test]
-fn test_odd_cyclotomic_double_rns_ring() {
-    feanor_tracing::DelayedLogger::init_test();
-    double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
-    double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
-}
+    #[test]
+    fn test_odd_cyclotomic_double_rns_ring() {
+        feanor_tracing::DelayedLogger::init_test();
+        double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+        double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+    }
 
-#[test]
-fn test_odd_cyclotomic_single_rns_ring() {
-    feanor_tracing::DelayedLogger::init_test();
-    single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
-    single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
-}
+    #[test]
+    fn test_odd_cyclotomic_single_rns_ring() {
+        feanor_tracing::DelayedLogger::init_test();
+        single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+        single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+    }
 
-#[test]
-fn test_odd_cyclotomic_decomposition_ring() {
-    feanor_tracing::DelayedLogger::init_test();
-    quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
-    quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
-}
+    #[test]
+    fn test_odd_cyclotomic_decomposition_ring() {
+        feanor_tracing::DelayedLogger::init_test();
+        quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+        quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+    }
 
-#[test]
-fn test_permute_galois_automorphism() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Fp = zn_64::Zn::new(257);
-    let R = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Fp);
-    let gal_el = |x: i64| R.acting_galois_group().from_representative(x);
+    #[test]
+    fn test_permute_galois_automorphism() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Fp = zn_64::Zn::new(257);
+        let R = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Fp);
+        let gal_el = |x: i64| R.acting_galois_group().from_representative(x);
 
-    assert_el_eq!(
-        R,
-        ring_literal(&R, &[0, 0, 1, 0, 0, 0]),
-        R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(2))
-    );
-    assert_el_eq!(
-        R,
-        ring_literal(&R, &[0, 0, 0, 1, 0, 0]),
-        R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(3))
-    );
-    assert_el_eq!(
-        R,
-        ring_literal(&R, &[0, 0, 0, 0, 1, 0]),
-        R.apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), &gal_el(2))
-    );
-    assert_el_eq!(
-        R,
-        ring_literal(&R, &[-1, -1, -1, -1, -1, -1]),
-        R.apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), &gal_el(3))
-    );
-}
+        assert_el_eq!(
+            R,
+            ring_literal(&R, &[0, 0, 1, 0, 0, 0]),
+            R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(2))
+        );
+        assert_el_eq!(
+            R,
+            ring_literal(&R, &[0, 0, 0, 1, 0, 0]),
+            R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(3))
+        );
+        assert_el_eq!(
+            R,
+            ring_literal(&R, &[0, 0, 0, 0, 1, 0]),
+            R.apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), &gal_el(2))
+        );
+        assert_el_eq!(
+            R,
+            ring_literal(&R, &[-1, -1, -1, -1, -1, -1]),
+            R.apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), &gal_el(3))
+        );
+    }
 
-#[test]
-fn test_compute_powinf_to_coeffinf_expansion() {
-    feanor_tracing::DelayedLogger::init_test();
-    assert_eq!(1., compute_powinf_to_coeffinf_expansion(17));
-    assert_eq!(8., compute_powinf_to_coeffinf_expansion(17 * 5));
-    assert_eq!(52., compute_powinf_to_coeffinf_expansion(13 * 3 * 7));
-}
+    #[test]
+    fn test_compute_powinf_to_coeffinf_expansion() {
+        feanor_tracing::DelayedLogger::init_test();
+        assert_eq!(1., compute_powinf_to_coeffinf_expansion(17));
+        assert_eq!(8., compute_powinf_to_coeffinf_expansion(17 * 5));
+        assert_eq!(52., compute_powinf_to_coeffinf_expansion(13 * 3 * 7));
+    }
 
-#[test]
-fn test_compute_coeffinf_to_powinf_expansion() {
-    feanor_tracing::DelayedLogger::init_test();
-    assert_eq!(1., compute_coeffinf_to_powinf_expansion(17));
-    assert_eq!(4., compute_coeffinf_to_powinf_expansion(17 * 5));
-    assert_eq!(7., compute_coeffinf_to_powinf_expansion(13 * 3 * 7));
+    #[test]
+    fn test_compute_coeffinf_to_powinf_expansion() {
+        feanor_tracing::DelayedLogger::init_test();
+        assert_eq!(1., compute_coeffinf_to_powinf_expansion(17));
+        assert_eq!(4., compute_coeffinf_to_powinf_expansion(17 * 5));
+        assert_eq!(7., compute_coeffinf_to_powinf_expansion(13 * 3 * 7));
+    }
 }

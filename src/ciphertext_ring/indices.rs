@@ -346,28 +346,32 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::rings::zn::zn_64::*;
+mod test {
+    use feanor_math::rings::zn::zn_64::*;
 
-#[test]
-fn test_missing_from_subset() {
-    feanor_tracing::DelayedLogger::init_test();
-    let master = [Zn::new(3), Zn::new(19), Zn::new(7)];
-    let subset = [Zn::new(3), Zn::new(19)];
-    let expected = [2];
-    assert_eq!(
-        &expected,
-        &**RNSFactorIndexList::missing_from_subset(&subset, &master).unwrap()
-    );
+    use super::*;
 
-    let master = [Zn::new(3), Zn::new(19), Zn::new(7)];
-    let subset = [Zn::new(5), Zn::new(19)];
-    assert!(RNSFactorIndexList::missing_from_subset(&subset, &master).is_err());
-}
+    #[test]
+    fn test_missing_from_subset() {
+        feanor_tracing::DelayedLogger::init_test();
+        let master = [Zn::new(3), Zn::new(19), Zn::new(7)];
+        let subset = [Zn::new(3), Zn::new(19)];
+        let expected = [2];
+        assert_eq!(
+            &expected,
+            &**RNSFactorIndexList::missing_from_subset(&subset, &master).unwrap()
+        );
 
-#[test]
-fn test_complement() {
-    feanor_tracing::DelayedLogger::init_test();
-    let list = RNSFactorIndexList::from(vec![0, 2, 3, 6], 7);
-    let expected = RNSFactorIndexList::from(vec![1, 4, 5], 7);
-    assert_eq!(&**expected, &**list.complement(7));
+        let master = [Zn::new(3), Zn::new(19), Zn::new(7)];
+        let subset = [Zn::new(5), Zn::new(19)];
+        assert!(RNSFactorIndexList::missing_from_subset(&subset, &master).is_err());
+    }
+
+    #[test]
+    fn test_complement() {
+        feanor_tracing::DelayedLogger::init_test();
+        let list = RNSFactorIndexList::from(vec![0, 2, 3, 6], 7);
+        let expected = RNSFactorIndexList::from(vec![1, 4, 5], 7);
+        assert_eq!(&**expected, &**list.complement(7));
+    }
 }

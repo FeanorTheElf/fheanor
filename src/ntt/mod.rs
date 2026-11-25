@@ -55,21 +55,6 @@ impl FheanorConvolution<Zn> for NTTConvolution<ZnBase, ZnFastmulBase, CanHom<ZnF
     fn ring(&self) -> RingRef<'_, ZnBase> { NTTConvolution::ring(self) }
 }
 
-#[cfg(feature = "use_hexl")]
-impl FheanorConvolution<zn_64::Zn> for feanor_math_hexl::conv::HEXLConvolution {
-    fn new(ring: zn_64::Zn, max_log2_len: usize) -> Self {
-        assert!(ring.integer_ring().is_one(&ring.integer_ring().euclidean_rem(
-            ring.integer_ring().clone_el(ring.modulus()),
-            &ring.integer_ring().power_of_two(max_log2_len + 1)
-        )));
-        Self::new(ring, max_log2_len)
-    }
-
-    fn ring(&self) -> RingRef<'_, feanor_math::rings::zn::zn_64::ZnBase> {
-        RingRef::new(feanor_math_hexl::conv::HEXLConvolution::ring(&self).get_ring())
-    }
-}
-
 /// An object that supports computing a negacyclic NTT, i.e the evaluation of a polynomial
 /// at all primitive `m`-th roots of unity, where `m` is a power of two.
 pub trait FheanorNegacyclicNTT<R>: PartialEq + Send + Sync
@@ -185,23 +170,6 @@ where
     }
 }
 
-#[cfg(feature = "use_hexl")]
-impl FheanorNegacyclicNTT<Zn> for feanor_math_hexl::hexl::HEXLNegacyclicNTT {
-    fn bitreversed_negacyclic_fft_base<const INV: bool>(&self, input: &mut [El<Zn>], output: &mut [El<Zn>]) {
-        feanor_math_hexl::hexl::HEXLNegacyclicNTT::unordered_negacyclic_fft_base::<INV>(self, input, output)
-    }
-
-    fn len(&self) -> usize { feanor_math_hexl::hexl::HEXLNegacyclicNTT::n(self) }
-
-    fn new(ring: Zn, log2_rank: usize) -> Self {
-        feanor_math_hexl::hexl::HEXLNegacyclicNTT::for_zn(ring, log2_rank).unwrap()
-    }
-
-    fn ring(&self) -> RingRef<'_, ZnBase> {
-        RingRef::new(feanor_math_hexl::hexl::HEXLNegacyclicNTT::ring(self).get_ring())
-    }
-}
-
 /// An object that supports computing an arbitrary-length NTT, i.e the evaluation
 /// of a polynomial at all `m`-th roots of unity, for an arbitrary `m` which usually
 /// is not a power of two.
@@ -273,32 +241,35 @@ where
 pub mod dyn_convolution;
 
 #[cfg(test)]
-use std::array::from_fn;
+mod test {
+    use std::array::from_fn;
 
-#[cfg(test)]
-use feanor_math::assert_el_eq;
+    use feanor_math::assert_el_eq;
 
-#[test]
-fn test_negacyclic_ntt() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Fp = Zn::new(17).as_field().ok().unwrap();
-    let zeta = Fp.int_hom().map(3);
-    let ntt = RustNegacyclicNTT::new_with_root_of_unity(Fp, zeta, 3);
+    use super::*;
 
-    let original = from_fn(|i| if i == 1 { Fp.one() } else { Fp.zero() });
-    let mut input: [_; 8] = original;
-    let mut output: [_; 8] = from_fn(|_| Fp.zero());
-    let expected: [_; 8] = from_fn(|i| Fp.pow(zeta, 16 - (bitreverse(i, 3) * 2 + 1)));
+    #[test]
+    fn test_negacyclic_ntt() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Fp = Zn::new(17).as_field().ok().unwrap();
+        let zeta = Fp.int_hom().map(3);
+        let ntt = RustNegacyclicNTT::new_with_root_of_unity(Fp, zeta, 3);
 
-    ntt.bitreversed_negacyclic_fft_base::<false>(&mut input, &mut output);
+        let original = from_fn(|i| if i == 1 { Fp.one() } else { Fp.zero() });
+        let mut input: [_; 8] = original;
+        let mut output: [_; 8] = from_fn(|_| Fp.zero());
+        let expected: [_; 8] = from_fn(|i| Fp.pow(zeta, 16 - (bitreverse(i, 3) * 2 + 1)));
 
-    for i in 0..8 {
-        assert_el_eq!(&Fp, &expected[i], &output[i]);
-    }
+        ntt.bitreversed_negacyclic_fft_base::<false>(&mut input, &mut output);
 
-    ntt.bitreversed_negacyclic_fft_base::<true>(&mut output, &mut input);
+        for i in 0..8 {
+            assert_el_eq!(&Fp, &expected[i], &output[i]);
+        }
 
-    for i in 0..8 {
-        assert_el_eq!(&Fp, &original[i], &input[i]);
+        ntt.bitreversed_negacyclic_fft_base::<true>(&mut output, &mut input);
+
+        for i in 0..8 {
+            assert_el_eq!(&Fp, &original[i], &input[i]);
+        }
     }
 }

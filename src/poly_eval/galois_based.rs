@@ -334,152 +334,151 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::Zn;
+mod test {
+    use feanor_math::assert_el_eq;
+    use feanor_math::rings::zn::zn_64::Zn;
 
-#[cfg(test)]
-use crate::number_ring::hypercube::structure::HypercubeStructure;
-#[cfg(test)]
-use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int::*;
+    use super::*;
+    use crate::number_ring::hypercube::structure::HypercubeStructure;
+    use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+    use crate::number_ring::quotient_by_int::*;
 
-#[test]
-fn test_poly_circuit_via_norm_pow2() {
-    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(16), Zn::new(3));
-    let hypercube = HypercubeIsomorphism::new(
-        &ring,
-        &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)),
-        None,
-    );
-    assert_eq!(4, hypercube.slot_ring().rank());
-    assert_eq!(2, hypercube.slot_count());
-    let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
-
-    let [f] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(4) + 1]);
-    let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
-    assert_eq!(1, circuit.output_count());
-    assert_eq!(2, circuit.multiplication_gate_count());
-    assert_eq!(2, circuit.unhoisted_automorphism_count());
-    assert_eq!(2, circuit.mul_depth(0));
-    for x in ring.base_ring().elements() {
-        assert_el_eq!(
-            ring,
-            ring.inclusion()
-                .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
-            &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
+    #[test]
+    fn test_poly_circuit_via_norm_pow2() {
+        let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(16), Zn::new(3));
+        let hypercube = HypercubeIsomorphism::new(
+            &ring,
+            &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)),
+            None,
         );
-    }
+        assert_eq!(4, hypercube.slot_ring().rank());
+        assert_eq!(2, hypercube.slot_count());
+        let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
 
-    let [f] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(3) + 1]);
-    let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
-    assert_eq!(1, circuit.output_count());
-    assert_eq!(4, circuit.multiplication_gate_count());
-    assert_eq!(2, circuit.unhoisted_automorphism_count());
-    assert_eq!(2, circuit.mul_depth(0));
-    for x in ring.base_ring().elements() {
-        assert_el_eq!(
-            ring,
-            ring.inclusion()
-                .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
-            &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
+        let [f] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(4) + 1]);
+        let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
+        assert_eq!(1, circuit.output_count());
+        assert_eq!(2, circuit.multiplication_gate_count());
+        assert_eq!(2, circuit.unhoisted_automorphism_count());
+        assert_eq!(2, circuit.mul_depth(0));
+        for x in ring.base_ring().elements() {
+            assert_el_eq!(
+                ring,
+                ring.inclusion()
+                    .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
+                &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
+            );
+        }
+
+        let [f] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(3) + 1]);
+        let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
+        assert_eq!(1, circuit.output_count());
+        assert_eq!(4, circuit.multiplication_gate_count());
+        assert_eq!(2, circuit.unhoisted_automorphism_count());
+        assert_eq!(2, circuit.mul_depth(0));
+        for x in ring.base_ring().elements() {
+            assert_el_eq!(
+                ring,
+                ring.inclusion()
+                    .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
+                &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
+            );
+        }
+
+        let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(16), Zn::new(27));
+        let hypercube = HypercubeIsomorphism::new(
+            &ring,
+            &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)),
+            None,
         );
-    }
+        assert_eq!(4, hypercube.slot_ring().rank());
+        assert_eq!(2, hypercube.slot_count());
+        let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
 
-    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(16), Zn::new(27));
-    let hypercube = HypercubeIsomorphism::new(
-        &ring,
-        &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)),
-        None,
-    );
-    assert_eq!(4, hypercube.slot_ring().rank());
-    assert_eq!(2, hypercube.slot_count());
-    let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
+        let [f] = poly_ring
+            .with_wrapped_indeterminate(|X| [4 * X.pow_ref(4) + 7 * X.pow_ref(3) + 2 * X.pow_ref(2) + 9 * X + 3]);
+        let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
+        assert_eq!(1, circuit.output_count());
+        assert_eq!(2, circuit.multiplication_gate_count());
+        assert_eq!(2, circuit.unhoisted_automorphism_count());
+        assert_eq!(2, circuit.mul_depth(0));
+        for x in ring.base_ring().elements() {
+            assert_el_eq!(
+                ring,
+                ring.inclusion()
+                    .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
+                &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
+            );
+        }
 
-    let [f] =
-        poly_ring.with_wrapped_indeterminate(|X| [4 * X.pow_ref(4) + 7 * X.pow_ref(3) + 2 * X.pow_ref(2) + 9 * X + 3]);
-    let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
-    assert_eq!(1, circuit.output_count());
-    assert_eq!(2, circuit.multiplication_gate_count());
-    assert_eq!(2, circuit.unhoisted_automorphism_count());
-    assert_eq!(2, circuit.mul_depth(0));
-    for x in ring.base_ring().elements() {
-        assert_el_eq!(
-            ring,
-            ring.inclusion()
-                .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
-            &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
+        let [f] = poly_ring.with_wrapped_indeterminate(|X| [7 * X.pow_ref(3) + 2 * X.pow_ref(2) + 9 * X + 3]);
+        let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
+        assert_eq!(1, circuit.output_count());
+        assert_eq!(4, circuit.multiplication_gate_count());
+        assert_eq!(2, circuit.unhoisted_automorphism_count());
+        assert_eq!(2, circuit.mul_depth(0));
+        for x in ring.base_ring().elements() {
+            assert_el_eq!(
+                ring,
+                ring.inclusion()
+                    .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
+                &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
+            );
+        }
+
+        let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(27));
+        let hypercube = HypercubeIsomorphism::new(
+            &ring,
+            &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)),
+            None,
         );
-    }
+        assert_eq!(16, hypercube.slot_ring().rank());
+        assert_eq!(2, hypercube.slot_count());
+        let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
 
-    let [f] = poly_ring.with_wrapped_indeterminate(|X| [7 * X.pow_ref(3) + 2 * X.pow_ref(2) + 9 * X + 3]);
-    let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
-    assert_eq!(1, circuit.output_count());
-    assert_eq!(4, circuit.multiplication_gate_count());
-    assert_eq!(2, circuit.unhoisted_automorphism_count());
-    assert_eq!(2, circuit.mul_depth(0));
-    for x in ring.base_ring().elements() {
-        assert_el_eq!(
-            ring,
-            ring.inclusion()
-                .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
-            &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
-        );
-    }
+        let [f] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(8) + 21 * X.pow_ref(5) + X.pow_ref(2) + X]);
+        let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
+        assert_eq!(1, circuit.output_count());
+        assert_eq!(3, circuit.multiplication_gate_count());
+        assert_eq!(3, circuit.unhoisted_automorphism_count());
+        assert_eq!(3, circuit.mul_depth(0));
+        for x in ring.base_ring().elements() {
+            assert_el_eq!(
+                ring,
+                ring.inclusion()
+                    .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
+                &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
+            );
+        }
 
-    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(27));
-    let hypercube = HypercubeIsomorphism::new(
-        &ring,
-        &HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(3, ZZbig, ZZi64)),
-        None,
-    );
-    assert_eq!(16, hypercube.slot_ring().rank());
-    assert_eq!(2, hypercube.slot_count());
-    let poly_ring = DensePolyRing::new(ring.base_ring(), "X");
+        let [f] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(6) + 21 * X.pow_ref(5) + X.pow_ref(2) + X]);
+        let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
+        assert_eq!(1, circuit.output_count());
+        assert_eq!(6, circuit.multiplication_gate_count());
+        assert_eq!(3, circuit.unhoisted_automorphism_count());
+        assert_eq!(3, circuit.mul_depth(0));
+        for x in ring.base_ring().elements() {
+            assert_el_eq!(
+                ring,
+                ring.inclusion()
+                    .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
+                &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
+            );
+        }
 
-    let [f] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(8) + 21 * X.pow_ref(5) + X.pow_ref(2) + X]);
-    let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
-    assert_eq!(1, circuit.output_count());
-    assert_eq!(3, circuit.multiplication_gate_count());
-    assert_eq!(3, circuit.unhoisted_automorphism_count());
-    assert_eq!(3, circuit.mul_depth(0));
-    for x in ring.base_ring().elements() {
-        assert_el_eq!(
-            ring,
-            ring.inclusion()
-                .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
-            &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
-        );
-    }
-
-    let [f] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(6) + 21 * X.pow_ref(5) + X.pow_ref(2) + X]);
-    let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
-    assert_eq!(1, circuit.output_count());
-    assert_eq!(6, circuit.multiplication_gate_count());
-    assert_eq!(3, circuit.unhoisted_automorphism_count());
-    assert_eq!(3, circuit.mul_depth(0));
-    for x in ring.base_ring().elements() {
-        assert_el_eq!(
-            ring,
-            ring.inclusion()
-                .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
-            &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
-        );
-    }
-
-    let [f] = poly_ring.with_wrapped_indeterminate(|X| [4 * X.pow_ref(16) + X.pow_ref(15) - X.pow_ref(2)]);
-    let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
-    assert_eq!(1, circuit.output_count());
-    assert_eq!(4, circuit.multiplication_gate_count());
-    assert_eq!(4, circuit.unhoisted_automorphism_count());
-    assert_eq!(4, circuit.mul_depth(0));
-    for x in ring.base_ring().elements() {
-        assert_el_eq!(
-            ring,
-            ring.inclusion()
-                .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
-            &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
-        );
+        let [f] = poly_ring.with_wrapped_indeterminate(|X| [4 * X.pow_ref(16) + X.pow_ref(15) - X.pow_ref(2)]);
+        let circuit = poly_circuit_via_norm(&hypercube, &poly_ring, &f).unwrap();
+        assert_eq!(1, circuit.output_count());
+        assert_eq!(4, circuit.multiplication_gate_count());
+        assert_eq!(4, circuit.unhoisted_automorphism_count());
+        assert_eq!(4, circuit.mul_depth(0));
+        for x in ring.base_ring().elements() {
+            assert_el_eq!(
+                ring,
+                ring.inclusion()
+                    .map(poly_ring.evaluate(&f, &x, ring.base_ring().identity())),
+                &circuit.evaluate(&[ring.inclusion().map(x)], ring.identity())[0]
+            );
+        }
     }
 }

@@ -1,4 +1,3 @@
-use std::alloc::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -13,12 +12,8 @@ use feanor_math::computation::*;
 use feanor_math::delegate::{UnwrapHom, WrapHom};
 use feanor_math::divisibility::*;
 use feanor_math::group::*;
-use feanor_math::homomorphism::*;
-use feanor_math::integer::*;
 use feanor_math::pid::PrincipalIdealRingStore;
-use feanor_math::primitive_int::*;
 use feanor_math::reduce_lift::poly_factor_gcd::IntegersWithLocalZnQuotient;
-use feanor_math::ring::*;
 use feanor_math::rings::extension::extension_impl::*;
 use feanor_math::rings::extension::galois_field::GaloisField;
 use feanor_math::rings::extension::*;
@@ -28,7 +23,6 @@ use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::sparse::SparseMapVector;
-use feanor_math::seq::*;
 use feanor_math::serialization::{DeserializeWithRing, SerializableElementRing, SerializeOwnedWithRing};
 use feanor_serde::dependent_tuple::DeserializeSeedDependentTuple;
 use feanor_serde::impl_deserialize_seed_for_dependent_struct;
@@ -43,7 +37,6 @@ use crate::cache::{
     create_cached,
 };
 use crate::ntt::dyn_convolution::*;
-use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::interpolate::FastPolyInterpolation;
 use crate::number_ring::hypercube::structure::*;
 use crate::number_ring::*;
@@ -1105,257 +1098,252 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::rings::finite::*;
+mod test {
+    use feanor_math::rings::finite::*;
 
-#[cfg(test)]
-use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-#[cfg(test)]
-use crate::number_ring::quotient_by_ideal::NumberRingQuotientByIdeal;
-#[cfg(test)]
-use crate::number_ring::quotient_by_ideal::NumberRingQuotientByIdealBase;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int::{NumberRingQuotientByInt, NumberRingQuotientByIntBase};
-#[cfg(test)]
-use crate::number_ring::tensor_ring::TensorProductNumberRing;
+    use super::*;
+    use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+    use crate::number_ring::quotient_by_ideal::{NumberRingQuotientByIdeal, NumberRingQuotientByIdealBase};
+    use crate::number_ring::quotient_by_int::{NumberRingQuotientByInt, NumberRingQuotientByIntBase};
+    use crate::number_ring::tensor_ring::TensorProductNumberRing;
 
-#[cfg(test)]
-fn test_ring1() -> (
-    NumberRingQuotientByInt<Pow2CyclotomicNumberRing, zn_64::Zn>,
-    HypercubeStructure,
-) {
-    let galois_group = CyclotomicGaloisGroupBase::new(32);
-    let p = galois_group.from_representative(7);
-    let gs = vec![galois_group.from_representative(5)];
-    let hypercube_structure = HypercubeStructure::new(galois_group.into().full_subgroup(), p, 4, vec![4], gs);
-    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(32), zn_64::Zn::new(7));
-    return (ring, hypercube_structure);
-}
-
-#[cfg(test)]
-fn test_ring2() -> (
-    NumberRingQuotientByInt<Pow2CyclotomicNumberRing, zn_64::Zn>,
-    HypercubeStructure,
-) {
-    let galois_group = CyclotomicGaloisGroupBase::new(32);
-    let gs = vec![
-        galois_group.from_representative(5),
-        galois_group.from_representative(-1),
-    ];
-    let p = galois_group.from_representative(17);
-    let hypercube_structure = HypercubeStructure::new(galois_group.into().full_subgroup(), p, 2, vec![4, 2], gs);
-    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(32), zn_64::Zn::new(17));
-    return (ring, hypercube_structure);
-}
-
-#[cfg(test)]
-fn test_ring3() -> (
-    NumberRingQuotientByInt<TensorProductNumberRing, zn_64::Zn>,
-    HypercubeStructure,
-) {
-    let galois_group = CyclotomicGaloisGroupBase::new(11 * 13);
-    let p = galois_group.from_representative(3);
-    let gs = vec![
-        galois_group.from_representative(79),
-        galois_group.from_representative(67),
-    ];
-    let hypercube_structure = HypercubeStructure::new(galois_group.into().full_subgroup(), p, 15, vec![2, 4], gs);
-    let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(11, 13), zn_64::Zn::new(3));
-    return (ring, hypercube_structure);
-}
-
-#[cfg(test)]
-fn test_ring4() -> (
-    NumberRingQuotientByIdeal<Pow2CyclotomicNumberRing, zn_64::Zn>,
-    HypercubeStructure,
-) {
-    let galois_group = CyclotomicGaloisGroupBase::new(64);
-    let acting_galois_group = galois_group
-        .get_group()
-        .clone()
-        .subgroup([galois_group.from_representative(17)]);
-    let p = galois_group.from_representative(257);
-    let gs = vec![galois_group.from_representative(17)];
-    let hypercube_structure = HypercubeStructure::new(acting_galois_group.clone(), p, 1, vec![4], gs);
-    let FpX = DensePolyRing::new(zn_64::Zn::new(257), "X");
-    let [t] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(4) - 2]);
-    let ring = NumberRingQuotientByIdealBase::new(Pow2CyclotomicNumberRing::new(64), FpX, t, acting_galois_group);
-    return (ring, hypercube_structure);
-}
-
-#[test]
-fn test_hypercube_isomorphism_from_to_slot_vector() {
-    feanor_tracing::DelayedLogger::init_test();
-
-    fn test_from_to_slot_vector<R>((ring, hypercube): (R, HypercubeStructure))
-    where
-        R: RingStore,
-        R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>,
-    {
-        let mut rng = oorandom::Rand64::new(1);
-        let isomorphism = HypercubeIsomorphism::new(&ring, &hypercube, None);
-
-        for _ in 0..10 {
-            let slot_ring = isomorphism.slot_ring();
-            let expected = (0..isomorphism.slot_count())
-                .map(|_| slot_ring.random_element(|| rng.rand_u64()))
-                .collect::<Vec<_>>();
-            let element = isomorphism.from_slot_values(expected.iter().map(|a| slot_ring.clone_el(a)));
-            let actual = isomorphism.get_slot_values(&element).collect::<Vec<_>>();
-            for (expected, actual) in expected.iter().zip(actual) {
-                assert_el_eq!(slot_ring, expected, actual);
-            }
-        }
+    fn test_ring1() -> (
+        NumberRingQuotientByInt<Pow2CyclotomicNumberRing, zn_64::Zn>,
+        HypercubeStructure,
+    ) {
+        let galois_group = CyclotomicGaloisGroupBase::new(32);
+        let p = galois_group.from_representative(7);
+        let gs = vec![galois_group.from_representative(5)];
+        let hypercube_structure = HypercubeStructure::new(galois_group.into().full_subgroup(), p, 4, vec![4], gs);
+        let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(32), zn_64::Zn::new(7));
+        return (ring, hypercube_structure);
     }
 
-    test_from_to_slot_vector(test_ring1());
-    test_from_to_slot_vector(test_ring2());
-    test_from_to_slot_vector(test_ring3());
-    test_from_to_slot_vector(test_ring4());
-}
-
-#[test]
-fn test_hypercube_isomorphism_is_isomorphic() {
-    feanor_tracing::DelayedLogger::init_test();
-
-    fn test_is_isomorphic<R>((ring, hypercube): (R, HypercubeStructure))
-    where
-        R: RingStore,
-        R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>,
-    {
-        let mut rng = oorandom::Rand64::new(1);
-        let isomorphism = HypercubeIsomorphism::new(&ring, &hypercube, None);
-        for _ in 0..10 {
-            let slot_ring = isomorphism.slot_ring();
-            let lhs = (0..isomorphism.slot_count())
-                .map(|_| slot_ring.random_element(|| rng.rand_u64()))
-                .collect::<Vec<_>>();
-            let rhs = (0..isomorphism.slot_count())
-                .map(|_| slot_ring.random_element(|| rng.rand_u64()))
-                .collect::<Vec<_>>();
-            let expected = (0..isomorphism.slot_count())
-                .map(|i| slot_ring.mul_ref(&lhs[i], &rhs[i]))
-                .collect::<Vec<_>>();
-            let element = isomorphism.ring().mul(
-                isomorphism.from_slot_values(lhs.iter().map(|a| slot_ring.clone_el(a))),
-                isomorphism.from_slot_values(rhs.iter().map(|a| slot_ring.clone_el(a))),
-            );
-            let actual = isomorphism.get_slot_values(&element);
-            for (expected, actual) in expected.iter().zip(actual) {
-                assert_el_eq!(slot_ring, expected, actual);
-            }
-        }
+    fn test_ring2() -> (
+        NumberRingQuotientByInt<Pow2CyclotomicNumberRing, zn_64::Zn>,
+        HypercubeStructure,
+    ) {
+        let galois_group = CyclotomicGaloisGroupBase::new(32);
+        let gs = vec![
+            galois_group.from_representative(5),
+            galois_group.from_representative(-1),
+        ];
+        let p = galois_group.from_representative(17);
+        let hypercube_structure = HypercubeStructure::new(galois_group.into().full_subgroup(), p, 2, vec![4, 2], gs);
+        let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(32), zn_64::Zn::new(17));
+        return (ring, hypercube_structure);
     }
 
-    test_is_isomorphic(test_ring1());
-    test_is_isomorphic(test_ring2());
-    test_is_isomorphic(test_ring3());
-    test_is_isomorphic(test_ring4());
-}
+    fn test_ring3() -> (
+        NumberRingQuotientByInt<TensorProductNumberRing, zn_64::Zn>,
+        HypercubeStructure,
+    ) {
+        let galois_group = CyclotomicGaloisGroupBase::new(11 * 13);
+        let p = galois_group.from_representative(3);
+        let gs = vec![
+            galois_group.from_representative(79),
+            galois_group.from_representative(67),
+        ];
+        let hypercube_structure = HypercubeStructure::new(galois_group.into().full_subgroup(), p, 15, vec![2, 4], gs);
+        let ring = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(11, 13), zn_64::Zn::new(3));
+        return (ring, hypercube_structure);
+    }
 
-#[test]
-fn test_hypercube_isomorphism_rotation() {
-    feanor_tracing::DelayedLogger::init_test();
+    fn test_ring4() -> (
+        NumberRingQuotientByIdeal<Pow2CyclotomicNumberRing, zn_64::Zn>,
+        HypercubeStructure,
+    ) {
+        let galois_group = CyclotomicGaloisGroupBase::new(64);
+        let acting_galois_group = galois_group
+            .get_group()
+            .clone()
+            .subgroup([galois_group.from_representative(17)]);
+        let p = galois_group.from_representative(257);
+        let gs = vec![galois_group.from_representative(17)];
+        let hypercube_structure = HypercubeStructure::new(acting_galois_group.clone(), p, 1, vec![4], gs);
+        let FpX = DensePolyRing::new(zn_64::Zn::new(257), "X");
+        let [t] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(4) - 2]);
+        let ring = NumberRingQuotientByIdealBase::new(Pow2CyclotomicNumberRing::new(64), FpX, t, acting_galois_group);
+        return (ring, hypercube_structure);
+    }
 
-    fn test_rotation<R>((ring, hypercube): (R, HypercubeStructure))
-    where
-        R: RingStore,
-        R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn,
-        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>,
-    {
-        let mut rng = oorandom::Rand64::new(1);
-        let isomorphism = HypercubeIsomorphism::new(&ring, &hypercube, None);
-        let ring = isomorphism.ring();
-        let hypercube = isomorphism.hypercube();
-        for _ in 0..10 {
-            let slot_ring = isomorphism.slot_ring();
-            let a = slot_ring.random_element(|| rng.rand_u64());
+    #[test]
+    fn test_hypercube_isomorphism_from_to_slot_vector() {
+        feanor_tracing::DelayedLogger::init_test();
 
-            let mut input = (0..isomorphism.slot_count())
-                .map(|_| slot_ring.zero())
-                .collect::<Vec<_>>();
-            input[0] = slot_ring.clone_el(&a);
-            let input = isomorphism.from_slot_values(input.into_iter());
+        fn test_from_to_slot_vector<R>((ring, hypercube): (R, HypercubeStructure))
+        where
+            R: RingStore,
+            R::Type: NumberRingQuotient,
+            BaseRing<R>: NiceZn,
+            DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>,
+        {
+            let mut rng = oorandom::Rand64::new(1);
+            let isomorphism = HypercubeIsomorphism::new(&ring, &hypercube, None);
 
-            let mut expected = (0..isomorphism.slot_count())
-                .map(|_| slot_ring.zero())
-                .collect::<Vec<_>>();
-            expected[(hypercube.dim_length(0) - 1) * hypercube.element_count() / hypercube.dim_length(0)] =
-                slot_ring.clone_el(&a);
+            for _ in 0..10 {
+                let slot_ring = isomorphism.slot_ring();
+                let expected = (0..isomorphism.slot_count())
+                    .map(|_| slot_ring.random_element(|| rng.rand_u64()))
+                    .collect::<Vec<_>>();
+                let element = isomorphism.from_slot_values(expected.iter().map(|a| slot_ring.clone_el(a)));
+                let actual = isomorphism.get_slot_values(&element).collect::<Vec<_>>();
+                for (expected, actual) in expected.iter().zip(actual) {
+                    assert_el_eq!(slot_ring, expected, actual);
+                }
+            }
+        }
 
-            let actual = ring.apply_galois_action(
-                &input,
-                &hypercube.galois_group().pow(
-                    hypercube.dim_generator(0),
-                    &int_cast(hypercube.dim_length(0) as i64 - 1, ZZbig, ZZi64),
+        test_from_to_slot_vector(test_ring1());
+        test_from_to_slot_vector(test_ring2());
+        test_from_to_slot_vector(test_ring3());
+        test_from_to_slot_vector(test_ring4());
+    }
+
+    #[test]
+    fn test_hypercube_isomorphism_is_isomorphic() {
+        feanor_tracing::DelayedLogger::init_test();
+
+        fn test_is_isomorphic<R>((ring, hypercube): (R, HypercubeStructure))
+        where
+            R: RingStore,
+            R::Type: NumberRingQuotient,
+            BaseRing<R>: NiceZn,
+            DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>,
+        {
+            let mut rng = oorandom::Rand64::new(1);
+            let isomorphism = HypercubeIsomorphism::new(&ring, &hypercube, None);
+            for _ in 0..10 {
+                let slot_ring = isomorphism.slot_ring();
+                let lhs = (0..isomorphism.slot_count())
+                    .map(|_| slot_ring.random_element(|| rng.rand_u64()))
+                    .collect::<Vec<_>>();
+                let rhs = (0..isomorphism.slot_count())
+                    .map(|_| slot_ring.random_element(|| rng.rand_u64()))
+                    .collect::<Vec<_>>();
+                let expected = (0..isomorphism.slot_count())
+                    .map(|i| slot_ring.mul_ref(&lhs[i], &rhs[i]))
+                    .collect::<Vec<_>>();
+                let element = isomorphism.ring().mul(
+                    isomorphism.from_slot_values(lhs.iter().map(|a| slot_ring.clone_el(a))),
+                    isomorphism.from_slot_values(rhs.iter().map(|a| slot_ring.clone_el(a))),
+                );
+                let actual = isomorphism.get_slot_values(&element);
+                for (expected, actual) in expected.iter().zip(actual) {
+                    assert_el_eq!(slot_ring, expected, actual);
+                }
+            }
+        }
+
+        test_is_isomorphic(test_ring1());
+        test_is_isomorphic(test_ring2());
+        test_is_isomorphic(test_ring3());
+        test_is_isomorphic(test_ring4());
+    }
+
+    #[test]
+    fn test_hypercube_isomorphism_rotation() {
+        feanor_tracing::DelayedLogger::init_test();
+
+        fn test_rotation<R>((ring, hypercube): (R, HypercubeStructure))
+        where
+            R: RingStore,
+            R::Type: NumberRingQuotient,
+            BaseRing<R>: NiceZn,
+            DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>,
+        {
+            let mut rng = oorandom::Rand64::new(1);
+            let isomorphism = HypercubeIsomorphism::new(&ring, &hypercube, None);
+            let ring = isomorphism.ring();
+            let hypercube = isomorphism.hypercube();
+            for _ in 0..10 {
+                let slot_ring = isomorphism.slot_ring();
+                let a = slot_ring.random_element(|| rng.rand_u64());
+
+                let mut input = (0..isomorphism.slot_count())
+                    .map(|_| slot_ring.zero())
+                    .collect::<Vec<_>>();
+                input[0] = slot_ring.clone_el(&a);
+                let input = isomorphism.from_slot_values(input.into_iter());
+
+                let mut expected = (0..isomorphism.slot_count())
+                    .map(|_| slot_ring.zero())
+                    .collect::<Vec<_>>();
+                expected[(hypercube.dim_length(0) - 1) * hypercube.element_count() / hypercube.dim_length(0)] =
+                    slot_ring.clone_el(&a);
+
+                let actual = ring.apply_galois_action(
+                    &input,
+                    &hypercube.galois_group().pow(
+                        hypercube.dim_generator(0),
+                        &int_cast(hypercube.dim_length(0) as i64 - 1, ZZbig, ZZi64),
+                    ),
+                );
+
+                let actual = isomorphism.get_slot_values(&actual);
+                for (expected, actual) in expected.iter().zip(actual) {
+                    assert_el_eq!(slot_ring, expected, actual);
+                }
+            }
+        }
+
+        test_rotation(test_ring1());
+        test_rotation(test_ring2());
+        test_rotation(test_ring3());
+        test_rotation(test_ring4());
+    }
+
+    #[test]
+    fn test_serialization() {
+        feanor_tracing::DelayedLogger::init_test();
+
+        fn test_with_test_ring<R>((ring, hypercube_structure): (R, HypercubeStructure))
+        where
+            R: RingStore,
+            R::Type: NumberRingQuotient,
+            BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<zn_64::ZnBase>,
+        {
+            let hypercube = HypercubeIsomorphism::new(&ring, &hypercube_structure, None);
+            let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
+            let tokens = hypercube.serialize_with_data(&&ring, &serializer).unwrap();
+            let mut deserializer = serde_assert::Deserializer::builder(tokens)
+                .is_human_readable(true)
+                .build();
+            let deserialized_hypercube = HypercubeIsomorphism::deserialize_with_data(&ring, &mut deserializer).unwrap();
+            assert!(hypercube.slot_ring().get_ring() == deserialized_hypercube.slot_ring().get_ring());
+            assert_el_eq!(
+                hypercube.ring(),
+                hypercube.from_slot_values(
+                    (0..hypercube.slot_count()).map(|i| hypercube.slot_ring().int_hom().map(i as i32))
                 ),
+                deserialized_hypercube.from_slot_values(
+                    (0..deserialized_hypercube.slot_count())
+                        .map(|i| deserialized_hypercube.slot_ring().int_hom().map(i as i32))
+                )
             );
 
-            let actual = isomorphism.get_slot_values(&actual);
-            for (expected, actual) in expected.iter().zip(actual) {
-                assert_el_eq!(slot_ring, expected, actual);
-            }
+            let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
+            let tokens = hypercube.serialize_with_data(&&ring, &serializer).unwrap();
+            let mut deserializer = serde_assert::Deserializer::builder(tokens)
+                .is_human_readable(false)
+                .build();
+            let deserialized_hypercube = HypercubeIsomorphism::deserialize_with_data(&ring, &mut deserializer).unwrap();
+            assert!(hypercube.slot_ring().get_ring() == deserialized_hypercube.slot_ring().get_ring());
+            assert_el_eq!(
+                hypercube.ring(),
+                hypercube.from_slot_values(
+                    (0..hypercube.slot_count()).map(|i| hypercube.slot_ring().int_hom().map(i as i32))
+                ),
+                deserialized_hypercube.from_slot_values(
+                    (0..deserialized_hypercube.slot_count())
+                        .map(|i| deserialized_hypercube.slot_ring().int_hom().map(i as i32))
+                )
+            );
         }
+
+        test_with_test_ring(test_ring1());
+        test_with_test_ring(test_ring2());
+        test_with_test_ring(test_ring3());
+        test_with_test_ring(test_ring4());
     }
-
-    test_rotation(test_ring1());
-    test_rotation(test_ring2());
-    test_rotation(test_ring3());
-    test_rotation(test_ring4());
-}
-
-#[test]
-fn test_serialization() {
-    feanor_tracing::DelayedLogger::init_test();
-
-    fn test_with_test_ring<R>((ring, hypercube_structure): (R, HypercubeStructure))
-    where
-        R: RingStore,
-        R::Type: NumberRingQuotient,
-        BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<zn_64::ZnBase>,
-    {
-        let hypercube = HypercubeIsomorphism::new(&ring, &hypercube_structure, None);
-        let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
-        let tokens = hypercube.serialize_with_data(&&ring, &serializer).unwrap();
-        let mut deserializer = serde_assert::Deserializer::builder(tokens)
-            .is_human_readable(true)
-            .build();
-        let deserialized_hypercube = HypercubeIsomorphism::deserialize_with_data(&ring, &mut deserializer).unwrap();
-        assert!(hypercube.slot_ring().get_ring() == deserialized_hypercube.slot_ring().get_ring());
-        assert_el_eq!(
-            hypercube.ring(),
-            hypercube
-                .from_slot_values((0..hypercube.slot_count()).map(|i| hypercube.slot_ring().int_hom().map(i as i32))),
-            deserialized_hypercube.from_slot_values(
-                (0..deserialized_hypercube.slot_count())
-                    .map(|i| deserialized_hypercube.slot_ring().int_hom().map(i as i32))
-            )
-        );
-
-        let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
-        let tokens = hypercube.serialize_with_data(&&ring, &serializer).unwrap();
-        let mut deserializer = serde_assert::Deserializer::builder(tokens)
-            .is_human_readable(false)
-            .build();
-        let deserialized_hypercube = HypercubeIsomorphism::deserialize_with_data(&ring, &mut deserializer).unwrap();
-        assert!(hypercube.slot_ring().get_ring() == deserialized_hypercube.slot_ring().get_ring());
-        assert_el_eq!(
-            hypercube.ring(),
-            hypercube
-                .from_slot_values((0..hypercube.slot_count()).map(|i| hypercube.slot_ring().int_hom().map(i as i32))),
-            deserialized_hypercube.from_slot_values(
-                (0..deserialized_hypercube.slot_count())
-                    .map(|i| deserialized_hypercube.slot_ring().int_hom().map(i as i32))
-            )
-        );
-    }
-
-    test_with_test_ring(test_ring1());
-    test_with_test_ring(test_ring2());
-    test_with_test_ring(test_ring3());
-    test_with_test_ring(test_ring4());
 }

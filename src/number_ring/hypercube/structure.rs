@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 
 use feanor_math::algorithms::discrete_log::*;
-use feanor_math::algorithms::eea::{signed_gcd, signed_lcm};
 use feanor_math::algorithms::int_factor::factor;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::group::*;
@@ -183,7 +182,7 @@ impl HypercubeStructure {
             "m must be a power of two for default_pow2_hypercube()"
         );
         let p_mod_m = int_cast(ZZbig.euclidean_rem(p, &int_cast(m, ZZbig, ZZi64)), ZZi64, ZZbig);
-        assert!(signed_gcd(m, p_mod_m, ZZi64) == 1, "m and p must be coprime");
+        assert!(ZZi64.is_unit(&ZZi64.ideal_gen(&m, &p_mod_m)), "m and p must be coprime");
         let frobenius = galois_group.from_representative(p_mod_m);
         let Gal = galois_group.parent();
 
@@ -264,10 +263,14 @@ impl HypercubeStructure {
 
         let m = galois_group.m() as i64;
         let frobenius = int_cast(ZZbig.euclidean_rem(p, &int_cast(m, ZZbig, ZZi64)), ZZi64, ZZbig);
-        assert!(signed_gcd(m, frobenius, ZZi64) == 1, "m and p must be coprime");
+        assert!(
+            ZZi64.is_unit(&ZZi64.ideal_gen(&m, &frobenius)),
+            "m and p must be coprime"
+        );
 
-        // the unit group `(Z/mZ)*` decomposes as `X (Z/m_iZ)*`; this gives rise to the natural hypercube
-        // structure, although technically many possible hypercube structures are possible
+        // the unit group `(Z/mZ)*` decomposes as `X (Z/m_iZ)*`; this gives rise to the natural
+        // hypercube structure, although technically many possible hypercube structures are
+        // possible
         let mut factorization = factor(ZZi64, m);
         // this makes debugging easier, since we have a canonical order
         factorization.sort_unstable_by_key(|(p, _)| *p);
@@ -299,7 +302,7 @@ impl HypercubeStructure {
             let g = get_multiplicative_generator(*Zqk);
             let ord_g = euler_phi(&[(*q, *k)]);
             let logg_p = unit_group_dlog(Zqk, g, Zqk.can_hom(&ZZi64).unwrap().map(frobenius)).unwrap();
-            let ord_p = ord_g / signed_gcd(logg_p, ord_g, ZZi64);
+            let ord_p = ord_g / ZZi64.ideal_gen(&logg_p, &ord_g).abs();
             dimensions.push(HypercubeDimension {
                 order_of_projected_p: ord_p,
                 group_order: ord_g,
@@ -313,7 +316,7 @@ impl HypercubeStructure {
         let lengths = dimensions
             .iter()
             .map(|dim| {
-                let new_d = signed_lcm(current_d, dim.order_of_projected_p as i64, ZZi64);
+                let new_d = ZZi64.lcm(&current_d, &(dim.order_of_projected_p as i64)).abs();
                 let len = dim.group_order as i64 / (new_d / current_d);
                 current_d = new_d;
                 len as usize
@@ -636,98 +639,103 @@ pub fn unit_group_dlog(ring: &Zn, base: ZnEl, value: ZnEl) -> Option<i64> {
     finite_field_discrete_log(value, base, ring)
 }
 
-#[test]
-fn test_halevi_shoup_hypercube() {
-    feanor_tracing::DelayedLogger::init_test();
-    let galois_group = CyclotomicGaloisGroupBase::new(11 * 31).into().full_subgroup();
-    let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(&galois_group, int_cast(2, ZZbig, ZZi64));
-    assert_eq!(10, hypercube_structure.d());
-    assert_eq!(2, hypercube_structure.dim_count());
+#[cfg(test)]
+mod test {
+    use super::*;
 
-    assert_eq!(1, hypercube_structure.dim_length(0));
-    assert_eq!(30, hypercube_structure.dim_length(1));
-}
+    #[test]
+    fn test_halevi_shoup_hypercube() {
+        feanor_tracing::DelayedLogger::init_test();
+        let galois_group = CyclotomicGaloisGroupBase::new(11 * 31).into().full_subgroup();
+        let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(&galois_group, int_cast(2, ZZbig, ZZi64));
+        assert_eq!(10, hypercube_structure.d());
+        assert_eq!(2, hypercube_structure.dim_count());
 
-#[test]
-fn test_pow2_hypercube() {
-    feanor_tracing::DelayedLogger::init_test();
-    let galois_group = CyclotomicGaloisGroupBase::new(32).into().full_subgroup();
-    let hypercube_structure = HypercubeStructure::default_pow2_hypercube(&galois_group, int_cast(7, ZZbig, ZZi64));
-    assert_eq!(4, hypercube_structure.d());
-    assert_eq!(1, hypercube_structure.dim_count());
+        assert_eq!(1, hypercube_structure.dim_length(0));
+        assert_eq!(30, hypercube_structure.dim_length(1));
+    }
 
-    assert_eq!(4, hypercube_structure.dim_length(0));
+    #[test]
+    fn test_pow2_hypercube() {
+        feanor_tracing::DelayedLogger::init_test();
+        let galois_group = CyclotomicGaloisGroupBase::new(32).into().full_subgroup();
+        let hypercube_structure = HypercubeStructure::default_pow2_hypercube(&galois_group, int_cast(7, ZZbig, ZZi64));
+        assert_eq!(4, hypercube_structure.d());
+        assert_eq!(1, hypercube_structure.dim_count());
 
-    let galois_group = CyclotomicGaloisGroupBase::new(32).into().full_subgroup();
-    let hypercube_structure = HypercubeStructure::default_pow2_hypercube(&galois_group, int_cast(17, ZZbig, ZZi64));
-    assert_eq!(2, hypercube_structure.d());
-    assert_eq!(2, hypercube_structure.dim_count());
+        assert_eq!(4, hypercube_structure.dim_length(0));
 
-    assert_eq!(4, hypercube_structure.dim_length(0));
-    assert_eq!(2, hypercube_structure.dim_length(1));
-}
+        let galois_group = CyclotomicGaloisGroupBase::new(32).into().full_subgroup();
+        let hypercube_structure = HypercubeStructure::default_pow2_hypercube(&galois_group, int_cast(17, ZZbig, ZZi64));
+        assert_eq!(2, hypercube_structure.d());
+        assert_eq!(2, hypercube_structure.dim_count());
 
-#[test]
-fn test_serialization() {
-    feanor_tracing::DelayedLogger::init_test();
-    for hypercube in [
-        HypercubeStructure::halevi_shoup_hypercube(
-            &CyclotomicGaloisGroupBase::new(11 * 31).into().full_subgroup(),
-            int_cast(2, ZZbig, ZZi64),
-        ),
-        HypercubeStructure::default_pow2_hypercube(
-            &CyclotomicGaloisGroupBase::new(32).into().full_subgroup(),
-            int_cast(7, ZZbig, ZZi64),
-        ),
-        HypercubeStructure::default_pow2_hypercube(
-            &CyclotomicGaloisGroupBase::new(32).into().full_subgroup(),
-            int_cast(17, ZZbig, ZZi64),
-        ),
-    ] {
-        let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
-        let tokens = hypercube.serialize(&serializer).unwrap();
-        let mut deserializer = serde_assert::Deserializer::builder(tokens)
-            .is_human_readable(true)
-            .build();
-        let deserialized_hypercube = HypercubeStructure::deserialize(&mut deserializer).unwrap();
+        assert_eq!(4, hypercube_structure.dim_length(0));
+        assert_eq!(2, hypercube_structure.dim_length(1));
+    }
 
-        assert!(hypercube.galois_group().get_group() == deserialized_hypercube.galois_group().get_group());
-        assert_eq!(hypercube.dim_count(), deserialized_hypercube.dim_count());
-        assert_eq!(
-            hypercube.is_tensor_product_compatible(),
-            deserialized_hypercube.is_tensor_product_compatible()
-        );
-        for i in 0..hypercube.dim_count() {
-            assert_eq!(hypercube.dim_length(i), deserialized_hypercube.dim_length(i));
-            assert!(
-                hypercube
-                    .galois_group()
-                    .eq_el(hypercube.dim_generator(i), deserialized_hypercube.dim_generator(i))
+    #[test]
+    fn test_serialization() {
+        feanor_tracing::DelayedLogger::init_test();
+        for hypercube in [
+            HypercubeStructure::halevi_shoup_hypercube(
+                &CyclotomicGaloisGroupBase::new(11 * 31).into().full_subgroup(),
+                int_cast(2, ZZbig, ZZi64),
+            ),
+            HypercubeStructure::default_pow2_hypercube(
+                &CyclotomicGaloisGroupBase::new(32).into().full_subgroup(),
+                int_cast(7, ZZbig, ZZi64),
+            ),
+            HypercubeStructure::default_pow2_hypercube(
+                &CyclotomicGaloisGroupBase::new(32).into().full_subgroup(),
+                int_cast(17, ZZbig, ZZi64),
+            ),
+        ] {
+            let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
+            let tokens = hypercube.serialize(&serializer).unwrap();
+            let mut deserializer = serde_assert::Deserializer::builder(tokens)
+                .is_human_readable(true)
+                .build();
+            let deserialized_hypercube = HypercubeStructure::deserialize(&mut deserializer).unwrap();
+
+            assert!(hypercube.galois_group().get_group() == deserialized_hypercube.galois_group().get_group());
+            assert_eq!(hypercube.dim_count(), deserialized_hypercube.dim_count());
+            assert_eq!(
+                hypercube.is_tensor_product_compatible(),
+                deserialized_hypercube.is_tensor_product_compatible()
             );
-            assert_eq!(hypercube.ord_generator(i), deserialized_hypercube.ord_generator(i));
-        }
+            for i in 0..hypercube.dim_count() {
+                assert_eq!(hypercube.dim_length(i), deserialized_hypercube.dim_length(i));
+                assert!(
+                    hypercube
+                        .galois_group()
+                        .eq_el(hypercube.dim_generator(i), deserialized_hypercube.dim_generator(i))
+                );
+                assert_eq!(hypercube.ord_generator(i), deserialized_hypercube.ord_generator(i));
+            }
 
-        let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
-        let tokens = hypercube.serialize(&serializer).unwrap();
-        let mut deserializer = serde_assert::Deserializer::builder(tokens)
-            .is_human_readable(false)
-            .build();
-        let deserialized_hypercube = HypercubeStructure::deserialize(&mut deserializer).unwrap();
+            let serializer = serde_assert::Serializer::builder().is_human_readable(false).build();
+            let tokens = hypercube.serialize(&serializer).unwrap();
+            let mut deserializer = serde_assert::Deserializer::builder(tokens)
+                .is_human_readable(false)
+                .build();
+            let deserialized_hypercube = HypercubeStructure::deserialize(&mut deserializer).unwrap();
 
-        assert!(hypercube.galois_group().get_group() == deserialized_hypercube.galois_group().get_group());
-        assert_eq!(hypercube.dim_count(), deserialized_hypercube.dim_count());
-        assert_eq!(
-            hypercube.is_tensor_product_compatible(),
-            deserialized_hypercube.is_tensor_product_compatible()
-        );
-        for i in 0..hypercube.dim_count() {
-            assert_eq!(hypercube.dim_length(i), deserialized_hypercube.dim_length(i));
-            assert!(
-                hypercube
-                    .galois_group()
-                    .eq_el(hypercube.dim_generator(i), deserialized_hypercube.dim_generator(i))
+            assert!(hypercube.galois_group().get_group() == deserialized_hypercube.galois_group().get_group());
+            assert_eq!(hypercube.dim_count(), deserialized_hypercube.dim_count());
+            assert_eq!(
+                hypercube.is_tensor_product_compatible(),
+                deserialized_hypercube.is_tensor_product_compatible()
             );
-            assert_eq!(hypercube.ord_generator(i), deserialized_hypercube.ord_generator(i));
+            for i in 0..hypercube.dim_count() {
+                assert_eq!(hypercube.dim_length(i), deserialized_hypercube.dim_length(i));
+                assert!(
+                    hypercube
+                        .galois_group()
+                        .eq_el(hypercube.dim_generator(i), deserialized_hypercube.dim_generator(i))
+                );
+                assert_eq!(hypercube.ord_generator(i), deserialized_hypercube.ord_generator(i));
+            }
         }
     }
 }

@@ -2,7 +2,6 @@ use std::borrow::Borrow;
 
 use feanor_math::delegate::*;
 use feanor_math::integer::BigIntRingBase;
-use feanor_math::ring::*;
 use feanor_math::rings::zn::ZnRing;
 use tracing::instrument;
 
@@ -592,46 +591,50 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for EncodedBGVPlaintextRin
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
+mod test {
+    use feanor_math::assert_el_eq;
 
-#[test]
-fn test_as_bgv_plaintext_ops() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let C = params.create_ciphertext_ring(500..520);
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+    use super::*;
 
-    let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(2), &sk, 3.2);
-    let res = P.get_ring().hom_add_to(
-        &P,
-        &C,
-        &P.int_hom().map(5),
-        P.get_ring().hom_mul_to(&P, &C, &P.int_hom().map(3), ct),
-    );
-    assert_el_eq!(&P, &P.int_hom().map(11), &Pow2BGV::dec(&P, &C, res, &sk));
+    #[test]
+    fn test_as_bgv_plaintext_ops() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+        let C = params.create_ciphertext_ring(500..520);
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 
-    // (b) integer constants (BigIntRingBase): 3 * Enc(2) + 5 = 11
-    let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(2), &sk, 3.2);
-    let res = ZZbig.get_ring().hom_add_to(
-        &P,
-        &C,
-        &int_cast(5, ZZbig, ZZi64),
-        ZZbig.get_ring().hom_mul_to(&P, &C, &int_cast(3, ZZbig, ZZi64), ct),
-    );
-    assert_el_eq!(&P, &P.int_hom().map(11), &Pow2BGV::dec(&P, &C, res, &sk));
+        let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(2), &sk, 3.2);
+        let res = P.get_ring().hom_add_to(
+            &P,
+            &C,
+            &P.int_hom().map(5),
+            P.get_ring().hom_mul_to(&P, &C, &P.int_hom().map(3), ct),
+        );
+        assert_el_eq!(&P, &P.int_hom().map(11), &Pow2BGV::dec(&P, &C, res, &sk));
 
-    // (d) relinearized inner product: 2 * Enc(2) + 3 * Enc(5) = 19
-    let cts = [
-        Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(2), &sk, 3.2),
-        Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(5), &sk, 3.2),
-    ];
-    let coeffs = [P.int_hom().map(2), P.int_hom().map(3)];
-    let res = P.get_ring().hom_inner_product(
-        &P,
-        &C,
-        coeffs.into_iter().map(Boo::Owned).zip(cts.into_iter().map(Boo::Owned)),
-    );
-    assert_el_eq!(&P, &P.int_hom().map(19), &Pow2BGV::dec(&P, &C, res, &sk));
+        // (b) integer constants (BigIntRingBase): 3 * Enc(2) + 5 = 11
+        let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(2), &sk, 3.2);
+        let res = ZZbig.get_ring().hom_add_to(
+            &P,
+            &C,
+            &int_cast(5, ZZbig, ZZi64),
+            ZZbig.get_ring().hom_mul_to(&P, &C, &int_cast(3, ZZbig, ZZi64), ct),
+        );
+        assert_el_eq!(&P, &P.int_hom().map(11), &Pow2BGV::dec(&P, &C, res, &sk));
+
+        // (d) relinearized inner product: 2 * Enc(2) + 3 * Enc(5) = 19
+        let cts = [
+            Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(2), &sk, 3.2),
+            Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(5), &sk, 3.2),
+        ];
+        let coeffs = [P.int_hom().map(2), P.int_hom().map(3)];
+        let res = P.get_ring().hom_inner_product(
+            &P,
+            &C,
+            coeffs.into_iter().map(Boo::Owned).zip(cts.into_iter().map(Boo::Owned)),
+        );
+        assert_el_eq!(&P, &P.int_hom().map(19), &Pow2BGV::dec(&P, &C, res, &sk));
+    }
 }

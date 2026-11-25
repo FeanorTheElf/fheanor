@@ -1,8 +1,6 @@
 use std::cmp::min;
 
 use feanor_math::divisibility::*;
-use feanor_math::integer::*;
-use feanor_math::ring::*;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
@@ -319,8 +317,8 @@ where
     let mut final_mul_count = 0;
     for d in degrees.iter() {
         final_mul_count += d / baby_steps;
-        // in this case we need one multiplication to get x^(d - (d % baby_steps)) and one to multiply it
-        // with the block
+        // in this case we need one multiplication to get x^(d - (d % baby_steps)) and one to
+        // multiply it with the block
         if d / baby_steps > 1 && (d / baby_steps) % 2 == 1 {
             final_mul_count += 1;
         }
@@ -416,8 +414,8 @@ where
     );
     let baby_step_circuit_mul_depth = baby_step_circuit.max_mul_depth();
 
-    // giant_step_circuit computes (1, x, ..., x^(baby_steps - 1), 1, x^baby_steps, x^(2 baby_steps),
-    // ..., x^(floor(giant_steps / 2) * baby_steps - baby_steps))
+    // giant_step_circuit computes (1, x, ..., x^(baby_steps - 1), 1, x^baby_steps, x^(2
+    // baby_steps), ..., x^(floor(giant_steps / 2) * baby_steps - baby_steps))
     let giant_step_circuit = PlaintextCircuit::identity(baby_steps, ring)
         .tensor(
             compute_powers_circuit(ring, &[1], &(0..giant_steps_half).collect::<Vec<_>>()),
@@ -623,442 +621,441 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::rings::poly::dense_poly::DensePolyRing;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::Zn;
+mod test {
+    use feanor_math::assert_el_eq;
+    use feanor_math::rings::finite::FiniteRingStore;
+    use feanor_math::rings::poly::dense_poly::DensePolyRing;
+    use feanor_math::rings::zn::zn_64::Zn;
 
-#[cfg(test)]
-use crate::feanor_math::rings::finite::FiniteRingStore;
-#[cfg(test)]
-use crate::feanor_math::seq::VectorView;
+    use super::*;
 
-#[test]
-fn test_compute_powers_circuit() {
-    feanor_tracing::DelayedLogger::init_test();
-    let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[1]);
-    assert!(circuit.eq(&PlaintextCircuit::select(3, &[1], ZZi64), ZZi64, None));
+    #[test]
+    fn test_compute_powers_circuit() {
+        feanor_tracing::DelayedLogger::init_test();
+        let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[1]);
+        assert!(circuit.eq(&PlaintextCircuit::select(3, &[1], ZZi64), ZZi64, None));
 
-    let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[3]);
-    assert!(circuit.eq(
-        &PlaintextCircuit::mul(ZZi64).compose(PlaintextCircuit::select(3, &[1, 2], ZZi64), ZZi64),
-        ZZi64,
-        None
-    ));
+        let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[3]);
+        assert!(circuit.eq(
+            &PlaintextCircuit::mul(ZZi64).compose(PlaintextCircuit::select(3, &[1, 2], ZZi64), ZZi64),
+            ZZi64,
+            None
+        ));
 
-    let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[5, 7]);
-    assert_eq!(2, circuit.output_count());
-    assert_eq!(2, circuit.mul_depth(0));
-    assert_eq!(2, circuit.mul_depth(1));
-    for x in -20..=20 {
-        assert_eq!(
-            vec![ZZi64.pow(x, 5), ZZi64.pow(x, 7)],
-            circuit.evaluate_no_galois(&[1, x, x * x], ZZi64.identity())
-        );
+        let circuit = compute_powers_circuit(ZZi64, &[0, 1, 2], &[5, 7]);
+        assert_eq!(2, circuit.output_count());
+        assert_eq!(2, circuit.mul_depth(0));
+        assert_eq!(2, circuit.mul_depth(1));
+        for x in -20..=20 {
+            assert_eq!(
+                vec![ZZi64.pow(x, 5), ZZi64.pow(x, 7)],
+                circuit.evaluate_no_galois(&[1, x, x * x], ZZi64.identity())
+            );
+        }
+
+        let circuit = compute_powers_circuit(ZZi64, &[1], &[0, 1, 2, 3]);
+        assert_eq!(4, circuit.output_count());
+        assert_eq!(0, circuit.mul_depth(0));
+        assert_eq!(0, circuit.mul_depth(1));
+        assert_eq!(1, circuit.mul_depth(2));
+        assert_eq!(2, circuit.mul_depth(3));
+        for x in -20..=20 {
+            assert_eq!(
+                vec![1, x, x * x, x * x * x],
+                circuit.evaluate_no_galois(&[x], ZZi64.identity())
+            );
+        }
     }
 
-    let circuit = compute_powers_circuit(ZZi64, &[1], &[0, 1, 2, 3]);
-    assert_eq!(4, circuit.output_count());
-    assert_eq!(0, circuit.mul_depth(0));
-    assert_eq!(0, circuit.mul_depth(1));
-    assert_eq!(1, circuit.mul_depth(2));
-    assert_eq!(2, circuit.mul_depth(3));
-    for x in -20..=20 {
-        assert_eq!(
-            vec![1, x, x * x, x * x * x],
-            circuit.evaluate_no_galois(&[x], ZZi64.identity())
-        );
-    }
-}
-
-#[test]
-fn test_bsgs() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Zn = Zn::new(17);
-    let P = DensePolyRing::new(Zn, "X");
-    // 1 + 2 X^3 + 3 X^4 + 4 X^5 + 8 X^7
-    let poly = P.from_terms(
-        [(1, 0), (2, 3), (3, 4), (4, 5), (8, 7)]
-            .into_iter()
-            .map(|(c, d)| (Zn.int_hom().map(c), d)),
-    );
-    let circuit = low_depth_bsgs_circuit_with_baby_steps(&P, &[P.clone_el(&poly)], 3);
-    assert_eq!(4, circuit.max_mul_depth());
-    assert_eq!(4, circuit.multiplication_gate_count());
-
-    for x in Zn.elements() {
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&poly, &x, &P.base_ring().identity()),
-            circuit
-                .evaluate_no_galois(&[x], P.base_ring().identity())
+    #[test]
+    fn test_bsgs() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Zn = Zn::new(17);
+        let P = DensePolyRing::new(Zn, "X");
+        // 1 + 2 X^3 + 3 X^4 + 4 X^5 + 8 X^7
+        let poly = P.from_terms(
+            [(1, 0), (2, 3), (3, 4), (4, 5), (8, 7)]
                 .into_iter()
-                .next()
-                .unwrap()
+                .map(|(c, d)| (Zn.int_hom().map(c), d)),
         );
-    }
-}
+        let circuit = low_depth_bsgs_circuit_with_baby_steps(&P, &[P.clone_el(&poly)], 3);
+        assert_eq!(4, circuit.max_mul_depth());
+        assert_eq!(4, circuit.multiplication_gate_count());
 
-#[test]
-fn test_bsgs_multiple_polys() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Zn = Zn::new(17);
-    let P = DensePolyRing::new(Zn, "X");
-    // 1 + 2 X^3 + 3 X^4 + 4 X^5 + 8 X^7
-    let f = P.from_terms(
-        [(1, 0), (2, 3), (3, 4), (4, 5), (8, 7)]
+        for x in Zn.elements() {
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&poly, &x, &P.base_ring().identity()),
+                circuit
+                    .evaluate_no_galois(&[x], P.base_ring().identity())
+                    .into_iter()
+                    .next()
+                    .unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn test_bsgs_multiple_polys() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Zn = Zn::new(17);
+        let P = DensePolyRing::new(Zn, "X");
+        // 1 + 2 X^3 + 3 X^4 + 4 X^5 + 8 X^7
+        let f = P.from_terms(
+            [(1, 0), (2, 3), (3, 4), (4, 5), (8, 7)]
+                .into_iter()
+                .map(|(c, d)| (Zn.int_hom().map(c), d)),
+        );
+        // 2 + X + 2 X^2 + 3 X^3 + 4 X^4 + 5 X^5 + 6 X^6 + 7 X^7 + 8 X^8 + 9 X^9
+        let g = P.from_terms(
+            [
+                (2, 0),
+                (1, 1),
+                (2, 2),
+                (3, 3),
+                (4, 4),
+                (5, 5),
+                (6, 6),
+                (7, 7),
+                (8, 8),
+                (9, 9),
+            ]
             .into_iter()
             .map(|(c, d)| (Zn.int_hom().map(c), d)),
-    );
-    // 2 + X + 2 X^2 + 3 X^3 + 4 X^4 + 5 X^5 + 6 X^6 + 7 X^7 + 8 X^8 + 9 X^9
-    let g = P.from_terms(
-        [
-            (2, 0),
-            (1, 1),
-            (2, 2),
-            (3, 3),
-            (4, 4),
-            (5, 5),
-            (6, 6),
-            (7, 7),
-            (8, 8),
-            (9, 9),
-        ]
-        .into_iter()
-        .map(|(c, d)| (Zn.int_hom().map(c), d)),
-    );
-    let circuit = low_depth_bsgs_circuit_with_baby_steps(&P, &[P.clone_el(&f), P.clone_el(&g)], 4);
-    assert_eq!(4, circuit.max_mul_depth());
-    assert_eq!(3, circuit.mul_depth(0));
-    assert_eq!(4, circuit.mul_depth(1));
-    assert_eq!(6, circuit.multiplication_gate_count());
+        );
+        let circuit = low_depth_bsgs_circuit_with_baby_steps(&P, &[P.clone_el(&f), P.clone_el(&g)], 4);
+        assert_eq!(4, circuit.max_mul_depth());
+        assert_eq!(3, circuit.mul_depth(0));
+        assert_eq!(4, circuit.mul_depth(1));
+        assert_eq!(6, circuit.multiplication_gate_count());
 
-    for x in Zn.elements() {
-        let mut result_it = circuit
-            .evaluate_no_galois(std::slice::from_ref(&x), P.base_ring().identity())
-            .into_iter();
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&f, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
+        for x in Zn.elements() {
+            let mut result_it = circuit
+                .evaluate_no_galois(std::slice::from_ref(&x), P.base_ring().identity())
+                .into_iter();
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&f, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&g, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+        }
+
+        // 1 + X^12
+        let h = P.from_terms(
+            [(1, 0), (3, 6), (7, 9), (1, 12)]
+                .into_iter()
+                .map(|(c, d)| (Zn.int_hom().map(c), d)),
         );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&g, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
+        let circuit = low_depth_bsgs_circuit_with_baby_steps(&P, &[P.clone_el(&f), P.clone_el(&g), P.clone_el(&h)], 4);
+        assert_eq!(5, circuit.max_mul_depth());
+        assert_eq!(3, circuit.mul_depth(0));
+        assert_eq!(4, circuit.mul_depth(1));
+        assert_eq!(5, circuit.mul_depth(2));
+        assert_eq!(11, circuit.multiplication_gate_count());
+
+        for x in Zn.elements() {
+            let mut result_it = circuit
+                .evaluate_no_galois(std::slice::from_ref(&x), P.base_ring().identity())
+                .into_iter();
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&f, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&g, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&h, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+        }
+
+        // 1 + X + X^2 + ... + X^15 + X^16
+        let l = P.from_terms((0..=16).map(|i| (Zn.one(), i)));
+        let circuit = low_depth_bsgs_circuit_with_baby_steps(
+            &P,
+            &[P.clone_el(&f), P.clone_el(&g), P.clone_el(&h), P.clone_el(&l)],
+            4,
         );
+        assert_eq!(5, circuit.max_mul_depth());
+        assert_eq!(3, circuit.mul_depth(0));
+        assert_eq!(4, circuit.mul_depth(1));
+        assert_eq!(5, circuit.mul_depth(2));
+        assert_eq!(5, circuit.mul_depth(3));
+        assert_eq!(5 + 1 + 2 + 3 + 4, circuit.multiplication_gate_count());
+
+        for x in Zn.elements() {
+            let mut result_it = circuit
+                .evaluate_no_galois(std::slice::from_ref(&x), P.base_ring().identity())
+                .into_iter();
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&f, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&g, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&h, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&l, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+        }
     }
 
-    // 1 + X^12
-    let h = P.from_terms(
-        [(1, 0), (3, 6), (7, 9), (1, 12)]
+    #[test]
+    fn test_best_circuit_multiple_polys() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Zn = Zn::new(17);
+        let P = DensePolyRing::new(Zn, "X");
+        let f = P.from_terms(
+            [(1, 0), (2, 3), (3, 4), (4, 5), (8, 7)]
+                .into_iter()
+                .map(|(c, d)| (Zn.int_hom().map(c), d)),
+        );
+        let g = P.from_terms(
+            [
+                (2, 0),
+                (1, 1),
+                (2, 2),
+                (3, 3),
+                (4, 4),
+                (5, 5),
+                (6, 6),
+                (7, 7),
+                (8, 8),
+                (9, 9),
+            ]
             .into_iter()
             .map(|(c, d)| (Zn.int_hom().map(c), d)),
-    );
-    let circuit = low_depth_bsgs_circuit_with_baby_steps(&P, &[P.clone_el(&f), P.clone_el(&g), P.clone_el(&h)], 4);
-    assert_eq!(5, circuit.max_mul_depth());
-    assert_eq!(3, circuit.mul_depth(0));
-    assert_eq!(4, circuit.mul_depth(1));
-    assert_eq!(5, circuit.mul_depth(2));
-    assert_eq!(11, circuit.multiplication_gate_count());
+        );
+        let h = P.from_terms(
+            [(1, 0), (3, 6), (7, 9), (1, 12)]
+                .into_iter()
+                .map(|(c, d)| (Zn.int_hom().map(c), d)),
+        );
+        let circuit = poly_to_circuit(&P, &[P.clone_el(&f), P.clone_el(&g), P.clone_el(&h)]);
+        assert_eq!(4, circuit.max_mul_depth());
+        assert_eq!(3, circuit.mul_depth(0));
+        assert_eq!(4, circuit.mul_depth(1));
+        assert_eq!(4, circuit.mul_depth(2));
+        assert_eq!(8, circuit.multiplication_gate_count());
 
-    for x in Zn.elements() {
-        let mut result_it = circuit
-            .evaluate_no_galois(std::slice::from_ref(&x), P.base_ring().identity())
-            .into_iter();
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&f, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&g, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&h, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
+        for x in Zn.elements() {
+            let mut result_it = circuit
+                .evaluate_no_galois(std::slice::from_ref(&x), P.base_ring().identity())
+                .into_iter();
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&f, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&g, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&h, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+        }
+
+        let l = P.from_terms((0..=16).map(|i| (Zn.one(), i)));
+        let circuit = poly_to_circuit(&P, &[P.clone_el(&f), P.clone_el(&g), P.clone_el(&h), P.clone_el(&l)]);
+        assert_eq!(4, circuit.max_mul_depth());
+        assert_eq!(3, circuit.mul_depth(0));
+        assert_eq!(4, circuit.mul_depth(1));
+        assert_eq!(4, circuit.mul_depth(2));
+        assert_eq!(4, circuit.mul_depth(3));
+        assert_eq!(10, circuit.multiplication_gate_count());
+
+        for x in Zn.elements() {
+            let mut result_it = circuit
+                .evaluate_no_galois(std::slice::from_ref(&x), P.base_ring().identity())
+                .into_iter();
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&f, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&g, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&h, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+            assert_el_eq!(
+                Zn,
+                P.evaluate(&l, &x, &P.base_ring().identity()),
+                result_it.next().unwrap()
+            );
+        }
     }
 
-    // 1 + X + X^2 + ... + X^15 + X^16
-    let l = P.from_terms((0..=16).map(|i| (Zn.one(), i)));
-    let circuit = low_depth_bsgs_circuit_with_baby_steps(
-        &P,
-        &[P.clone_el(&f), P.clone_el(&g), P.clone_el(&h), P.clone_el(&l)],
-        4,
-    );
-    assert_eq!(5, circuit.max_mul_depth());
-    assert_eq!(3, circuit.mul_depth(0));
-    assert_eq!(4, circuit.mul_depth(1));
-    assert_eq!(5, circuit.mul_depth(2));
-    assert_eq!(5, circuit.mul_depth(3));
-    assert_eq!(5 + 1 + 2 + 3 + 4, circuit.multiplication_gate_count());
+    #[test]
+    fn test_heuristic_functional_decomposition() {
+        feanor_tracing::DelayedLogger::init_test();
+        let FpX = DensePolyRing::new(Zn::new(65537), "X");
+        let Fp = FpX.base_ring();
 
-    for x in Zn.elements() {
-        let mut result_it = circuit
-            .evaluate_no_galois(std::slice::from_ref(&x), P.base_ring().identity())
-            .into_iter();
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&f, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&g, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&h, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&l, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-    }
-}
+        let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(4)]);
+        let actual = heuristic_functional_decomposition(&FpX, vec![f], &mut |_, _, _| unreachable!(), Fp.identity());
+        let expected = PlaintextCircuit::square(Fp).compose(PlaintextCircuit::square(Fp), Fp);
+        assert!(expected.eq(&actual, Fp, None));
 
-#[test]
-fn test_best_circuit_multiple_polys() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Zn = Zn::new(17);
-    let P = DensePolyRing::new(Zn, "X");
-    let f = P.from_terms(
-        [(1, 0), (2, 3), (3, 4), (4, 5), (8, 7)]
-            .into_iter()
-            .map(|(c, d)| (Zn.int_hom().map(c), d)),
-    );
-    let g = P.from_terms(
-        [
-            (2, 0),
-            (1, 1),
-            (2, 2),
-            (3, 3),
-            (4, 4),
-            (5, 5),
-            (6, 6),
-            (7, 7),
-            (8, 8),
-            (9, 9),
-        ]
-        .into_iter()
-        .map(|(c, d)| (Zn.int_hom().map(c), d)),
-    );
-    let h = P.from_terms(
-        [(1, 0), (3, 6), (7, 9), (1, 12)]
-            .into_iter()
-            .map(|(c, d)| (Zn.int_hom().map(c), d)),
-    );
-    let circuit = poly_to_circuit(&P, &[P.clone_el(&f), P.clone_el(&g), P.clone_el(&h)]);
-    assert_eq!(4, circuit.max_mul_depth());
-    assert_eq!(3, circuit.mul_depth(0));
-    assert_eq!(4, circuit.mul_depth(1));
-    assert_eq!(4, circuit.mul_depth(2));
-    assert_eq!(8, circuit.multiplication_gate_count());
-
-    for x in Zn.elements() {
-        let mut result_it = circuit
-            .evaluate_no_galois(std::slice::from_ref(&x), P.base_ring().identity())
-            .into_iter();
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&f, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&g, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&h, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-    }
-
-    let l = P.from_terms((0..=16).map(|i| (Zn.one(), i)));
-    let circuit = poly_to_circuit(&P, &[P.clone_el(&f), P.clone_el(&g), P.clone_el(&h), P.clone_el(&l)]);
-    assert_eq!(4, circuit.max_mul_depth());
-    assert_eq!(3, circuit.mul_depth(0));
-    assert_eq!(4, circuit.mul_depth(1));
-    assert_eq!(4, circuit.mul_depth(2));
-    assert_eq!(4, circuit.mul_depth(3));
-    assert_eq!(10, circuit.multiplication_gate_count());
-
-    for x in Zn.elements() {
-        let mut result_it = circuit
-            .evaluate_no_galois(std::slice::from_ref(&x), P.base_ring().identity())
-            .into_iter();
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&f, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&g, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&h, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-        assert_el_eq!(
-            Zn,
-            P.evaluate(&l, &x, &P.base_ring().identity()),
-            result_it.next().unwrap()
-        );
-    }
-}
-
-#[test]
-fn test_heuristic_functional_decomposition() {
-    feanor_tracing::DelayedLogger::init_test();
-    let FpX = DensePolyRing::new(Zn::new(65537), "X");
-    let Fp = FpX.base_ring();
-
-    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(4)]);
-    let actual = heuristic_functional_decomposition(&FpX, vec![f], &mut |_, _, _| unreachable!(), Fp.identity());
-    let expected = PlaintextCircuit::square(Fp).compose(PlaintextCircuit::square(Fp), Fp);
-    assert!(expected.eq(&actual, Fp, None));
-
-    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5)]);
-    let actual = heuristic_functional_decomposition(&FpX, vec![f], &mut |_, _, _| unreachable!(), Fp.identity());
-    let expected = PlaintextCircuit::mul(Fp)
-        .compose(
-            PlaintextCircuit::identity(1, Fp).tensor(
-                PlaintextCircuit::square(Fp).compose(PlaintextCircuit::square(Fp), Fp),
+        let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5)]);
+        let actual = heuristic_functional_decomposition(&FpX, vec![f], &mut |_, _, _| unreachable!(), Fp.identity());
+        let expected = PlaintextCircuit::mul(Fp)
+            .compose(
+                PlaintextCircuit::identity(1, Fp).tensor(
+                    PlaintextCircuit::square(Fp).compose(PlaintextCircuit::square(Fp), Fp),
+                    Fp,
+                ),
                 Fp,
-            ),
-            Fp,
-        )
-        .compose(PlaintextCircuit::identity(1, Fp).output_twice(Fp), Fp);
-    assert!(expected.eq(&actual, Fp, None));
+            )
+            .compose(PlaintextCircuit::identity(1, Fp).output_twice(Fp), Fp);
+        assert!(expected.eq(&actual, Fp, None));
 
-    let [f, g] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + 2 * X.pow_ref(3) - X, X.pow_ref(2) + 2 * X - 1]);
-    let mut dense_part_mults = 0;
-    let actual = heuristic_functional_decomposition(
-        &FpX,
-        vec![FpX.clone_el(&f)],
-        &mut |FpX, polys, _| {
-            assert_eq!(1, polys.len());
-            assert_el_eq!(FpX, g, &polys[0]);
-            let result = poly_to_circuit(FpX, &polys);
-            dense_part_mults = result.multiplication_gate_count();
-            return result;
-        },
-        Fp.identity(),
-    );
-    assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
-    for x in -10..10 {
-        let x = Fp.coerce(&ZZi64, x);
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&f, &x, Fp.identity()),
-            &actual.evaluate_no_galois(&[x], Fp.identity())[0]
+        let [f, g] =
+            FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + 2 * X.pow_ref(3) - X, X.pow_ref(2) + 2 * X - 1]);
+        let mut dense_part_mults = 0;
+        let actual = heuristic_functional_decomposition(
+            &FpX,
+            vec![FpX.clone_el(&f)],
+            &mut |FpX, polys, _| {
+                assert_eq!(1, polys.len());
+                assert_el_eq!(FpX, g, &polys[0]);
+                let result = poly_to_circuit(FpX, &polys);
+                dense_part_mults = result.multiplication_gate_count();
+                return result;
+            },
+            Fp.identity(),
         );
-    }
+        assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
+        for x in -10..10 {
+            let x = Fp.coerce(&ZZi64, x);
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&f, &x, Fp.identity()),
+                &actual.evaluate_no_galois(&[x], Fp.identity())[0]
+            );
+        }
 
-    let [f1, f2] =
-        FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + 2 * X.pow_ref(3) - X, X.pow_ref(4) + 2 * X.pow_ref(2) - 1]);
-    let mut dense_part_mults = 0;
-    let actual = heuristic_functional_decomposition(
-        &FpX,
-        vec![FpX.clone_el(&f1), FpX.clone_el(&f2)],
-        &mut |FpX, polys, _| {
-            assert_eq!(2, polys.len());
-            let result = poly_to_circuit(FpX, &polys);
-            dense_part_mults = result.multiplication_gate_count();
-            return result;
-        },
-        Fp.identity(),
-    );
-    assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
-    for x in -10..10 {
-        let x = Fp.coerce(&ZZi64, x);
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&f1, &x, Fp.identity()),
-            &actual.evaluate_no_galois(&[x], Fp.identity())[0]
+        let [f1, f2] = FpX
+            .with_wrapped_indeterminate(|X| [X.pow_ref(5) + 2 * X.pow_ref(3) - X, X.pow_ref(4) + 2 * X.pow_ref(2) - 1]);
+        let mut dense_part_mults = 0;
+        let actual = heuristic_functional_decomposition(
+            &FpX,
+            vec![FpX.clone_el(&f1), FpX.clone_el(&f2)],
+            &mut |FpX, polys, _| {
+                assert_eq!(2, polys.len());
+                let result = poly_to_circuit(FpX, &polys);
+                dense_part_mults = result.multiplication_gate_count();
+                return result;
+            },
+            Fp.identity(),
         );
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&f2, &x, Fp.identity()),
-            &actual.evaluate_no_galois(&[x], Fp.identity())[1]
-        );
-    }
+        assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
+        for x in -10..10 {
+            let x = Fp.coerce(&ZZi64, x);
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&f1, &x, Fp.identity()),
+                &actual.evaluate_no_galois(&[x], Fp.identity())[0]
+            );
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&f2, &x, Fp.identity()),
+                &actual.evaluate_no_galois(&[x], Fp.identity())[1]
+            );
+        }
 
-    let [f1, f2] = FpX.with_wrapped_indeterminate(|X| {
-        [
-            X.pow_ref(5) + 2 * X.pow_ref(3) - X,
-            X.pow_ref(4) - X.pow_ref(3) + 2 * X.pow_ref(2) - 1,
-        ]
-    });
-    let mut dense_part_mults = 0;
-    let actual = heuristic_functional_decomposition(
-        &FpX,
-        vec![FpX.clone_el(&f1), FpX.clone_el(&f2)],
-        &mut |FpX, polys, _| {
-            assert_eq!(1, polys.len());
-            let result = poly_to_circuit(FpX, &polys);
-            dense_part_mults += result.multiplication_gate_count();
-            return result;
-        },
-        Fp.identity(),
-    );
-    assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
-    for x in -10..10 {
-        let x = Fp.coerce(&ZZi64, x);
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&f1, &x, Fp.identity()),
-            &actual.evaluate_no_galois(&[x], Fp.identity())[0]
+        let [f1, f2] = FpX.with_wrapped_indeterminate(|X| {
+            [
+                X.pow_ref(5) + 2 * X.pow_ref(3) - X,
+                X.pow_ref(4) - X.pow_ref(3) + 2 * X.pow_ref(2) - 1,
+            ]
+        });
+        let mut dense_part_mults = 0;
+        let actual = heuristic_functional_decomposition(
+            &FpX,
+            vec![FpX.clone_el(&f1), FpX.clone_el(&f2)],
+            &mut |FpX, polys, _| {
+                assert_eq!(1, polys.len());
+                let result = poly_to_circuit(FpX, &polys);
+                dense_part_mults += result.multiplication_gate_count();
+                return result;
+            },
+            Fp.identity(),
         );
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&f2, &x, Fp.identity()),
-            &actual.evaluate_no_galois(&[x], Fp.identity())[1]
-        );
-    }
+        assert_eq!(dense_part_mults + 2, actual.multiplication_gate_count());
+        for x in -10..10 {
+            let x = Fp.coerce(&ZZi64, x);
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&f1, &x, Fp.identity()),
+                &actual.evaluate_no_galois(&[x], Fp.identity())[0]
+            );
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&f2, &x, Fp.identity()),
+                &actual.evaluate_no_galois(&[x], Fp.identity())[1]
+            );
+        }
 
-    let Z81X = DensePolyRing::new(Zn::new(65537), "X");
-    let Z81 = Z81X.base_ring();
+        let Z81X = DensePolyRing::new(Zn::new(65537), "X");
+        let Z81 = Z81X.base_ring();
 
-    let [f1, f2] =
-        Z81X.with_wrapped_indeterminate(|X| [X.pow_ref(3), 55 * X.pow_ref(9) + 9 * X.pow_ref(7) + 18 * X.pow_ref(5)]);
-    let mut dense_part_mults = 0;
-    let actual = heuristic_functional_decomposition(
-        &Z81X,
-        vec![Z81X.clone_el(&f1), Z81X.clone_el(&f2)],
-        &mut |Z81X, polys, _| {
-            assert_eq!(1, polys.len());
-            let result = poly_to_circuit(Z81X, &polys);
-            dense_part_mults = result.multiplication_gate_count();
-            return result;
-        },
-        Fp.identity(),
-    );
-    assert_eq!(dense_part_mults + 3, actual.multiplication_gate_count());
-    for x in -10..10 {
-        let x = Z81.coerce(&ZZi64, x);
-        assert_el_eq!(
-            Z81,
-            FpX.evaluate(&f1, &x, Z81.identity()),
-            &actual.evaluate_no_galois(&[x], Z81.identity())[0]
+        let [f1, f2] = Z81X
+            .with_wrapped_indeterminate(|X| [X.pow_ref(3), 55 * X.pow_ref(9) + 9 * X.pow_ref(7) + 18 * X.pow_ref(5)]);
+        let mut dense_part_mults = 0;
+        let actual = heuristic_functional_decomposition(
+            &Z81X,
+            vec![Z81X.clone_el(&f1), Z81X.clone_el(&f2)],
+            &mut |Z81X, polys, _| {
+                assert_eq!(1, polys.len());
+                let result = poly_to_circuit(Z81X, &polys);
+                dense_part_mults = result.multiplication_gate_count();
+                return result;
+            },
+            Fp.identity(),
         );
-        assert_el_eq!(
-            Z81,
-            FpX.evaluate(&f2, &x, Z81.identity()),
-            &actual.evaluate_no_galois(&[x], Z81.identity())[1]
-        );
+        assert_eq!(dense_part_mults + 3, actual.multiplication_gate_count());
+        for x in -10..10 {
+            let x = Z81.coerce(&ZZi64, x);
+            assert_el_eq!(
+                Z81,
+                FpX.evaluate(&f1, &x, Z81.identity()),
+                &actual.evaluate_no_galois(&[x], Z81.identity())[0]
+            );
+            assert_el_eq!(
+                Z81,
+                FpX.evaluate(&f2, &x, Z81.identity()),
+                &actual.evaluate_no_galois(&[x], Z81.identity())[1]
+            );
+        }
     }
 }

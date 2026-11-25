@@ -3,7 +3,6 @@ use std::cmp::min;
 use std::ops::Range;
 
 use feanor_math::group::*;
-use feanor_math::ring::*;
 
 use super::noise_estimator::AlwaysZeroNoiseEstimator;
 use super::*;
@@ -42,7 +41,8 @@ pub fn level_digits(a: &[usize], b: &[usize], k: usize) -> Option<(Vec<usize>, V
                 c[i] += to_remove;
                 current_sum_c += to_remove;
             }
-            // now use the remaining `k - current_sum_c` to zero as many entries of `b - c` as possible
+            // now use the remaining `k - current_sum_c` to zero as many entries of `b - c` as
+            // possible
             while current_sum_c < k {
                 let entry_to_decrease = (0..len)
                     .filter(|i| b[*i] - c[*i] != 0)
@@ -55,7 +55,8 @@ pub fn level_digits(a: &[usize], b: &[usize], k: usize) -> Option<(Vec<usize>, V
             return Some((max_result, c));
         })
         .filter_map(|(max_result, c)| {
-            // now find `d` of sum at least `max_result` that introduces as few nonzero entries as possible
+            // now find `d` of sum at least `max_result` that introduces as few nonzero entries as
+            // possible
             let mut d = (0..len).map(|_| 0).collect::<Vec<_>>();
             let mut current_sum_d = 0;
             for i in 0..len {
@@ -524,8 +525,9 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
             .abs_log2_ceil(P.base_ring().modulus())
             .unwrap() as f64;
 
-        // a fake modulus-switch increases the relative noise by the bit size of the dropped factors,
-        // so to maximize the number of factors we may fake-drop, we fake-drop the smallest ones first
+        // a fake modulus-switch increases the relative noise by the bit size of the dropped
+        // factors, so to maximize the number of factors we may fake-drop, we fake-drop the
+        // smallest ones first
         let mut sorted_factors = factors_to_drop.iter().copied().collect::<Vec<_>>();
         sorted_factors.sort_by(|&l, &r| {
             f64::total_cmp(
@@ -694,11 +696,13 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         // first, we separate the inner product into three parts:
         //  - the constant part, which does not contain any ciphertexts and is immediately computed
         //  - the integer part, which is of the form `sum_i c[i] * ct[i]` with `c[i]` being integers
-        //  - the main part, which is of the form `sum_i c[i] * ct[i]` with `c[i]` being elements of `R`
+        //  - the main part, which is of the form `sum_i c[i] * ct[i]` with `c[i]` being elements of
+        //    `R`
         let mut int_products: Vec<(El<BigIntRing>, &ModulusAwareCiphertext<Params, Self>)> = Vec::new();
         let mut main_products: Vec<(&El<R>, &ModulusAwareCiphertext<Params, Self>)> = Vec::new();
 
-        // while separating the different summands, we also keep track of which will be the result modulus
+        // while separating the different summands, we also keep track of which will be the result
+        // modulus
         let mut total_drop = RNSFactorIndexList::empty();
         let mut min_dropped_len = usize::MAX;
         let mut update_total_drop = |ct: &ModulusAwareCiphertext<Params, Self>| {
@@ -786,8 +790,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
             .collect();
 
         // finally, we do another noise optimization technique: the implicit scale of the output is
-        // chosen as total scale (implicit scale & coefficient) of the highest-noise ciphertext; this way
-        // we avoid multiplying its size up further
+        // chosen as total scale (implicit scale & coefficient) of the highest-noise ciphertext;
+        // this way we avoid multiplying its size up further
         let Zt = P.base_ring();
         let ZZ: &_ = Zt.integer_ring();
         let output_implicit_scale = int_products
@@ -846,9 +850,10 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
             })
             .collect();
 
-        // the manual coefficient adjustment above already pre-scales each summand so that, after the
-        // core `hom_inner_product*` routines fold the (overwritten) implicit scale back out, both
-        // partial inner products come out with implicit scale 1; we must *not* override that here.
+        // the manual coefficient adjustment above already pre-scales each summand so that, after
+        // the core `hom_inner_product*` routines fold the (overwritten) implicit scale back
+        // out, both partial inner products come out with implicit scale 1; we must *not*
+        // override that here.
         let int_product_noise = ZZbig.get_ring().hom_inner_product_noise(
             &self.noise_estimator,
             P,
@@ -1393,319 +1398,232 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> BG
 }
 
 #[cfg(test)]
-use feanor_math::rings::poly::dense_poly::DensePolyRing;
+mod test {
+    use feanor_math::assert_el_eq;
+    use feanor_math::rings::poly::dense_poly::DensePolyRing;
 
-#[cfg(test)]
-use crate::bgv::noise_estimator::NaiveBGVNoiseEstimator;
-#[cfg(test)]
-use crate::poly_eval::digit_extract::centered_digit_retain_poly;
-#[cfg(test)]
-use crate::poly_eval::to_circuit::poly_to_circuit;
+    use super::*;
+    use crate::poly_eval::digit_extract::centered_digit_retain_poly;
+    use crate::poly_eval::to_circuit::poly_to_circuit;
 
-#[test]
-fn test_modswitch_strategy_inner_prod() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
+    #[test]
+    fn test_modswitch_strategy_inner_prod() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
 
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
-    let C = params.create_ciphertext_ring(500..520);
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
+        let C = params.create_ciphertext_ring(500..520);
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 
-    let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> =
-        DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
-    let inputs = [P.int_hom().map(2), P.int_hom().map(100), P.int_hom().map(-1)];
-    let mut cts = inputs
-        .iter()
-        .map(|x| ModulusAwareCiphertext {
-            data: Pow2BGV::enc_sym(&P, &C, &mut rng, &x, &sk, 3.2),
-            dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-            info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
-        })
-        .collect::<Vec<_>>();
-
-    let res = modswitch_strategy.inner_prod(
-        &P,
-        &C,
-        &[
-            &Coefficient::NegOne,
-            &Coefficient::One,
-            &Coefficient::Other(P.int_hom().map(17)),
-        ],
-        &cts.iter().collect::<Vec<_>>(),
-        &P,
-        None,
-    );
-    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
-    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(-2 + 100 - 17),
-        Pow2BGV::dec(&P, &res_C, res.data, &res_sk)
-    );
-
-    let to_drop = RNSFactorIndexList::from([0], C.base_ring().len());
-    let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
-    cts[0] = modswitch_strategy.mod_switch_down(
-        &P,
-        &C_new,
-        &C,
-        &to_drop,
-        modswitch_strategy.clone_ct(&P, &C, &cts[0]),
-        "",
-        None,
-    );
-
-    let res = modswitch_strategy.inner_prod(
-        &P,
-        &C,
-        &[
-            &Coefficient::NegOne,
-            &Coefficient::One,
-            &Coefficient::Other(P.int_hom().map(17)),
-        ],
-        &cts.iter().collect::<Vec<_>>(),
-        &P,
-        None,
-    );
-    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
-    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(-2 + 100 - 17),
-        Pow2BGV::dec(&P, &res_C, res.data, &res_sk)
-    );
-
-    let to_drop = RNSFactorIndexList::from([1], C.base_ring().len());
-    let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
-    cts[2] = modswitch_strategy.mod_switch_down(
-        &P,
-        &C_new,
-        &C,
-        &to_drop,
-        modswitch_strategy.clone_ct(&P, &C, &cts[2]),
-        "",
-        None,
-    );
-
-    let res = modswitch_strategy.inner_prod(
-        &P,
-        &C,
-        &[
-            &Coefficient::NegOne,
-            &Coefficient::One,
-            &Coefficient::Other(P.int_hom().map(17)),
-        ],
-        &cts.iter().collect::<Vec<_>>(),
-        &P,
-        None,
-    );
-    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
-    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(-2 + 100 - 17),
-        Pow2BGV::dec(&P, &res_C, res.data, &res_sk)
-    );
-}
-
-/// Exercises the partial-fake-then-real path of `bring_to_modulus()`.
-///
-/// We bring one ciphertext to a much lower modulus (via a real modulus-switch, which keeps its
-/// relative noise low but at a level corresponding to the lower modulus). When this ciphertext is
-/// used in an inner product, it sets a comparatively high noise threshold for the sum, so the other
-/// (fresh, full-modulus) ciphertexts have "room" to drop a number of their RNS factors via a cheap
-/// fake modulus-switch before the remaining factors are dropped via a real modulus-switch. With the
-/// chosen parameters, this triggers a nontrivial split (some factors fake-dropped, some
-/// real-dropped), which can be inspected in the `LOG` output ("... via fake modulus-switch and ...
-/// via real modulus-switch").
-#[test]
-fn test_modswitch_strategy_inner_prod_partial_fake_modswitch() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
-
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let C = params.create_ciphertext_ring(500..520);
-    let rns_len = C.base_ring().len();
-    assert!(
-        rns_len >= 5,
-        "test requires enough RNS factors to drop a nontrivial subset"
-    );
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-
-    let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> =
-        DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
-    let raw_inputs = [10, 4, 5];
-    let mut cts = raw_inputs
-        .iter()
-        .map(|x| ModulusAwareCiphertext {
-            data: Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(*x), &sk, 3.2),
-            dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-            info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
-        })
-        .collect::<Vec<_>>();
-
-    // bring the first ciphertext down to a much lower modulus via a real modulus-switch; this raises
-    // the relative-noise threshold of the eventual inner product, leaving room for a partial fake
-    // modulus-switch of the other operands. We leave 3 RNS factors, so the other operands have to
-    // drop `rns_len - 3` factors, most of which can be dropped via a fake modulus-switch.
-    let to_drop = RNSFactorIndexList::from(0..(rns_len - 3), rns_len);
-    let C_low = Pow2BGV::mod_switch_down_C(&C, &to_drop);
-    cts[0] = modswitch_strategy.mod_switch_down(
-        &P,
-        &C_low,
-        &C,
-        &to_drop,
-        modswitch_strategy.clone_ct(&P, &C, &cts[0]),
-        "setup",
-        None,
-    );
-
-    // a - b + 17 * c, with a, b, c at different moduli, forcing the fresh operands to drop 12 factors
-    let res = modswitch_strategy.inner_prod(
-        &P,
-        &C,
-        &[
-            &Coefficient::One,
-            &Coefficient::NegOne,
-            &Coefficient::Other(P.int_hom().map(17)),
-        ],
-        &cts.iter().collect::<Vec<_>>(),
-        &P,
-        Some(&sk),
-    );
-    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
-    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
-
-    // the result should be defined modulo (at most) the modulus of the most-reduced operand
-    assert!(res.dropped_rns_factor_indices.len() >= to_drop.len());
-    let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
-    println!("Actual output noise budget is {}", res_noise);
-    assert!(res_noise > 0, "result must still be decryptable");
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(10 - 4 + 17 * 5),
-        Pow2BGV::dec(&P, &res_C, res.data, &res_sk)
-    );
-}
-
-#[test]
-fn test_modswitch_strategy_mul() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
-
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let C = params.create_ciphertext_ring(500..520);
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(
-        &P,
-        &C,
-        &mut rng,
-        &sk,
-        &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
-        3.2,
-    );
-
-    let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> =
-        DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
-    let pow8_circuit = PlaintextCircuit::mul(ZZi64)
-        .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
-        .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
-        .compose(PlaintextCircuit::identity(1, ZZi64).output_twice(ZZi64), ZZi64)
-        .change_ring_uniform(|x| Coefficient::from_int(int_cast(x.to_ring_el(ZZi64), ZZbig, ZZi64)));
-
-    let input = P.int_hom().map(2);
-    let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let res = modswitch_strategy
-        .evaluate_circuit(
-            &pow8_circuit,
-            ZZbig,
-            &P,
-            &C,
-            &[ModulusAwareCiphertext {
+        let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> =
+            DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
+        let inputs = [P.int_hom().map(2), P.int_hom().map(100), P.int_hom().map(-1)];
+        let mut cts = inputs
+            .iter()
+            .map(|x| ModulusAwareCiphertext {
+                data: Pow2BGV::enc_sym(&P, &C, &mut rng, &x, &sk, 3.2),
                 dropped_rns_factor_indices: RNSFactorIndexList::empty(),
                 info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
-                data: ct,
-            }],
-            Some(&rk),
-            &[],
+            })
+            .collect::<Vec<_>>();
+
+        let res = modswitch_strategy.inner_prod(
+            &P,
+            &C,
+            &[
+                &Coefficient::NegOne,
+                &Coefficient::One,
+                &Coefficient::Other(P.int_hom().map(17)),
+            ],
+            &cts.iter().collect::<Vec<_>>(),
+            &P,
+            None,
+        );
+        let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+        let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+        assert_el_eq!(
+            &P,
+            &P.int_hom().map(-2 + 100 - 17),
+            Pow2BGV::dec(&P, &res_C, res.data, &res_sk)
+        );
+
+        let to_drop = RNSFactorIndexList::from([0], C.base_ring().len());
+        let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
+        cts[0] = modswitch_strategy.mod_switch_down(
+            &P,
+            &C_new,
+            &C,
+            &to_drop,
+            modswitch_strategy.clone_ct(&P, &C, &cts[0]),
+            "",
+            None,
+        );
+
+        let res = modswitch_strategy.inner_prod(
+            &P,
+            &C,
+            &[
+                &Coefficient::NegOne,
+                &Coefficient::One,
+                &Coefficient::Other(P.int_hom().map(17)),
+            ],
+            &cts.iter().collect::<Vec<_>>(),
+            &P,
+            None,
+        );
+        let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+        let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+        assert_el_eq!(
+            &P,
+            &P.int_hom().map(-2 + 100 - 17),
+            Pow2BGV::dec(&P, &res_C, res.data, &res_sk)
+        );
+
+        let to_drop = RNSFactorIndexList::from([1], C.base_ring().len());
+        let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
+        cts[2] = modswitch_strategy.mod_switch_down(
+            &P,
+            &C_new,
+            &C,
+            &to_drop,
+            modswitch_strategy.clone_ct(&P, &C, &cts[2]),
+            "",
+            None,
+        );
+
+        let res = modswitch_strategy.inner_prod(
+            &P,
+            &C,
+            &[
+                &Coefficient::NegOne,
+                &Coefficient::One,
+                &Coefficient::Other(P.int_hom().map(17)),
+            ],
+            &cts.iter().collect::<Vec<_>>(),
+            &P,
+            None,
+        );
+        let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+        let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+        assert_el_eq!(
+            &P,
+            &P.int_hom().map(-2 + 100 - 17),
+            Pow2BGV::dec(&P, &res_C, res.data, &res_sk)
+        );
+    }
+
+    /// Exercises the partial-fake-then-real path of `bring_to_modulus()`.
+    ///
+    /// We bring one ciphertext to a much lower modulus (via a real modulus-switch, which keeps its
+    /// relative noise low but at a level corresponding to the lower modulus). When this ciphertext
+    /// is used in an inner product, it sets a comparatively high noise threshold for the sum,
+    /// so the other (fresh, full-modulus) ciphertexts have "room" to drop a number of their RNS
+    /// factors via a cheap fake modulus-switch before the remaining factors are dropped via a
+    /// real modulus-switch. With the chosen parameters, this triggers a nontrivial split (some
+    /// factors fake-dropped, some real-dropped), which can be inspected in the `LOG` output
+    /// ("... via fake modulus-switch and ... via real modulus-switch").
+    #[test]
+    fn test_modswitch_strategy_inner_prod_partial_fake_modswitch() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
+
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+        let C = params.create_ciphertext_ring(500..520);
+        let rns_len = C.base_ring().len();
+        assert!(
+            rns_len >= 5,
+            "test requires enough RNS factors to drop a nontrivial subset"
+        );
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+
+        let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> =
+            DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
+        let raw_inputs = [10, 4, 5];
+        let mut cts = raw_inputs
+            .iter()
+            .map(|x| ModulusAwareCiphertext {
+                data: Pow2BGV::enc_sym(&P, &C, &mut rng, &P.int_hom().map(*x), &sk, 3.2),
+                dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+                info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
+            })
+            .collect::<Vec<_>>();
+
+        // bring the first ciphertext down to a much lower modulus via a real modulus-switch; this
+        // raises the relative-noise threshold of the eventual inner product, leaving room for a
+        // partial fake modulus-switch of the other operands. We leave 3 RNS factors, so the other
+        // operands have to drop `rns_len - 3` factors, most of which can be dropped via a fake
+        // modulus-switch.
+        let to_drop = RNSFactorIndexList::from(0..(rns_len - 3), rns_len);
+        let C_low = Pow2BGV::mod_switch_down_C(&C, &to_drop);
+        cts[0] = modswitch_strategy.mod_switch_down(
+            &P,
+            &C_low,
+            &C,
+            &to_drop,
+            modswitch_strategy.clone_ct(&P, &C, &cts[0]),
+            "setup",
+            None,
+        );
+
+        // a - b + 17 * c, with a, b, c at different moduli, forcing the fresh operands to drop 12
+        // factors
+        let res = modswitch_strategy.inner_prod(
+            &P,
+            &C,
+            &[
+                &Coefficient::One,
+                &Coefficient::NegOne,
+                &Coefficient::Other(P.int_hom().map(17)),
+            ],
+            &cts.iter().collect::<Vec<_>>(),
+            &P,
             Some(&sk),
-        )
-        .into_iter()
-        .next()
-        .unwrap();
-
-    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
-    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
-    let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
-    println!("Actual output noise budget is {}", res_noise);
-    assert_el_eq!(&P, &P.neg_one(), Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
-}
-
-#[test]
-fn test_never_modswitch_strategy_mul() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
-
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let C = params.create_ciphertext_ring(500..520);
-
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(
-        &P,
-        &C,
-        &mut rng,
-        &sk,
-        &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
-        3.2,
-    );
-
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-
-    {
-        let modswitch_strategy = DefaultModswitchStrategy::never_modswitch();
-        let pow4_circuit = PlaintextCircuit::mul(ZZi64)
-            .compose(PlaintextCircuit::square(ZZi64).output_twice(ZZi64), ZZi64)
-            .change_ring_uniform(|x| Coefficient::from_int(int_cast(x.to_ring_el(ZZi64), ZZbig, ZZi64)));
-
-        let res = modswitch_strategy
-            .evaluate_circuit(
-                &pow4_circuit,
-                ZZbig,
-                &P,
-                &C,
-                &[ModulusAwareCiphertext {
-                    dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-                    info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
-                    data: Pow2BGV::clone_ct(&P, &C, &ctxt),
-                }],
-                Some(&rk),
-                &[],
-                None,
-            )
-            .into_iter()
-            .next()
-            .unwrap();
-
+        );
         let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
         let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
 
+        // the result should be defined modulo (at most) the modulus of the most-reduced operand
+        assert!(res.dropped_rns_factor_indices.len() >= to_drop.len());
         let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
         println!("Actual output noise budget is {}", res_noise);
-        assert_el_eq!(&P, &P.int_hom().map(16), Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
+        assert!(res_noise > 0, "result must still be decryptable");
+        assert_el_eq!(
+            &P,
+            &P.int_hom().map(10 - 4 + 17 * 5),
+            Pow2BGV::dec(&P, &res_C, res.data, &res_sk)
+        );
     }
-    {
-        let modswitch_strategy = DefaultModswitchStrategy::never_modswitch();
+
+    #[test]
+    fn test_modswitch_strategy_mul() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
+
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+        let C = params.create_ciphertext_ring(500..520);
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+        let rk = Pow2BGV::gen_rk(
+            &P,
+            &C,
+            &mut rng,
+            &sk,
+            &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
+            3.2,
+        );
+
+        let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> =
+            DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
         let pow8_circuit = PlaintextCircuit::mul(ZZi64)
             .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
             .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
             .compose(PlaintextCircuit::identity(1, ZZi64).output_twice(ZZi64), ZZi64)
             .change_ring_uniform(|x| Coefficient::from_int(int_cast(x.to_ring_el(ZZi64), ZZbig, ZZi64)));
 
+        let input = P.int_hom().map(2);
+        let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
         let res = modswitch_strategy
             .evaluate_circuit(
                 &pow8_circuit,
@@ -1715,11 +1633,11 @@ fn test_never_modswitch_strategy_mul() {
                 &[ModulusAwareCiphertext {
                     dropped_rns_factor_indices: RNSFactorIndexList::empty(),
                     info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
-                    data: Pow2BGV::clone_ct(&P, &C, &ctxt),
+                    data: ct,
                 }],
                 Some(&rk),
                 &[],
-                None,
+                Some(&sk),
             )
             .into_iter()
             .next()
@@ -1727,127 +1645,224 @@ fn test_never_modswitch_strategy_mul() {
 
         let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
         let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
-
         let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
-        assert_eq!(0, res_noise);
+        println!("Actual output noise budget is {}", res_noise);
+        assert_el_eq!(&P, &P.neg_one(), Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
     }
-}
 
-#[test]
-fn test_modswitch_strategy_evaluate_circuit() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
+    #[test]
+    fn test_never_modswitch_strategy_mul() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
 
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
-    let C = params.create_ciphertext_ring(500..520);
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+        let C = params.create_ciphertext_ring(500..520);
 
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(
-        &P,
-        &C,
-        &mut rng,
-        &sk,
-        &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
-        3.2,
-    );
-
-    let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> =
-        DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
-    let ZpeX = DensePolyRing::new(P.base_ring(), "X");
-    let circuit = poly_to_circuit(&ZpeX, &[centered_digit_retain_poly(&ZpeX, 3)]);
-
-    let input = P.int_hom().map(17 * 17 + 2 * 17 - 3);
-    let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let res = modswitch_strategy
-        .evaluate_circuit(
-            &circuit,
-            P.base_ring(),
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+        let rk = Pow2BGV::gen_rk(
             &P,
             &C,
-            &[ModulusAwareCiphertext {
-                dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-                info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
-                data: Pow2BGV::clone_ct(&P, &C, &ct),
-            }],
-            Some(&rk),
-            &[],
-            Some(&sk),
-        )
-        .into_iter()
-        .next()
-        .unwrap();
+            &mut rng,
+            &sk,
+            &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
+            3.2,
+        );
 
-    let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
-    let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
-    let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
-    println!("Actual output noise budget is {}", res_noise);
-    assert_el_eq!(
-        &P,
-        &circuit.evaluate(&[input], P.inclusion())[0],
-        Pow2BGV::dec(&P, &res_C, res.data, &res_sk)
-    );
-}
+        let input = P.int_hom().map(2);
+        let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
 
-#[test]
-fn test_level_digits() {
-    feanor_tracing::DelayedLogger::init_test();
-    let a = [2, 2, 6, 6];
-    let b = [2, 2, 3, 3];
-    let k = 2;
-    let (c, d) = level_digits(&a, &b, k).unwrap();
-    assert!((0..4).all(|i| c[i] <= b[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
-    assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 3);
+        {
+            let modswitch_strategy = DefaultModswitchStrategy::never_modswitch();
+            let pow4_circuit = PlaintextCircuit::mul(ZZi64)
+                .compose(PlaintextCircuit::square(ZZi64).output_twice(ZZi64), ZZi64)
+                .change_ring_uniform(|x| Coefficient::from_int(int_cast(x.to_ring_el(ZZi64), ZZbig, ZZi64)));
 
-    let a = [3, 3, 3, 3];
-    let b = [3, 3, 3, 3];
-    let k = 3;
-    let (c, d) = level_digits(&a, &b, k).unwrap();
-    assert!((0..4).all(|i| c[i] <= b[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
-    assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 4);
+            let res = modswitch_strategy
+                .evaluate_circuit(
+                    &pow4_circuit,
+                    ZZbig,
+                    &P,
+                    &C,
+                    &[ModulusAwareCiphertext {
+                        dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+                        info: modswitch_strategy.info_for_fresh_encryption(
+                            &P,
+                            &C,
+                            SecretKeyDistribution::UniformTernary,
+                        ),
+                        data: Pow2BGV::clone_ct(&P, &C, &ctxt),
+                    }],
+                    Some(&rk),
+                    &[],
+                    None,
+                )
+                .into_iter()
+                .next()
+                .unwrap();
 
-    let a = [3, 3, 3, 3];
-    let b = [3, 3, 3, 3];
-    let k = 4;
-    let (c, d) = level_digits(&a, &b, k).unwrap();
-    assert!((0..4).all(|i| c[i] <= b[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
-    assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 4);
+            let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+            let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
 
-    let a = [2, 4, 4, 4];
-    let b = [2, 2, 2, 2];
-    let k = 1;
-    let (c, d) = level_digits(&a, &b, k).unwrap();
-    assert!((0..4).all(|i| c[i] <= b[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
-    assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 4);
+            let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
+            println!("Actual output noise budget is {}", res_noise);
+            assert_el_eq!(&P, &P.int_hom().map(16), Pow2BGV::dec(&P, &res_C, res.data, &res_sk));
+        }
+        {
+            let modswitch_strategy = DefaultModswitchStrategy::never_modswitch();
+            let pow8_circuit = PlaintextCircuit::mul(ZZi64)
+                .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
+                .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
+                .compose(PlaintextCircuit::identity(1, ZZi64).output_twice(ZZi64), ZZi64)
+                .change_ring_uniform(|x| Coefficient::from_int(int_cast(x.to_ring_el(ZZi64), ZZbig, ZZi64)));
 
-    let a = [2, 3, 3, 4];
-    let b = [1, 2, 3, 4];
-    let k = 1;
-    assert!(level_digits(&a, &b, k).is_none());
+            let res = modswitch_strategy
+                .evaluate_circuit(
+                    &pow8_circuit,
+                    ZZbig,
+                    &P,
+                    &C,
+                    &[ModulusAwareCiphertext {
+                        dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+                        info: modswitch_strategy.info_for_fresh_encryption(
+                            &P,
+                            &C,
+                            SecretKeyDistribution::UniformTernary,
+                        ),
+                        data: Pow2BGV::clone_ct(&P, &C, &ctxt),
+                    }],
+                    Some(&rk),
+                    &[],
+                    None,
+                )
+                .into_iter()
+                .next()
+                .unwrap();
 
-    let a = [3, 3, 3, 4];
-    let b = [1, 2, 3, 4];
-    let k = 1;
-    let (c, d) = level_digits(&a, &b, k).unwrap();
-    assert!((0..4).all(|i| c[i] <= b[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
-    assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 4);
+            let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+            let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
 
-    let a = [3, 4, 5, 5];
-    let b = [1, 2, 3, 4];
-    let k = 1;
-    let (c, d) = level_digits(&a, &b, k).unwrap();
-    assert!((0..4).all(|i| c[i] <= b[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
-    assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
-    assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 3);
+            let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
+            assert_eq!(0, res_noise);
+        }
+    }
+
+    #[test]
+    fn test_modswitch_strategy_evaluate_circuit() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
+
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(17 * 17 * 17, ZZbig, ZZi64));
+        let C = params.create_ciphertext_ring(500..520);
+
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+        let rk = Pow2BGV::gen_rk(
+            &P,
+            &C,
+            &mut rng,
+            &sk,
+            &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
+            3.2,
+        );
+
+        let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> =
+            DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
+        let ZpeX = DensePolyRing::new(P.base_ring(), "X");
+        let circuit = poly_to_circuit(&ZpeX, &[centered_digit_retain_poly(&ZpeX, 3)]);
+
+        let input = P.int_hom().map(17 * 17 + 2 * 17 - 3);
+        let ct = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
+        let res = modswitch_strategy
+            .evaluate_circuit(
+                &circuit,
+                P.base_ring(),
+                &P,
+                &C,
+                &[ModulusAwareCiphertext {
+                    dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+                    info: modswitch_strategy.info_for_fresh_encryption(&P, &C, SecretKeyDistribution::UniformTernary),
+                    data: Pow2BGV::clone_ct(&P, &C, &ct),
+                }],
+                Some(&rk),
+                &[],
+                Some(&sk),
+            )
+            .into_iter()
+            .next()
+            .unwrap();
+
+        let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
+        let res_sk = Pow2BGV::mod_switch_sk(&res_C, &C, &sk);
+        let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
+        println!("Actual output noise budget is {}", res_noise);
+        assert_el_eq!(
+            &P,
+            &circuit.evaluate(&[input], P.inclusion())[0],
+            Pow2BGV::dec(&P, &res_C, res.data, &res_sk)
+        );
+    }
+
+    #[test]
+    fn test_level_digits() {
+        feanor_tracing::DelayedLogger::init_test();
+        let a = [2, 2, 6, 6];
+        let b = [2, 2, 3, 3];
+        let k = 2;
+        let (c, d) = level_digits(&a, &b, k).unwrap();
+        assert!((0..4).all(|i| c[i] <= b[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
+        assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 3);
+
+        let a = [3, 3, 3, 3];
+        let b = [3, 3, 3, 3];
+        let k = 3;
+        let (c, d) = level_digits(&a, &b, k).unwrap();
+        assert!((0..4).all(|i| c[i] <= b[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
+        assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 4);
+
+        let a = [3, 3, 3, 3];
+        let b = [3, 3, 3, 3];
+        let k = 4;
+        let (c, d) = level_digits(&a, &b, k).unwrap();
+        assert!((0..4).all(|i| c[i] <= b[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
+        assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 4);
+
+        let a = [2, 4, 4, 4];
+        let b = [2, 2, 2, 2];
+        let k = 1;
+        let (c, d) = level_digits(&a, &b, k).unwrap();
+        assert!((0..4).all(|i| c[i] <= b[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
+        assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 4);
+
+        let a = [2, 3, 3, 4];
+        let b = [1, 2, 3, 4];
+        let k = 1;
+        assert!(level_digits(&a, &b, k).is_none());
+
+        let a = [3, 3, 3, 4];
+        let b = [1, 2, 3, 4];
+        let k = 1;
+        let (c, d) = level_digits(&a, &b, k).unwrap();
+        assert!((0..4).all(|i| c[i] <= b[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
+        assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 4);
+
+        let a = [3, 4, 5, 5];
+        let b = [1, 2, 3, 4];
+        let k = 1;
+        let (c, d) = level_digits(&a, &b, k).unwrap();
+        assert!((0..4).all(|i| c[i] <= b[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= a[i]));
+        assert!((0..4).all(|i| b[i] - c[i] + d[i] <= d.iter().copied().sum()));
+        assert!((0..4).filter(|i| b[*i] - c[*i] + d[*i] != 0).count() <= 3);
+    }
 }

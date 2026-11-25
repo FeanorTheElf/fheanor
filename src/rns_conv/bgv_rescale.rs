@@ -110,8 +110,9 @@ impl RNSOperation for RNSCongruencePreservingBaseConversion {
         let mut x_lift = OwnedMatrix::uninit_in(self.intermediate_moduli.len(), input.col_count(), &SCRATCH_ALLOCATOR);
         let x_lift = self.b_to_intermediate_lift.apply(input, x_lift.data_mut());
 
-        // now compute `lift(x_lift b^-1 mod t)`, which we use to take care of the congruence modulo `t`
-        // later; because of the helper moduli, this is small enough not to cause any error
+        // now compute `lift(x_lift b^-1 mod t)`, which we use to take care of the congruence modulo
+        // `t` later; because of the helper moduli, this is small enough not to cause any
+        // error
         let row_count = x_lift.row_count();
         let (x_mod_q, mut x_mod_t) = x_lift.split_rows(0..(row_count - 1), (row_count - 1)..row_count);
         for j in 0..input.col_count() {
@@ -173,126 +174,129 @@ impl RNSOperation for RNSCongruencePreservingBaseConversion {
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::seq::*;
+mod test {
+    use feanor_math::assert_el_eq;
+    use feanor_math::seq::*;
 
-#[test]
-fn test_congruence_preserving_baseconv_small() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(23)];
-    let to = vec![Zn::new(17), Zn::new(29)];
-    let Zt = Zn::new(5);
-    let Zb = Zn::new(23);
-    let b = *Zb.modulus() as i32;
-    let t = *Zt.modulus() as i32;
+    use super::*;
 
-    let baseconv = RNSCongruencePreservingBaseConversion::new(from.clone(), to.clone(), Zt.clone());
+    #[test]
+    fn test_congruence_preserving_baseconv_small() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(23)];
+        let to = vec![Zn::new(17), Zn::new(29)];
+        let Zt = Zn::new(5);
+        let Zb = Zn::new(23);
+        let b = *Zb.modulus() as i32;
+        let t = *Zt.modulus() as i32;
 
-    let ZZ_to_Zt = Zt.int_hom();
-    let ZZ_to_Zb = Zb.int_hom();
+        let baseconv = RNSCongruencePreservingBaseConversion::new(from.clone(), to.clone(), Zt.clone());
 
-    for i in -(b / 2)..=(b / 2) {
-        let input = i;
-        let input_mod_b = Zb.smallest_lift(ZZ_to_Zb.map(input)) as i32;
-        let expected = input_mod_b
-            - b * Zt.smallest_lift(Zt.checked_div(&ZZ_to_Zt.map(input_mod_b), &ZZ_to_Zt.map(b)).unwrap()) as i32;
-        assert_el_eq!(&Zb, ZZ_to_Zb.map(input), ZZ_to_Zb.map(expected));
-        assert_eq!(0, expected % t);
-        assert!(expected.abs() <= b * t / 2);
+        let ZZ_to_Zt = Zt.int_hom();
+        let ZZ_to_Zb = Zb.int_hom();
 
-        let input = from.iter().map(|Zn| Zn.int_hom().map(input)).collect::<Vec<_>>();
-        let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+        for i in -(b / 2)..=(b / 2) {
+            let input = i;
+            let input_mod_b = Zb.smallest_lift(ZZ_to_Zb.map(input)) as i32;
+            let expected = input_mod_b
+                - b * Zt.smallest_lift(Zt.checked_div(&ZZ_to_Zt.map(input_mod_b), &ZZ_to_Zt.map(b)).unwrap()) as i32;
+            assert_el_eq!(&Zb, ZZ_to_Zb.map(input), ZZ_to_Zb.map(expected));
+            assert_eq!(0, expected % t);
+            assert!(expected.abs() <= b * t / 2);
 
-        let actual = baseconv.apply(
-            Submatrix::from_1d(&input, 1, 1),
-            SubmatrixMut::from_1d(&mut actual, 2, 1),
-        );
+            let input = from.iter().map(|Zn| Zn.int_hom().map(input)).collect::<Vec<_>>();
+            let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        for j in 0..expected.len() {
-            // we currently assume no error happens
-            assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
+            let actual = baseconv.apply(
+                Submatrix::from_1d(&input, 1, 1),
+                SubmatrixMut::from_1d(&mut actual, 2, 1),
+            );
+
+            for j in 0..expected.len() {
+                // we currently assume no error happens
+                assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
+            }
         }
     }
-}
 
-#[test]
-fn test_congruence_preserving_baseconv_two_denominators() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(23), Zn::new(7)];
-    let to = vec![Zn::new(17), Zn::new(5), Zn::new(11)];
-    let Zt = Zn::new(3);
-    let Zb = Zn::new(23 * 7);
-    let b = *Zb.modulus() as i32;
-    let t = *Zt.modulus() as i32;
+    #[test]
+    fn test_congruence_preserving_baseconv_two_denominators() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(23), Zn::new(7)];
+        let to = vec![Zn::new(17), Zn::new(5), Zn::new(11)];
+        let Zt = Zn::new(3);
+        let Zb = Zn::new(23 * 7);
+        let b = *Zb.modulus() as i32;
+        let t = *Zt.modulus() as i32;
 
-    let baseconv = RNSCongruencePreservingBaseConversion::new(from.clone(), to.clone(), Zt.clone());
+        let baseconv = RNSCongruencePreservingBaseConversion::new(from.clone(), to.clone(), Zt.clone());
 
-    let ZZ_to_Zt = Zt.int_hom();
-    let ZZ_to_Zb = Zb.int_hom();
+        let ZZ_to_Zt = Zt.int_hom();
+        let ZZ_to_Zb = Zb.int_hom();
 
-    for i in -(b / 2)..=(b / 2) {
-        let input = i;
-        let input_mod_b = Zb.smallest_lift(ZZ_to_Zb.map(input)) as i32;
-        let expected = input_mod_b
-            - b * Zt.smallest_lift(Zt.checked_div(&ZZ_to_Zt.map(input_mod_b), &ZZ_to_Zt.map(b)).unwrap()) as i32;
-        assert_el_eq!(&Zb, ZZ_to_Zb.map(input), ZZ_to_Zb.map(expected));
-        assert_eq!(0, expected % t);
-        assert!(expected.abs() <= b * t / 2);
+        for i in -(b / 2)..=(b / 2) {
+            let input = i;
+            let input_mod_b = Zb.smallest_lift(ZZ_to_Zb.map(input)) as i32;
+            let expected = input_mod_b
+                - b * Zt.smallest_lift(Zt.checked_div(&ZZ_to_Zt.map(input_mod_b), &ZZ_to_Zt.map(b)).unwrap()) as i32;
+            assert_el_eq!(&Zb, ZZ_to_Zb.map(input), ZZ_to_Zb.map(expected));
+            assert_eq!(0, expected % t);
+            assert!(expected.abs() <= b * t / 2);
 
-        let input = from.iter().map(|Zn| Zn.int_hom().map(input)).collect::<Vec<_>>();
-        let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+            let input = from.iter().map(|Zn| Zn.int_hom().map(input)).collect::<Vec<_>>();
+            let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        let actual = baseconv.apply(
-            Submatrix::from_1d(&input, 2, 1),
-            SubmatrixMut::from_1d(&mut actual, 3, 1),
-        );
+            let actual = baseconv.apply(
+                Submatrix::from_1d(&input, 2, 1),
+                SubmatrixMut::from_1d(&mut actual, 3, 1),
+            );
 
-        for j in 0..expected.len() {
-            // we currently assume no error happens
-            assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
+            for j in 0..expected.len() {
+                // we currently assume no error happens
+                assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
+            }
         }
     }
-}
 
-#[test]
-fn test_congruence_preserving_baseconv_unordered() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(19), Zn::new(7), Zn::new(13)];
-    let to = vec![Zn::new(17), Zn::new(5), Zn::new(3)];
-    let Zt = Zn::new(11);
-    let Zb = Zn::new(19 * 7 * 13);
-    let b = *Zb.modulus() as i32;
-    let t = *Zt.modulus() as i32;
+    #[test]
+    fn test_congruence_preserving_baseconv_unordered() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(19), Zn::new(7), Zn::new(13)];
+        let to = vec![Zn::new(17), Zn::new(5), Zn::new(3)];
+        let Zt = Zn::new(11);
+        let Zb = Zn::new(19 * 7 * 13);
+        let b = *Zb.modulus() as i32;
+        let t = *Zt.modulus() as i32;
 
-    let baseconv = RNSCongruencePreservingBaseConversion::new(from.clone(), to.clone(), Zt.clone());
+        let baseconv = RNSCongruencePreservingBaseConversion::new(from.clone(), to.clone(), Zt.clone());
 
-    let ZZ_to_Zt = Zt.int_hom();
-    let ZZ_to_Zb = Zb.int_hom();
+        let ZZ_to_Zt = Zt.int_hom();
+        let ZZ_to_Zb = Zb.int_hom();
 
-    for i in -(b / 2)..=(b / 2) {
-        let input = i;
-        let input_mod_b = Zb.smallest_lift(ZZ_to_Zb.map(input)) as i32;
-        let expected = input_mod_b
-            - b * Zt.smallest_lift(Zt.checked_div(&ZZ_to_Zt.map(input_mod_b), &ZZ_to_Zt.map(b)).unwrap()) as i32;
-        assert_el_eq!(&Zb, ZZ_to_Zb.map(input), ZZ_to_Zb.map(expected));
-        assert_eq!(0, expected % t);
-        assert!(expected.abs() <= b * t / 2);
+        for i in -(b / 2)..=(b / 2) {
+            let input = i;
+            let input_mod_b = Zb.smallest_lift(ZZ_to_Zb.map(input)) as i32;
+            let expected = input_mod_b
+                - b * Zt.smallest_lift(Zt.checked_div(&ZZ_to_Zt.map(input_mod_b), &ZZ_to_Zt.map(b)).unwrap()) as i32;
+            assert_el_eq!(&Zb, ZZ_to_Zb.map(input), ZZ_to_Zb.map(expected));
+            assert_eq!(0, expected % t);
+            assert!(expected.abs() <= b * t / 2);
 
-        let input = from.iter().map(|Zn| Zn.int_hom().map(input)).collect::<Vec<_>>();
-        let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+            let input = from.iter().map(|Zn| Zn.int_hom().map(input)).collect::<Vec<_>>();
+            let expected = to.iter().map(|Zn| Zn.int_hom().map(expected)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        let actual = baseconv.apply(
-            Submatrix::from_1d(&input, 3, 1),
-            SubmatrixMut::from_1d(&mut actual, 3, 1),
-        );
+            let actual = baseconv.apply(
+                Submatrix::from_1d(&input, 3, 1),
+                SubmatrixMut::from_1d(&mut actual, 3, 1),
+            );
 
-        for j in 0..expected.len() {
-            // we currently assume no error happens
-            assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
+            for j in 0..expected.len() {
+                // we currently assume no error happens
+                assert_el_eq!(to.at(j), expected.at(j), actual.at(j, 0));
+            }
         }
     }
 }

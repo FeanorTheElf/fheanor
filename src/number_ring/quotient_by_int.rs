@@ -11,24 +11,21 @@ use feanor_math::homomorphism::*;
 use feanor_math::integer::*;
 use feanor_math::iters::{MultiProduct, multi_cartesian_product};
 use feanor_math::matrix::OwnedMatrix;
-use feanor_math::ring::*;
 use feanor_math::rings::extension::{FreeAlgebra, FreeAlgebraStore};
 use feanor_math::rings::finite::{FiniteRing, *};
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::*;
-use feanor_math::seq::*;
 use feanor_math::serialization::{DeserializeWithRing, SerializableElementRing, SerializeWithRing};
 use feanor_math::specialization::{FiniteRingOperation, FiniteRingSpecializable};
 use feanor_serde::newtype_struct::*;
 use feanor_serde::seq::*;
+use serde::de::DeserializeSeed;
 use serde::{Deserializer, Serialize, Serializer};
 use tracing::instrument;
 
-use crate::number_ring::galois::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 use crate::number_ring::*;
 use crate::prepared_mul::PreparedMultiplicationRing;
-use crate::serde::de::DeserializeSeed;
 use crate::{FheanorAllocator, ZZbig, ZZi64};
 
 /// Implementation of `R/tR` for any modulus `t in R` (without restriction on the

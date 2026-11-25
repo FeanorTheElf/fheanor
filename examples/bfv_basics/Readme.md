@@ -33,7 +33,6 @@ Once we setup the parameters, we can create plaintext and ciphertext rings:
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
-# use feanor_math::algorithms::eea::signed_gcd;
 # let log2_N = 12;
 # let params = Pow2BFV::new(2 << log2_N);
 let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);

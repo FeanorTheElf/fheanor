@@ -8,8 +8,7 @@ use append_only_vec::AppendOnlyVec;
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::homomorphism::Homomorphism;
-use feanor_math::primitive_int::*;
-use feanor_math::ring::{RingStore, *};
+use feanor_math::ring::RingStore;
 use feanor_math::rings::extension::FreeAlgebra;
 use feanor_math::rings::field::AsFieldBase;
 use feanor_math::rings::zn::*;
@@ -577,36 +576,33 @@ where
 }
 
 #[cfg(test)]
-use crate::circuit::DEFAULT_EVALUATOR_COSTS;
-#[cfg(test)]
-use crate::lin_transform::pow2;
-#[cfg(test)]
-use crate::number_ring::NumberRingQuotientStore;
-#[cfg(test)]
-use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
-#[cfg(test)]
-use crate::number_ring::hypercube::structure::HypercubeStructure;
-#[cfg(test)]
-use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+mod test {
+    use super::*;
+    use crate::circuit::DEFAULT_EVALUATOR_COSTS;
+    use crate::lin_transform::pow2;
+    use crate::number_ring::NumberRingQuotientStore;
+    use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
+    use crate::number_ring::hypercube::structure::HypercubeStructure;
+    use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 
-#[test]
-fn test_circuit_to_ir() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = StaticRing::<i64>::RING;
-    let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
-    // use integer coefficients, since only these are inlined into the IR
-    let neg_x = PlaintextCircuit::linear_transform(&[Coefficient::NegOne], ring);
-    let x_neg_x = PlaintextCircuit::mul(ring)
-        .compose(x.clone(ring).tensor(neg_x, ring), ring)
-        .compose(x.output_twice(ring), ring);
-    let two_minus_x_neg_x = PlaintextCircuit::add(ring).compose(
-        x_neg_x.tensor(PlaintextCircuit::constant_int(ZZbig.int_hom().map(2), ring), ring),
-        ring,
-    );
-    let circuit = PlaintextCircuit::square(ring).compose(two_minus_x_neg_x, ring); // (2 - x * x) * (2 - x * x)
+    #[test]
+    fn test_circuit_to_ir() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = StaticRing::<i64>::RING;
+        let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
+        // use integer coefficients, since only these are inlined into the IR
+        let neg_x = PlaintextCircuit::linear_transform(&[Coefficient::NegOne], ring);
+        let x_neg_x = PlaintextCircuit::mul(ring)
+            .compose(x.clone(ring).tensor(neg_x, ring), ring)
+            .compose(x.output_twice(ring), ring);
+        let two_minus_x_neg_x = PlaintextCircuit::add(ring).compose(
+            x_neg_x.tensor(PlaintextCircuit::constant_int(ZZbig.int_hom().map(2), ring), ring),
+            ring,
+        );
+        let circuit = PlaintextCircuit::square(ring).compose(two_minus_x_neg_x, ring); // (2 - x * x) * (2 - x * x)
 
-    let program = Program::parse(
-        r#"
+        let program = Program::parse(
+            r#"
         func(%0) {
             %1 = mul_ptx %0, -1
             %2 = mul %0, %1
@@ -615,28 +611,28 @@ fn test_circuit_to_ir() {
             return %4
         }
     "#
-        .as_bytes(),
-    )
-    .unwrap();
-    program.check().unwrap();
-    assert_eq!(program, circuit_to_ir(ring, None, &circuit));
-}
+            .as_bytes(),
+        )
+        .unwrap();
+        program.check().unwrap();
+        assert_eq!(program, circuit_to_ir(ring, None, &circuit));
+    }
 
-#[test]
-fn test_ir_to_circuit() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = StaticRing::<i64>::RING;
-    let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
-    let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
-    let x_neg_x = PlaintextCircuit::mul(ring)
-        .compose(x.clone(ring).tensor(neg_x, ring), ring)
-        .compose(x.output_twice(ring), ring);
-    let two_minus_x_neg_x =
-        PlaintextCircuit::add(ring).compose(x_neg_x.tensor(PlaintextCircuit::constant(2, ring), ring), ring);
-    let circuit = PlaintextCircuit::square(ring).compose(two_minus_x_neg_x, ring); // (2 - x * x) * (2 - x * x)
+    #[test]
+    fn test_ir_to_circuit() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = StaticRing::<i64>::RING;
+        let x = PlaintextCircuit::linear_transform_ring(&[1], ring);
+        let neg_x = PlaintextCircuit::linear_transform_ring(&[-1], ring);
+        let x_neg_x = PlaintextCircuit::mul(ring)
+            .compose(x.clone(ring).tensor(neg_x, ring), ring)
+            .compose(x.output_twice(ring), ring);
+        let two_minus_x_neg_x =
+            PlaintextCircuit::add(ring).compose(x_neg_x.tensor(PlaintextCircuit::constant(2, ring), ring), ring);
+        let circuit = PlaintextCircuit::square(ring).compose(two_minus_x_neg_x, ring); // (2 - x * x) * (2 - x * x)
 
-    let program = Program::parse(
-        r#"
+        let program = Program::parse(
+            r#"
         func(%0) {
             %1 = mul_ptx %0, -1
             %2 = mul %0, %1
@@ -645,46 +641,47 @@ fn test_ir_to_circuit() {
             return %4
         }
     "#
-        .as_bytes(),
-    )
-    .unwrap();
-    program.check().unwrap();
-    assert!(circuit.eq(&ir_to_circuit(ring, None, &program), ring, None));
-}
+            .as_bytes(),
+        )
+        .unwrap();
+        program.check().unwrap();
+        assert!(circuit.eq(&ir_to_circuit(ring, None, &program), ring, None));
+    }
 
-#[test]
-fn test_from_to_ir() {
-    feanor_tracing::DelayedLogger::init_test();
-    let m = 1 << 8;
-    let e = 1;
+    #[test]
+    fn test_from_to_ir() {
+        feanor_tracing::DelayedLogger::init_test();
+        let m = 1 << 8;
+        let e = 1;
 
-    let P = NumberRingQuotientByIntBase::new(
-        Pow2CyclotomicNumberRing::new(m),
-        zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)),
-    );
-    let H = {
-        let hypercube =
-            HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
-        HypercubeIsomorphism::new(&P, &hypercube, Some("./cache"))
-    };
-    let coeffs_to_slots = pow2::coeffs_to_slots_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS);
-    let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));
-    assert!(coeffs_to_slots.eq(
-        &PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program),
-        &P,
-        Some(P.acting_galois_group())
-    ));
+        let P = NumberRingQuotientByIntBase::new(
+            Pow2CyclotomicNumberRing::new(m),
+            zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e + 1)),
+        );
+        let H = {
+            let hypercube =
+                HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(65537, ZZbig, ZZi64));
+            HypercubeIsomorphism::new(&P, &hypercube, Some("./cache"))
+        };
+        let coeffs_to_slots = pow2::coeffs_to_slots_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS);
+        let program = coeffs_to_slots.to_ir(&P, Some(P.acting_galois_group()));
+        assert!(coeffs_to_slots.eq(
+            &PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program),
+            &P,
+            Some(P.acting_galois_group())
+        ));
 
-    let P = NumberRingQuotientByIntBase::new(
-        Pow2CyclotomicNumberRing::new(m),
-        zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e)),
-    );
-    let H = H.change_modulus(&P);
-    let slots_to_coeffs = pow2::slots_to_coeffs_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS);
-    let program = slots_to_coeffs.to_ir(&P, Some(P.acting_galois_group()));
-    assert!(slots_to_coeffs.eq(
-        &PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program),
-        &P,
-        Some(P.acting_galois_group())
-    ));
+        let P = NumberRingQuotientByIntBase::new(
+            Pow2CyclotomicNumberRing::new(m),
+            zn_big::Zn::new(ZZbig, ZZbig.pow(int_cast(65537, ZZbig, ZZi64), e)),
+        );
+        let H = H.change_modulus(&P);
+        let slots_to_coeffs = pow2::slots_to_coeffs_thin(&H, 4, &DEFAULT_EVALUATOR_COSTS);
+        let program = slots_to_coeffs.to_ir(&P, Some(P.acting_galois_group()));
+        assert!(slots_to_coeffs.eq(
+            &PlaintextCircuit::from_ir(&P, Some(P.acting_galois_group()), &program),
+            &P,
+            Some(P.acting_galois_group())
+        ));
+    }
 }

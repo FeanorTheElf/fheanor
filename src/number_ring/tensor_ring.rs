@@ -3,22 +3,17 @@ use std::fmt::{Debug, Formatter};
 
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
-use feanor_math::algorithms::eea::{signed_eea, signed_gcd, signed_lcm};
 use feanor_math::algorithms::int_factor::factor;
-use feanor_math::divisibility::*;
+use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::homomorphism::*;
-use feanor_math::integer::*;
-use feanor_math::primitive_int::*;
-use feanor_math::ring::*;
+use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::rings::poly::sparse_poly::SparsePolyRing;
 use feanor_math::rings::poly::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::subvector::SubvectorView;
-use feanor_math::seq::*;
 use tracing::instrument;
 
-use crate::number_ring::galois::*;
 use crate::number_ring::general_cyclotomic::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 use crate::number_ring::*;
@@ -53,7 +48,7 @@ impl<L: NumberRingDescriptor, R: NumberRingDescriptor> TensorProductNumberRing<L
         let m2 = right.galois_group().m();
         assert!(m1 > 1);
         assert!(m2 > 1);
-        assert!(signed_gcd(m1 as i64, m2 as i64, StaticRing::<i64>::RING) == 1);
+        assert!(StaticRing::<i64>::RING.is_unit(&StaticRing::<i64>::RING.ideal_gen(&(m1 as i64), &(m2 as i64))));
         Self {
             joint_galois_group: CyclotomicGaloisGroupBase::new(m1 * m2),
             left_factor: left,
@@ -156,8 +151,10 @@ impl<L: NumberRingDescriptor, R: NumberRingDescriptor> NumberRingDescriptor for 
             .compose(Fp.integer_ring().can_hom(poly_ring.base_ring()).unwrap());
         let hom_ref = &hom;
 
-        let (s, t, d) = signed_eea(m1, m2, StaticRing::<i64>::RING);
-        assert_eq!(1, d);
+        let (s, t, d) = StaticRing::<i64>::RING.extended_ideal_gen(&m1, &m2);
+        assert!(d == 1 || d == -1);
+        // normalize, such that `s * m1 + t * m2 = 1`
+        let (s, t) = (s * d, t * d);
 
         // the main task is to create a sparse representation of the matrix that
         // represent the conversion from coefficient basis to the tensor product of the
@@ -207,13 +204,14 @@ impl<L: NumberRingDescriptor, R: NumberRingDescriptor> NumberRingDescriptor for 
     }
 
     fn mod_p_required_root_of_unity(&self) -> u64 {
-        signed_lcm(
-            self.left_factor.mod_p_required_root_of_unity().try_into().unwrap(),
-            self.right_factor.mod_p_required_root_of_unity().try_into().unwrap(),
-            StaticRing::<i64>::RING,
-        )
-        .try_into()
-        .unwrap()
+        StaticRing::<i64>::RING
+            .lcm(
+                &self.left_factor.mod_p_required_root_of_unity().try_into().unwrap(),
+                &self.right_factor.mod_p_required_root_of_unity().try_into().unwrap(),
+            )
+            .abs()
+            .try_into()
+            .unwrap()
     }
 
     fn generating_poly<P>(&self, poly_ring: P) -> El<P>
@@ -333,7 +331,7 @@ where
                     .add_assign(&mut result[*j], self.base_ring().mul_ref(data.at(i), c));
             }
         }
-        for (i, c) in result.drain(..).enumerate() {
+        for (i, c) in result.into_iter().enumerate() {
             *data.at_mut(i) = c;
         }
 
@@ -433,153 +431,147 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
+mod test {
+    use feanor_math::assert_el_eq;
 
-#[cfg(test)]
-use crate::ciphertext_ring::double_rns_ring;
-#[cfg(test)]
-use crate::ciphertext_ring::single_rns_ring;
-#[cfg(test)]
-use crate::ntt::RustNegacyclicNTT;
-#[cfg(test)]
-use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
-#[cfg(test)]
-use crate::ring_literal;
+    use super::*;
+    use crate::ciphertext_ring::{double_rns_ring, single_rns_ring};
+    use crate::ntt::RustNegacyclicNTT;
+    use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+    use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
+    use crate::ring_literal;
 
-#[test]
-fn test_odd_cyclotomic_double_rns_ring() {
-    feanor_tracing::DelayedLogger::init_test();
-    double_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 5));
-    double_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 7));
-    double_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(
-        OddSquarefreeCyclotomicNumberRing::new(3),
-        Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
-    ));
-}
+    #[test]
+    fn test_odd_cyclotomic_double_rns_ring() {
+        feanor_tracing::DelayedLogger::init_test();
+        double_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 5));
+        double_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 7));
+        double_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(
+            OddSquarefreeCyclotomicNumberRing::new(3),
+            Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
+        ));
+    }
 
-#[test]
-fn test_odd_cyclotomic_single_rns_ring() {
-    feanor_tracing::DelayedLogger::init_test();
-    single_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 5));
-    single_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 7));
-    single_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(
-        OddSquarefreeCyclotomicNumberRing::new(3),
-        Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
-    ));
-}
+    #[test]
+    fn test_odd_cyclotomic_single_rns_ring() {
+        feanor_tracing::DelayedLogger::init_test();
+        single_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 5));
+        single_rns_ring::test_with_number_ring(TensorProductNumberRing::new(3, 7));
+        single_rns_ring::test_with_number_ring(TensorProductNumberRing::new_with_factors(
+            OddSquarefreeCyclotomicNumberRing::new(3),
+            Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
+        ));
+    }
 
-#[test]
-fn test_odd_cyclotomic_decomposition_ring() {
-    feanor_tracing::DelayedLogger::init_test();
-    quotient_by_int::test_with_number_ring(TensorProductNumberRing::new(3, 5));
-    quotient_by_int::test_with_number_ring(TensorProductNumberRing::new(3, 7));
-    quotient_by_int::test_with_number_ring(TensorProductNumberRing::new_with_factors(
-        OddSquarefreeCyclotomicNumberRing::new(3),
-        Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
-    ));
-}
+    #[test]
+    fn test_odd_cyclotomic_decomposition_ring() {
+        feanor_tracing::DelayedLogger::init_test();
+        quotient_by_int::test_with_number_ring(TensorProductNumberRing::new(3, 5));
+        quotient_by_int::test_with_number_ring(TensorProductNumberRing::new(3, 7));
+        quotient_by_int::test_with_number_ring(TensorProductNumberRing::new_with_factors(
+            OddSquarefreeCyclotomicNumberRing::new(3),
+            Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
+        ));
+    }
 
-#[test]
-fn test_small_coeff_basis_conversion() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = zn_64::Zn::new(241);
-    let number_ring = TensorProductNumberRing::new(3, 5);
-    let decomposition = number_ring.bases_mod_p(ring);
+    #[test]
+    fn test_small_coeff_basis_conversion() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = zn_64::Zn::new(241);
+        let number_ring = TensorProductNumberRing::new(3, 5);
+        let decomposition = number_ring.bases_mod_p(ring);
 
-    let arr_create = |data: [i32; 8]| std::array::from_fn::<_, 8, _>(|i| ring.int_hom().map(data[i]));
-    let assert_arr_eq = |fst: [zn_64::ZnEl; 8], snd: [zn_64::ZnEl; 8]| {
-        assert!(
-            fst.iter().zip(snd.iter()).all(|(x, y)| ring.eq_el(x, y)),
-            "expected {:?} = {:?}",
-            std::array::from_fn::<_, 8, _>(|i| ring.format(&fst[i])),
-            std::array::from_fn::<_, 8, _>(|i| ring.format(&snd[i]))
-        )
-    };
+        let arr_create = |data: [i32; 8]| std::array::from_fn::<_, 8, _>(|i| ring.int_hom().map(data[i]));
+        let assert_arr_eq = |fst: [zn_64::ZnEl; 8], snd: [zn_64::ZnEl; 8]| {
+            assert!(
+                fst.iter().zip(snd.iter()).all(|(x, y)| ring.eq_el(x, y)),
+                "expected {:?} = {:?}",
+                std::array::from_fn::<_, 8, _>(|i| ring.format(&fst[i])),
+                std::array::from_fn::<_, 8, _>(|i| ring.format(&snd[i]))
+            )
+        };
 
-    let original = arr_create([1, 0, 0, 0, 0, 0, 0, 0]);
-    let expected = arr_create([1, 0, 0, 0, 0, 0, 0, 0]);
-    let mut actual = original;
-    decomposition.coeff_basis_to_small_basis(&mut actual);
-    assert_arr_eq(expected, actual);
-    decomposition.small_basis_to_coeff_basis(&mut actual);
-    assert_arr_eq(original, actual);
+        let original = arr_create([1, 0, 0, 0, 0, 0, 0, 0]);
+        let expected = arr_create([1, 0, 0, 0, 0, 0, 0, 0]);
+        let mut actual = original;
+        decomposition.coeff_basis_to_small_basis(&mut actual);
+        assert_arr_eq(expected, actual);
+        decomposition.small_basis_to_coeff_basis(&mut actual);
+        assert_arr_eq(original, actual);
 
-    // 𝝵_15 = 𝝵_3^-1 ⊗ 𝝵_5^2 = (-1 - 𝝵_3) ⊗ 𝝵_5^2
-    let original = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
-    let expected = arr_create([0, 0, 0, 0, 240, 240, 0, 0]);
-    let mut actual = original;
-    decomposition.coeff_basis_to_small_basis(&mut actual);
-    assert_arr_eq(expected, actual);
-    decomposition.small_basis_to_coeff_basis(&mut actual);
-    assert_arr_eq(original, actual);
+        // 𝝵_15 = 𝝵_3^-1 ⊗ 𝝵_5^2 = (-1 - 𝝵_3) ⊗ 𝝵_5^2
+        let original = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
+        let expected = arr_create([0, 0, 0, 0, 240, 240, 0, 0]);
+        let mut actual = original;
+        decomposition.coeff_basis_to_small_basis(&mut actual);
+        assert_arr_eq(expected, actual);
+        decomposition.small_basis_to_coeff_basis(&mut actual);
+        assert_arr_eq(original, actual);
 
-    let original = arr_create([0, 0, 240, 0, 0, 0, 0, 0]);
-    let expected = arr_create([0, 1, 0, 1, 0, 1, 0, 1]);
-    let mut actual = original;
-    decomposition.coeff_basis_to_small_basis(&mut actual);
-    assert_arr_eq(expected, actual);
-    decomposition.small_basis_to_coeff_basis(&mut actual);
-    assert_arr_eq(original, actual);
+        let original = arr_create([0, 0, 240, 0, 0, 0, 0, 0]);
+        let expected = arr_create([0, 1, 0, 1, 0, 1, 0, 1]);
+        let mut actual = original;
+        decomposition.coeff_basis_to_small_basis(&mut actual);
+        assert_arr_eq(expected, actual);
+        decomposition.small_basis_to_coeff_basis(&mut actual);
+        assert_arr_eq(original, actual);
 
-    let original = arr_create([0, 0, 0, 1, 0, 0, 0, 0]);
-    let expected = arr_create([0, 0, 1, 0, 0, 0, 0, 0]);
-    let mut actual = original;
-    decomposition.coeff_basis_to_small_basis(&mut actual);
-    assert_arr_eq(expected, actual);
-    decomposition.small_basis_to_coeff_basis(&mut actual);
-    assert_arr_eq(original, actual);
+        let original = arr_create([0, 0, 0, 1, 0, 0, 0, 0]);
+        let expected = arr_create([0, 0, 1, 0, 0, 0, 0, 0]);
+        let mut actual = original;
+        decomposition.coeff_basis_to_small_basis(&mut actual);
+        assert_arr_eq(expected, actual);
+        decomposition.small_basis_to_coeff_basis(&mut actual);
+        assert_arr_eq(original, actual);
 
-    let original = arr_create([0, 0, 0, 0, 0, 1, 0, 0]);
-    let expected = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
-    let mut actual = original;
-    decomposition.coeff_basis_to_small_basis(&mut actual);
-    assert_arr_eq(expected, actual);
-    decomposition.small_basis_to_coeff_basis(&mut actual);
-    assert_arr_eq(original, actual);
+        let original = arr_create([0, 0, 0, 0, 0, 1, 0, 0]);
+        let expected = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
+        let mut actual = original;
+        decomposition.coeff_basis_to_small_basis(&mut actual);
+        assert_arr_eq(expected, actual);
+        decomposition.small_basis_to_coeff_basis(&mut actual);
+        assert_arr_eq(original, actual);
 
-    let number_ring = TensorProductNumberRing::new_with_factors(
-        OddSquarefreeCyclotomicNumberRing::new(3),
-        Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
-    );
-    let decomposition = number_ring.bases_mod_p(ring);
-    let original = arr_create([-1, 0, 0, 0, 1, 0, 0, 0]);
-    let expected = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
-    let mut actual = original;
-    decomposition.coeff_basis_to_small_basis(&mut actual);
-    assert_arr_eq(expected, actual);
-    decomposition.small_basis_to_coeff_basis(&mut actual);
-    assert_arr_eq(original, actual);
-}
+        let number_ring = TensorProductNumberRing::new_with_factors(
+            OddSquarefreeCyclotomicNumberRing::new(3),
+            Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8),
+        );
+        let decomposition = number_ring.bases_mod_p(ring);
+        let original = arr_create([-1, 0, 0, 0, 1, 0, 0, 0]);
+        let expected = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
+        let mut actual = original;
+        decomposition.coeff_basis_to_small_basis(&mut actual);
+        assert_arr_eq(expected, actual);
+        decomposition.small_basis_to_coeff_basis(&mut actual);
+        assert_arr_eq(original, actual);
+    }
 
-#[test]
-fn test_permute_galois_automorphism() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Fp = zn_64::Zn::new(257);
-    let R = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 3), Fp);
-    let gal_el = |x: i64| R.number_ring().galois_group().from_representative(x);
+    #[test]
+    fn test_permute_galois_automorphism() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Fp = zn_64::Zn::new(257);
+        let R = NumberRingQuotientByIntBase::new(TensorProductNumberRing::new(5, 3), Fp);
+        let gal_el = |x: i64| R.number_ring().galois_group().from_representative(x);
 
-    assert_el_eq!(
-        R,
-        ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]),
-        R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(2))
-    );
-    assert_el_eq!(
-        R,
-        ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]),
-        R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(4))
-    );
-    assert_el_eq!(
-        R,
-        ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]),
-        R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(8))
-    );
-    assert_el_eq!(
-        R,
-        ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]),
-        R.apply_galois_action(&ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), &gal_el(2))
-    );
+        assert_el_eq!(
+            R,
+            ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]),
+            R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(2))
+        );
+        assert_el_eq!(
+            R,
+            ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]),
+            R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(4))
+        );
+        assert_el_eq!(
+            R,
+            ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]),
+            R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(8))
+        );
+        assert_el_eq!(
+            R,
+            ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]),
+            R.apply_galois_action(&ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), &gal_el(2))
+        );
+    }
 }

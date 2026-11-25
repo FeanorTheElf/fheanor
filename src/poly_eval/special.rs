@@ -170,8 +170,8 @@ where
 
     if ZZ.eq_el(&p, &ZZ.int_hom().map(2)) {
         // (x^2 + u x) x^2 = x^4 + u x^3
-        // (x^4 + u x^3 + a2 x^2 + a1 x + a0)(x^4 + u x^3 + b2 x^2 + b1 x + b0) + c2 x^2 + c1 x + c0 =
-        //     x^8 +
+        // (x^4 + u x^3 + a2 x^2 + a1 x + a0)(x^4 + u x^3 + b2 x^2 + b1 x + b0) + c2 x^2 + c1 x + c0
+        // =     x^8 +
         //     2u x^7 +
         //     (u^2 + a2 + b2) x^6 +
         //     (u (a2 + b2) + (a1 + b1)) x^5 +
@@ -197,8 +197,8 @@ where
         // so the equation has a solution if there are g = A mod 2 and h = g - 2B mod 4 with K = gh
         //  - if A is odd: immediately solvable
         //  - if A even, B odd: solvable iff 8|K with g = 2 and h = K/2
-        //  - if A even, B even: solvable iff K = 0, 4, 12 mod 16 (with g = 2 if K = 4, 12 mod 16 and g = 4
-        //    otherwise)
+        //  - if A even, B even: solvable iff K = 0, 4, 12 mod 16 (with g = 2 if K = 4, 12 mod 16
+        //    and g = 4 otherwise)
         let K = Zpe.sum([
             Zpe.mul_ref_fst(&u, Zpe.mul_ref(&A, &A)),
             Zpe.int_hom().mul_map(Zpe.mul_ref(&C, &u), -4),
@@ -318,8 +318,8 @@ where
         return Ok(circuit);
     } else {
         // (x^2 + u x) (x^2 + u x) = x^4 + 2u x^3 + u^2 x^2
-        // (x^4 + 2u x^3 + a2 x^2 + a1 x + a0)(x^4 + 2u x^3 + b2 x^2 + b1 x + b0) + c2 x^2 + c1 x + c0 =
-        //     x^8 +
+        // (x^4 + 2u x^3 + a2 x^2 + a1 x + a0)(x^4 + 2u x^3 + b2 x^2 + b1 x + b0) + c2 x^2 + c1 x +
+        // c0 =     x^8 +
         //     4u x^7 +
         //     (4u^2 + a2 + b2) x^6 +
         //     (2u (a2 + b2) + (a1 + b1)) x^5 +
@@ -431,100 +431,102 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::rings::finite::FiniteRingStore;
-#[cfg(test)]
-use feanor_math::rings::poly::dense_poly::DensePolyRing;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::Zn;
+mod test {
+    use feanor_math::rings::finite::FiniteRingStore;
+    use feanor_math::rings::poly::dense_poly::DensePolyRing;
+    use feanor_math::rings::zn::zn_64::Zn;
 
-#[test]
-#[ignore]
-fn test_digit_extraction_p_2_complete() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = Zn::new(1 << 23);
-    let circuit = precomputed_p_2(ring);
-    let hom = ring.can_hom(&ZZi64).unwrap();
-    for x in 0..(1 << 23) {
-        for (e, actual) in [1, 2, 4, 8, 16, 23]
-            .into_iter()
-            .zip(circuit.evaluate_no_galois(&[hom.map(x)], ring.identity()))
-        {
-            assert_eq!(x % 2, ring.smallest_positive_lift(actual) % (1 << e));
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn test_digit_extraction_p_2_complete() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = Zn::new(1 << 23);
+        let circuit = precomputed_p_2(ring);
+        let hom = ring.can_hom(&ZZi64).unwrap();
+        for x in 0..(1 << 23) {
+            for (e, actual) in [1, 2, 4, 8, 16, 23]
+                .into_iter()
+                .zip(circuit.evaluate_no_galois(&[hom.map(x)], ring.identity()))
+            {
+                assert_eq!(x % 2, ring.smallest_positive_lift(actual) % (1 << e));
+            }
         }
     }
-}
 
-#[test]
-fn test_digit_extraction_p_2() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = Zn::new(1 << 17);
-    let circuit = precomputed_p_2(ring);
-    let hom = ring.can_hom(&ZZi64).unwrap();
-    for x in 0..(1 << 17) {
-        for (e, actual) in [1, 2, 4, 8, 16, 17]
-            .into_iter()
-            .zip(circuit.evaluate_no_galois(&[hom.map(x)], ring.identity()))
-        {
-            assert_eq!(x % 2, ring.smallest_positive_lift(actual) % (1 << e));
+    #[test]
+    fn test_digit_extraction_p_2() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = Zn::new(1 << 17);
+        let circuit = precomputed_p_2(ring);
+        let hom = ring.can_hom(&ZZi64).unwrap();
+        for x in 0..(1 << 17) {
+            for (e, actual) in [1, 2, 4, 8, 16, 17]
+                .into_iter()
+                .zip(circuit.evaluate_no_galois(&[hom.map(x)], ring.identity()))
+            {
+                assert_eq!(x % 2, ring.smallest_positive_lift(actual) % (1 << e));
+            }
         }
     }
-}
 
-#[test]
-fn test_degree_8_poly() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Zpe = Zn::new(81);
-    let ZpeX = DensePolyRing::new(Zpe, "X");
-    let [f] = ZpeX.with_wrapped_indeterminate(|X| {
-        [X.pow_ref(8) + 9 * X.pow_ref(7) + 5 * X.pow_ref(6) - 3 * X.pow_ref(4) + X.pow_ref(3) + X + 10]
-    });
-    let circuit = degree_8_poly_circuit(&ZpeX, ZpeX.clone_el(&f)).unwrap();
-    for x in Zpe.elements() {
-        assert_el_eq!(
-            Zpe,
-            ZpeX.evaluate(&f, &x, Zpe.identity()),
-            circuit.evaluate_no_galois(&[x], Zpe.identity()).pop().unwrap()
-        );
-    }
-}
-
-#[test]
-fn test_degree_8_poly_even_char() {
-    feanor_tracing::DelayedLogger::init_test();
-    let Zpe = Zn::new(256);
-    let ZpeX = DensePolyRing::new(Zpe, "X");
-    let [f1, f2, f3, f4] = ZpeX.with_wrapped_indeterminate(|X| {
-        [
-            X.pow_ref(8) + 2 * X.pow_ref(7) + 2 * X.pow_ref(6) + 4 * X.pow_ref(3) + 1,
-            X.pow_ref(8) + 2 * X.pow_ref(7) + X.pow_ref(6) + 4 * X.pow_ref(3) + 1,
-            X.pow_ref(8) + X.pow_ref(7) + X.pow_ref(6) + 4 * X.pow_ref(3) + 1,
-            X.pow_ref(8) + 6 * X.pow_ref(7) + 3 * X.pow_ref(6) + 2 * X.pow_ref(5) + 7 * X.pow_ref(4) + 2 * X + 1,
-        ]
-    });
-    let circuit = degree_8_poly_circuit(&ZpeX, ZpeX.clone_el(&f1)).unwrap();
-    for x in Zpe.elements() {
-        assert_el_eq!(
-            Zpe,
-            ZpeX.evaluate(&f1, &x, Zpe.identity()),
-            circuit.evaluate_no_galois(&[x], Zpe.identity()).pop().unwrap()
-        );
+    #[test]
+    fn test_degree_8_poly() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Zpe = Zn::new(81);
+        let ZpeX = DensePolyRing::new(Zpe, "X");
+        let [f] = ZpeX.with_wrapped_indeterminate(|X| {
+            [X.pow_ref(8) + 9 * X.pow_ref(7) + 5 * X.pow_ref(6) - 3 * X.pow_ref(4) + X.pow_ref(3) + X + 10]
+        });
+        let circuit = degree_8_poly_circuit(&ZpeX, ZpeX.clone_el(&f)).unwrap();
+        for x in Zpe.elements() {
+            assert_el_eq!(
+                Zpe,
+                ZpeX.evaluate(&f, &x, Zpe.identity()),
+                circuit.evaluate_no_galois(&[x], Zpe.identity()).pop().unwrap()
+            );
+        }
     }
 
-    let circuit = degree_8_poly_circuit(&ZpeX, ZpeX.clone_el(&f2)).unwrap();
-    for x in Zpe.elements() {
-        assert_el_eq!(
-            Zpe,
-            ZpeX.evaluate(&f2, &x, Zpe.identity()),
-            circuit.evaluate_no_galois(&[x], Zpe.identity()).pop().unwrap()
+    #[test]
+    fn test_degree_8_poly_even_char() {
+        feanor_tracing::DelayedLogger::init_test();
+        let Zpe = Zn::new(256);
+        let ZpeX = DensePolyRing::new(Zpe, "X");
+        let [f1, f2, f3, f4] = ZpeX.with_wrapped_indeterminate(|X| {
+            [
+                X.pow_ref(8) + 2 * X.pow_ref(7) + 2 * X.pow_ref(6) + 4 * X.pow_ref(3) + 1,
+                X.pow_ref(8) + 2 * X.pow_ref(7) + X.pow_ref(6) + 4 * X.pow_ref(3) + 1,
+                X.pow_ref(8) + X.pow_ref(7) + X.pow_ref(6) + 4 * X.pow_ref(3) + 1,
+                X.pow_ref(8) + 6 * X.pow_ref(7) + 3 * X.pow_ref(6) + 2 * X.pow_ref(5) + 7 * X.pow_ref(4) + 2 * X + 1,
+            ]
+        });
+        let circuit = degree_8_poly_circuit(&ZpeX, ZpeX.clone_el(&f1)).unwrap();
+        for x in Zpe.elements() {
+            assert_el_eq!(
+                Zpe,
+                ZpeX.evaluate(&f1, &x, Zpe.identity()),
+                circuit.evaluate_no_galois(&[x], Zpe.identity()).pop().unwrap()
+            );
+        }
+
+        let circuit = degree_8_poly_circuit(&ZpeX, ZpeX.clone_el(&f2)).unwrap();
+        for x in Zpe.elements() {
+            assert_el_eq!(
+                Zpe,
+                ZpeX.evaluate(&f2, &x, Zpe.identity()),
+                circuit.evaluate_no_galois(&[x], Zpe.identity()).pop().unwrap()
+            );
+        }
+
+        assert_eq!(
+            Deg8PolyEvalError::Char2OddCoeff7,
+            degree_8_poly_circuit(&ZpeX, ZpeX.clone_el(&f3)).err().unwrap()
+        );
+        assert_eq!(
+            Deg8PolyEvalError::Char2NotSolvable,
+            degree_8_poly_circuit(&ZpeX, ZpeX.clone_el(&f4)).err().unwrap()
         );
     }
-
-    assert_eq!(
-        Deg8PolyEvalError::Char2OddCoeff7,
-        degree_8_poly_circuit(&ZpeX, ZpeX.clone_el(&f3)).err().unwrap()
-    );
-    assert_eq!(
-        Deg8PolyEvalError::Char2NotSolvable,
-        degree_8_poly_circuit(&ZpeX, ZpeX.clone_el(&f4)).err().unwrap()
-    );
 }

@@ -3,7 +3,6 @@ use std::collections::{BTreeSet, HashMap};
 
 use feanor_math::divisibility::{DivisibilityRing, DivisibilityRingStore};
 use feanor_math::integer::IntegerRingStore;
-use feanor_math::ring::*;
 use feanor_math::rings::finite::{FiniteRing, FiniteRingStore};
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use tracing::{Level, event, instrument};
@@ -90,10 +89,11 @@ fn plan_paterson_stockmeyer_circuit(ds: &[usize]) -> PatersonStockmeyerPlan {
     //  - get a rough value for the number of consecutive precomputed powers `k`
     //  - get a more precise (still heuristic) value for the set of precomputed powers, currently
     //    consisting of `k` consecutive powers, followed by powers to powers of two
-    //  - get values for the splitting points `l` for each degree; this step may overestimate the actual
-    //    cost, since it assumes that only the powers `precomputed_powers` are available for free for
-    //    every degree, even if additional powers have been computed for lower degrees (but of course we
-    //    don't know if those lower degree computations will actually be used for the final polynomial)
+    //  - get values for the splitting points `l` for each degree; this step may overestimate the
+    //    actual cost, since it assumes that only the powers `precomputed_powers` are available for
+    //    free for every degree, even if additional powers have been computed for lower degrees (but
+    //    of course we don't know if those lower degree computations will actually be used for the
+    //    final polynomial)
 
     // compute the rough `k`
     let max_k = max(20, 2 * (max_d as f64).sqrt().ceil() as usize);
@@ -530,147 +530,146 @@ where
 }
 
 #[cfg(test)]
-use std::slice::from_ref;
+mod test {
+    use std::slice::from_ref;
 
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::homomorphism::Homomorphism;
-#[cfg(test)]
-use feanor_math::rings::poly::dense_poly::DensePolyRing;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::Zn;
+    use feanor_math::assert_el_eq;
+    use feanor_math::rings::poly::dense_poly::DensePolyRing;
+    use feanor_math::rings::zn::zn_64::Zn;
 
-#[test]
-fn test_plan_single() {
-    assert_eq!(0, plan_paterson_stockmeyer_circuit(&[1]).mul_count);
-    assert_eq!(1, plan_paterson_stockmeyer_circuit(&[2]).mul_count);
-    assert_eq!(2, plan_paterson_stockmeyer_circuit(&[3]).mul_count);
-    assert_eq!(2, plan_paterson_stockmeyer_circuit(&[4]).mul_count);
-    assert_eq!(3, plan_paterson_stockmeyer_circuit(&[5]).mul_count);
-    assert_eq!(3, plan_paterson_stockmeyer_circuit(&[6]).mul_count);
-    assert_eq!(4, plan_paterson_stockmeyer_circuit(&[7]).mul_count);
-    assert_eq!(4, plan_paterson_stockmeyer_circuit(&[8]).mul_count);
-    assert_eq!(4, plan_paterson_stockmeyer_circuit(&[9]).mul_count);
-    assert_eq!(5, plan_paterson_stockmeyer_circuit(&[10]).mul_count);
-}
+    use super::*;
 
-#[test]
-fn test_plan_multiple() { assert_eq!(12, plan_paterson_stockmeyer_circuit(&[17, 34]).mul_count) }
-
-#[test]
-fn test_evaluation_circuit() {
-    let FpX = DensePolyRing::new(Zn::new(65537), "X");
-    let Fp = FpX.base_ring();
-    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1]);
-    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
-    assert_eq!(2, circuit.multiplication_gate_count());
-    for i in 0..10 {
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()),
-            circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
-        );
+    #[test]
+    fn test_plan_single() {
+        assert_eq!(0, plan_paterson_stockmeyer_circuit(&[1]).mul_count);
+        assert_eq!(1, plan_paterson_stockmeyer_circuit(&[2]).mul_count);
+        assert_eq!(2, plan_paterson_stockmeyer_circuit(&[3]).mul_count);
+        assert_eq!(2, plan_paterson_stockmeyer_circuit(&[4]).mul_count);
+        assert_eq!(3, plan_paterson_stockmeyer_circuit(&[5]).mul_count);
+        assert_eq!(3, plan_paterson_stockmeyer_circuit(&[6]).mul_count);
+        assert_eq!(4, plan_paterson_stockmeyer_circuit(&[7]).mul_count);
+        assert_eq!(4, plan_paterson_stockmeyer_circuit(&[8]).mul_count);
+        assert_eq!(4, plan_paterson_stockmeyer_circuit(&[9]).mul_count);
+        assert_eq!(5, plan_paterson_stockmeyer_circuit(&[10]).mul_count);
     }
 
-    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1]);
-    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
-    assert_eq!(3, circuit.multiplication_gate_count());
-    for i in 0..10 {
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()),
-            circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
-        );
+    #[test]
+    fn test_plan_multiple() { assert_eq!(12, plan_paterson_stockmeyer_circuit(&[17, 34]).mul_count) }
+
+    #[test]
+    fn test_evaluation_circuit() {
+        let FpX = DensePolyRing::new(Zn::new(65537), "X");
+        let Fp = FpX.base_ring();
+        let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1]);
+        let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
+        assert_eq!(2, circuit.multiplication_gate_count());
+        for i in 0..10 {
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()),
+                circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
+            );
+        }
+
+        let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(5) + X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1]);
+        let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
+        assert_eq!(3, circuit.multiplication_gate_count());
+        for i in 0..10 {
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()),
+                circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
+            );
+        }
+
+        let f = FpX.from_terms((0..=17).map(|i| (Fp.int_hom().map(1 << i), i)));
+        let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
+        assert_eq!(7, circuit.multiplication_gate_count());
+        for i in 0..20 {
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()),
+                circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
+            );
+        }
     }
 
-    let f = FpX.from_terms((0..=17).map(|i| (Fp.int_hom().map(1 << i), i)));
-    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
-    assert_eq!(7, circuit.multiplication_gate_count());
-    for i in 0..20 {
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()),
-            circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
-        );
-    }
-}
+    #[test]
+    fn test_evaluation_circuit_multiple() {
+        let FpX = DensePolyRing::new(Zn::new(65537), "X");
+        let Fp = FpX.base_ring();
+        let polys = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1, X.pow_ref(2) - 1]);
+        let circuit = paterson_stockmeyer_circuit(&FpX, &polys);
+        assert_eq!(2, circuit.multiplication_gate_count());
+        for i in 0..10 {
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&polys[0], &Fp.int_hom().map(i), Fp.identity()),
+                circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
+            );
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&polys[1], &Fp.int_hom().map(i), Fp.identity()),
+                circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[1]
+            );
+        }
 
-#[test]
-fn test_evaluation_circuit_multiple() {
-    let FpX = DensePolyRing::new(Zn::new(65537), "X");
-    let Fp = FpX.base_ring();
-    let polys = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1, X.pow_ref(2) - 1]);
-    let circuit = paterson_stockmeyer_circuit(&FpX, &polys);
-    assert_eq!(2, circuit.multiplication_gate_count());
-    for i in 0..10 {
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&polys[0], &Fp.int_hom().map(i), Fp.identity()),
-            circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
-        );
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&polys[1], &Fp.int_hom().map(i), Fp.identity()),
-            circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[1]
-        );
-    }
-
-    let polys = FpX.with_wrapped_indeterminate(|X| {
-        [
-            X.pow_ref(5) + X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1,
-            X.pow_ref(4) + 2 * X.pow_ref(2) - 4 * X + 1,
-            X.pow_ref(2) - 1,
-        ]
-    });
-    let circuit = paterson_stockmeyer_circuit(&FpX, &polys);
-    assert_eq!(4, circuit.multiplication_gate_count());
-    for i in 0..10 {
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&polys[0], &Fp.int_hom().map(i), Fp.identity()),
-            circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
-        );
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&polys[1], &Fp.int_hom().map(i), Fp.identity()),
-            circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[1]
-        );
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&polys[2], &Fp.int_hom().map(i), Fp.identity()),
-            circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[2]
-        );
-    }
-}
-
-#[test]
-fn test_paterson_stockmeyer_monic_augmentation() {
-    // no monic augmentation
-    let FpX = DensePolyRing::new(Zn::new(65537 * 65537), "X");
-    let Fp = FpX.base_ring();
-    let [f] = FpX.with_wrapped_indeterminate(|X| [65536 * X.pow_ref(5) + 2 * X.pow_ref(4) - 4 * X + 1]);
-    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
-    assert_eq!(3, circuit.multiplication_gate_count());
-    for i in 0..10 {
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()),
-            circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
-        );
+        let polys = FpX.with_wrapped_indeterminate(|X| {
+            [
+                X.pow_ref(5) + X.pow_ref(3) + 2 * X.pow_ref(2) - 4 * X + 1,
+                X.pow_ref(4) + 2 * X.pow_ref(2) - 4 * X + 1,
+                X.pow_ref(2) - 1,
+            ]
+        });
+        let circuit = paterson_stockmeyer_circuit(&FpX, &polys);
+        assert_eq!(4, circuit.multiplication_gate_count());
+        for i in 0..10 {
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&polys[0], &Fp.int_hom().map(i), Fp.identity()),
+                circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
+            );
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&polys[1], &Fp.int_hom().map(i), Fp.identity()),
+                circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[1]
+            );
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&polys[2], &Fp.int_hom().map(i), Fp.identity()),
+                circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[2]
+            );
+        }
     }
 
-    // monic augmentation
-    let FpX = DensePolyRing::new(Zn::new(65537 * 65537), "X");
-    let Fp = FpX.base_ring();
-    let [f] = FpX.with_wrapped_indeterminate(|X| [65537 * X.pow_ref(5) + 2 * X.pow_ref(4) - 4 * X + 1]);
-    let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
-    assert_eq!(5, circuit.multiplication_gate_count());
-    for i in 0..10 {
-        assert_el_eq!(
-            Fp,
-            FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()),
-            circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
-        );
+    #[test]
+    fn test_paterson_stockmeyer_monic_augmentation() {
+        // no monic augmentation
+        let FpX = DensePolyRing::new(Zn::new(65537 * 65537), "X");
+        let Fp = FpX.base_ring();
+        let [f] = FpX.with_wrapped_indeterminate(|X| [65536 * X.pow_ref(5) + 2 * X.pow_ref(4) - 4 * X + 1]);
+        let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
+        assert_eq!(3, circuit.multiplication_gate_count());
+        for i in 0..10 {
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()),
+                circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
+            );
+        }
+
+        // monic augmentation
+        let FpX = DensePolyRing::new(Zn::new(65537 * 65537), "X");
+        let Fp = FpX.base_ring();
+        let [f] = FpX.with_wrapped_indeterminate(|X| [65537 * X.pow_ref(5) + 2 * X.pow_ref(4) - 4 * X + 1]);
+        let circuit = paterson_stockmeyer_circuit(&FpX, from_ref(&f));
+        assert_eq!(5, circuit.multiplication_gate_count());
+        for i in 0..10 {
+            assert_el_eq!(
+                Fp,
+                FpX.evaluate(&f, &Fp.int_hom().map(i), Fp.identity()),
+                circuit.evaluate_no_galois(&[Fp.int_hom().map(i)], Fp.identity())[0]
+            );
+        }
     }
 }

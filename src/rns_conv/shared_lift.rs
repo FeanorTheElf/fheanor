@@ -91,24 +91,28 @@ impl RNSOperation for RNSSharedBaseConversion {
 }
 
 #[cfg(test)]
-use feanor_math::homomorphism::*;
+mod test {
+    use feanor_math::homomorphism::*;
 
-#[test]
-fn test_rns_shared_base_conversion() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
-    let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
-    let table = RNSSharedBaseConversion::new(from.clone(), Vec::new(), vec![to[3]]);
+    use super::*;
 
-    for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
-        let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let y = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
+    #[test]
+    fn test_rns_shared_base_conversion() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
+        let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
+        let table = RNSSharedBaseConversion::new(from.clone(), Vec::new(), vec![to[3]]);
 
-        let actual = table.apply(Submatrix::from_1d(&x, 3, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
+        for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
+            let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+            let y = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+            let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-        for i in 0..y.len() {
-            assert!(to[i].eq_el(&y[i], actual.at(i, 0)));
+            let actual = table.apply(Submatrix::from_1d(&x, 3, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
+
+            for i in 0..y.len() {
+                assert!(to[i].eq_el(&y[i], actual.at(i, 0)));
+            }
         }
     }
 }

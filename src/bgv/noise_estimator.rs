@@ -586,8 +586,8 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         C: &CiphertextRing<Params>,
         ct: &CiphertextDescriptor<Params, Self>,
     ) -> f64 {
-        // we subtract `(C.rank() as f64).log2()`, since that should be about the difference between `l_inf`
-        // and canonical norm
+        // we subtract `(C.rank() as f64).log2()`, since that should be about the difference between
+        // `l_inf` and canonical norm
         ct.noise.log2_relative_critical_quantity - (C.rank() as f64).log2()
     }
 

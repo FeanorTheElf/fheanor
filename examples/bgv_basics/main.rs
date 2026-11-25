@@ -3,10 +3,11 @@
 // For a guided explanation of this example, see the doc
 #![doc = include_str!("Readme.md")]
 
-use feanor_math::algorithms::eea::signed_gcd;
 use feanor_math::assert_el_eq;
+use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::*;
+use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::primitive_int::*;
 use feanor_math::ring::{RingStore, *};
 use feanor_math::rings::extension::FreeAlgebraStore;
@@ -26,11 +27,7 @@ fn main() {
 
     let plaintext_modulus = int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING);
     let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(BigIntRing::RING.clone_el(&plaintext_modulus));
-    assert!(BigIntRing::RING.is_one(&signed_gcd(
-        BigIntRing::RING.clone_el(C_initial.base_ring().modulus()),
-        plaintext_modulus,
-        BigIntRing::RING
-    )));
+    assert!(BigIntRing::RING.is_unit(&BigIntRing::RING.ideal_gen(C_initial.base_ring().modulus(), &plaintext_modulus)));
 
     println!("N        = {}", C_initial.rank());
     println!("m        = {}", C_initial.acting_galois_group().m());

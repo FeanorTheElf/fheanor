@@ -1,7 +1,8 @@
+use feanor_math::group::AbelianGroupStore;
+
 use super::*;
 use crate::circuit::evaluator::CircuitEvaluator;
 use crate::circuit::{Coefficient, PlaintextCircuit};
-use crate::feanor_math::group::AbelianGroupStore;
 
 pub trait AsCLPXPlaintext<Params: CLPXInstantiation>: RingBase {
     /// Computes a plaintext-ciphertext addition.
@@ -258,32 +259,34 @@ impl<R: RingBase> PlaintextCircuit<R> {
 }
 
 #[cfg(test)]
-use std::slice::from_ref;
+mod test {
+    use std::slice::from_ref;
 
-#[cfg(test)]
-use feanor_math::rings::poly::{PolyRingStore, dense_poly::DensePolyRing};
+    use feanor_math::assert_el_eq;
 
-#[cfg(test)]
-use crate::poly_eval::to_circuit::poly_to_circuit;
+    use super::*;
+    use crate::clpx::test::test_setup_clpx;
+    use crate::poly_eval::to_circuit::poly_to_circuit;
 
-#[test]
-fn test_hom_evaluate_circuit() {
-    feanor_tracing::DelayedLogger::init_test();
-    let (P, C, C_mul, sk, rk, m, ct) = test_setup_clpx(Pow2CLPX::new(1 << 8));
-    let FpX = DensePolyRing::new(P.base_ring(), "X");
-    let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(7) - 3 * X.pow_ref(3) + 2 * X + 10]);
-    let circuit = poly_to_circuit(&FpX, from_ref(&f))
-        .change_ring_uniform(|x| x.change_ring(|x| FpX.base_ring().smallest_lift(x)));
+    #[test]
+    fn test_hom_evaluate_circuit() {
+        feanor_tracing::DelayedLogger::init_test();
+        let (P, C, C_mul, sk, rk, m, ct) = test_setup_clpx(Pow2CLPX::new(1 << 8));
+        let FpX = DensePolyRing::new(P.base_ring(), "X");
+        let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(7) - 3 * X.pow_ref(3) + 2 * X + 10]);
+        let circuit = poly_to_circuit(&FpX, from_ref(&f))
+            .change_ring_uniform(|x| x.change_ring(|x| FpX.base_ring().smallest_lift(x)));
 
-    let res = circuit
-        .evaluate_clpx::<Pow2CLPX, _>(ZZbig, &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], None)
-        .into_iter()
-        .next()
-        .unwrap();
-    assert_el_eq!(
-        &P,
-        P.inclusion()
-            .map(FpX.evaluate(&f, &P.wrt_canonical_basis(&m).at(0), FpX.base_ring().identity())),
-        &Pow2CLPX::dec(&P, &C, res, &sk)
-    );
+        let res = circuit
+            .evaluate_clpx::<Pow2CLPX, _>(ZZbig, &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], None)
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_el_eq!(
+            &P,
+            P.inclusion()
+                .map(FpX.evaluate(&f, &P.wrt_canonical_basis(&m).at(0), FpX.base_ring().identity())),
+            &Pow2CLPX::dec(&P, &C, res, &sk)
+        );
+    }
 }

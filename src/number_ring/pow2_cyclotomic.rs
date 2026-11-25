@@ -3,16 +3,12 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 
 use feanor_math::algorithms::fft::cooley_tuckey::bitreverse;
-use feanor_math::integer::*;
 use feanor_math::primitive_int::StaticRing;
-use feanor_math::ring::*;
 use feanor_math::rings::poly::*;
 use feanor_math::rings::zn::zn_64;
-use feanor_math::seq::*;
 use tracing::instrument;
 
 use crate::ntt::FheanorNegacyclicNTT;
-use crate::number_ring::galois::*;
 use crate::number_ring::*;
 use crate::{DefaultNegacyclicNTT, FheanorAllocator};
 
@@ -197,79 +193,75 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::homomorphism::*;
-#[cfg(test)]
-use feanor_math::rings::extension::FreeAlgebraStore;
-#[cfg(test)]
-use feanor_math::rings::zn::*;
+mod test {
+    use ::test::Bencher;
+    use feanor_math::assert_el_eq;
+    use feanor_math::homomorphism::*;
+    use feanor_math::rings::extension::FreeAlgebraStore;
+    use feanor_math::rings::zn::*;
 
-#[cfg(test)]
-use crate::ciphertext_ring::double_rns_ring;
-#[cfg(test)]
-use crate::ciphertext_ring::single_rns_ring;
-#[cfg(test)]
-use crate::number_ring::quotient_by_int;
+    use super::*;
+    use crate::ciphertext_ring::{double_rns_ring, single_rns_ring};
 
-#[test]
-fn test_pow2_cyclotomic_double_rns_ring() {
-    feanor_tracing::DelayedLogger::init_test();
-    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
-    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
-}
+    #[test]
+    fn test_pow2_cyclotomic_double_rns_ring() {
+        feanor_tracing::DelayedLogger::init_test();
+        double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
+        double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
+    }
 
-#[test]
-fn test_pow2_cyclotomic_single_rns_ring() {
-    feanor_tracing::DelayedLogger::init_test();
-    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
-    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
-}
+    #[test]
+    fn test_pow2_cyclotomic_single_rns_ring() {
+        feanor_tracing::DelayedLogger::init_test();
+        single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
+        single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
+    }
 
-#[test]
-fn test_pow2_cyclotomic_number_ring_quotient() {
-    feanor_tracing::DelayedLogger::init_test();
-    quotient_by_int::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
-    quotient_by_int::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
-}
+    #[test]
+    fn test_pow2_cyclotomic_number_ring_quotient() {
+        feanor_tracing::DelayedLogger::init_test();
+        quotient_by_int::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
+        quotient_by_int::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
+    }
 
-#[test]
-fn test_permute_galois_automorphism() {
-    feanor_tracing::DelayedLogger::init_test();
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
-    let R = double_rns_ring::DoubleRNSRingBase::new_with_alloc(number_ring, rns_base, Global);
-    assert_el_eq!(
-        R,
-        R.pow(R.canonical_gen(), 3),
-        R.get_ring()
-            .apply_galois_action(&R.canonical_gen(), &R.acting_galois_group().from_representative(3))
-    );
-    assert_el_eq!(
-        R,
-        R.pow(R.canonical_gen(), 6),
-        R.get_ring().apply_galois_action(
-            &R.pow(R.canonical_gen(), 2),
-            &R.acting_galois_group().from_representative(3)
-        )
-    );
-}
-
-#[bench]
-fn bench_permute_galois_action(bencher: &mut test::Bencher) {
-    feanor_tracing::DelayedLogger::init_test();
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(1 << 15);
-    let Fp = zn_64::Zn::new(65537);
-    let number_ring_mod_p = number_ring.bases_mod_p(Fp);
-    let input = (0..(1 << 14)).map(|i| Fp.int_hom().map(i)).collect::<Vec<_>>();
-    let mut output = (0..(1 << 14)).map(|_| Fp.zero()).collect::<Vec<_>>();
-    bencher.iter(|| {
-        number_ring_mod_p.permute_galois_action(
-            std::hint::black_box(&input),
-            &mut output,
-            &number_ring.galois_group().from_representative(5),
+    #[test]
+    fn test_permute_galois_automorphism() {
+        feanor_tracing::DelayedLogger::init_test();
+        let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
+        let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
+        let R = double_rns_ring::DoubleRNSRingBase::new_with_alloc(number_ring, rns_base, Global);
+        assert_el_eq!(
+            R,
+            R.pow(R.canonical_gen(), 3),
+            R.get_ring()
+                .apply_galois_action(&R.canonical_gen(), &R.acting_galois_group().from_representative(3))
         );
-        assert_el_eq!(&Fp, &input[1 << 12], &output[0]);
-        assert_el_eq!(&Fp, &input[(1 << 13) + (1 << 12) + (1 << 11)], &output[1 << 13]);
-    });
+        assert_el_eq!(
+            R,
+            R.pow(R.canonical_gen(), 6),
+            R.get_ring().apply_galois_action(
+                &R.pow(R.canonical_gen(), 2),
+                &R.acting_galois_group().from_representative(3)
+            )
+        );
+    }
+
+    #[bench]
+    fn bench_permute_galois_action(bencher: &mut Bencher) {
+        feanor_tracing::DelayedLogger::init_test();
+        let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(1 << 15);
+        let Fp = zn_64::Zn::new(65537);
+        let number_ring_mod_p = number_ring.bases_mod_p(Fp);
+        let input = (0..(1 << 14)).map(|i| Fp.int_hom().map(i)).collect::<Vec<_>>();
+        let mut output = (0..(1 << 14)).map(|_| Fp.zero()).collect::<Vec<_>>();
+        bencher.iter(|| {
+            number_ring_mod_p.permute_galois_action(
+                std::hint::black_box(&input),
+                &mut output,
+                &number_ring.galois_group().from_representative(5),
+            );
+            assert_el_eq!(&Fp, &input[1 << 12], &output[0]);
+            assert_el_eq!(&Fp, &input[(1 << 13) + (1 << 12) + (1 << 11)], &output[1 << 13]);
+        });
+    }
 }

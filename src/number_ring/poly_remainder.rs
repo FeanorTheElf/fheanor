@@ -348,136 +348,137 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::algorithms::convolution::ntt::NTTConvolution;
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_64::*;
-#[cfg(test)]
-use feanor_math::rings::zn::*;
+mod test {
+    use feanor_math::algorithms::convolution::ntt::NTTConvolution;
+    use feanor_math::assert_el_eq;
+    use feanor_math::rings::zn::zn_64::*;
+    use feanor_math::rings::zn::*;
 
-#[test]
-fn test_sparse_poly_remainder() {
-    feanor_tracing::DelayedLogger::init_test();
-    let poly_ring = DensePolyRing::new(StaticRing::<i64>::RING, "X");
-    let poly = cyclotomic_polynomial(&poly_ring, 5);
-    let reducer = SparsePolyReducer::new(&poly_ring, &poly, StaticRing::<i64>::RING, 3);
-    let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
-    let expected = [4, 5, 6, 10, -9, -9, -6, -6, -6, -3, -3, -3];
+    use super::*;
 
-    reducer.remainder(&mut data);
+    #[test]
+    fn test_sparse_poly_remainder() {
+        feanor_tracing::DelayedLogger::init_test();
+        let poly_ring = DensePolyRing::new(StaticRing::<i64>::RING, "X");
+        let poly = cyclotomic_polynomial(&poly_ring, 5);
+        let reducer = SparsePolyReducer::new(&poly_ring, &poly, StaticRing::<i64>::RING, 3);
+        let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+        let expected = [4, 5, 6, 10, -9, -9, -6, -6, -6, -3, -3, -3];
 
-    assert_eq!(&expected, &data[..12]);
+        reducer.remainder(&mut data);
 
-    let poly_ring = DensePolyRing::new(StaticRing::<i64>::RING, "X");
-    let poly = poly_ring.sub(poly_ring.indeterminate(), poly_ring.one());
-    let reducer = SparsePolyReducer::new(&poly_ring, &poly, StaticRing::<i64>::RING, 13);
-    let mut data = [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-    ];
-    let expected = [15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 13];
+        assert_eq!(&expected, &data[..12]);
 
-    reducer.remainder(&mut data);
+        let poly_ring = DensePolyRing::new(StaticRing::<i64>::RING, "X");
+        let poly = poly_ring.sub(poly_ring.indeterminate(), poly_ring.one());
+        let reducer = SparsePolyReducer::new(&poly_ring, &poly, StaticRing::<i64>::RING, 13);
+        let mut data = [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        ];
+        let expected = [15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 13];
 
-    assert_eq!(&expected, &data[..13]);
-}
+        reducer.remainder(&mut data);
 
-#[test]
-fn test_barett_poly_remainder() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = Zn::new(65537).as_field().ok().unwrap();
-    let convolution = NTTConvolution::new(ring.clone());
-    let poly_ring = DensePolyRing::new(ring.clone(), "X");
-    let poly = cyclotomic_polynomial(&poly_ring, 4 * 5 * 7);
-    let reducer = BarettPolyReducer::new(poly_ring.clone(), &poly, 200, convolution);
-    let expected = poly_ring
-        .div_rem_monic(
-            poly_ring.from_terms((1..=201).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
-            &poly,
-        )
-        .1;
-
-    let mut actual = (1..=201)
-        .chain([0].into_iter())
-        .map(|x| ring.int_hom().map(x))
-        .collect::<Vec<_>>();
-    reducer.remainder(&mut actual);
-
-    for i in 0..48 {
-        assert_el_eq!(&ring, poly_ring.coefficient_at(&expected, i), &actual[i]);
+        assert_eq!(&expected, &data[..13]);
     }
 
-    let poly = poly_ring.add(
-        cyclotomic_polynomial(&poly_ring, 25),
-        cyclotomic_polynomial(&poly_ring, 23 * 5),
-    );
-    let convolution = NTTConvolution::new(ring.clone());
-    let reducer = BarettPolyReducer::new(poly_ring.clone(), &poly, 150, convolution);
-    let expected = poly_ring
-        .div_rem_monic(
-            poly_ring.from_terms((1..=151).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
-            &poly,
-        )
-        .1;
+    #[test]
+    fn test_barett_poly_remainder() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = Zn::new(65537).as_field().ok().unwrap();
+        let convolution = NTTConvolution::new(ring.clone());
+        let poly_ring = DensePolyRing::new(ring.clone(), "X");
+        let poly = cyclotomic_polynomial(&poly_ring, 4 * 5 * 7);
+        let reducer = BarettPolyReducer::new(poly_ring.clone(), &poly, 200, convolution);
+        let expected = poly_ring
+            .div_rem_monic(
+                poly_ring.from_terms((1..=201).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
+                &poly,
+            )
+            .1;
 
-    let mut actual = (1..=151)
-        .chain([0].into_iter())
-        .map(|x| ring.int_hom().map(x))
-        .collect::<Vec<_>>();
-    reducer.remainder(&mut actual);
+        let mut actual = (1..=201)
+            .chain([0].into_iter())
+            .map(|x| ring.int_hom().map(x))
+            .collect::<Vec<_>>();
+        reducer.remainder(&mut actual);
 
-    for i in 0..48 {
-        assert_el_eq!(&ring, poly_ring.coefficient_at(&expected, i), &actual[i]);
-    }
-}
+        for i in 0..48 {
+            assert_el_eq!(&ring, poly_ring.coefficient_at(&expected, i), &actual[i]);
+        }
 
-#[test]
-fn test_cyclotomic_poly_remainder() {
-    feanor_tracing::DelayedLogger::init_test();
-    let ring = Zn::new(65537).as_field().ok().unwrap();
-    let convolution = NTTConvolution::new(ring.clone());
-    let poly_ring = DensePolyRing::new(ring.clone(), "X");
-    let reducer = CyclotomicPolyReducer::new(ring.clone(), 3, convolution);
-    let expected = [ring.zero(), ring.zero()];
+        let poly = poly_ring.add(
+            cyclotomic_polynomial(&poly_ring, 25),
+            cyclotomic_polynomial(&poly_ring, 23 * 5),
+        );
+        let convolution = NTTConvolution::new(ring.clone());
+        let reducer = BarettPolyReducer::new(poly_ring.clone(), &poly, 150, convolution);
+        let expected = poly_ring
+            .div_rem_monic(
+                poly_ring.from_terms((1..=151).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
+                &poly,
+            )
+            .1;
 
-    let mut actual = [ring.one(), ring.one(), ring.one()];
-    reducer.remainder(&mut actual);
+        let mut actual = (1..=151)
+            .chain([0].into_iter())
+            .map(|x| ring.int_hom().map(x))
+            .collect::<Vec<_>>();
+        reducer.remainder(&mut actual);
 
-    for i in 0..2 {
-        assert_el_eq!(&ring, &expected[i], &actual[i]);
-    }
-
-    let convolution = NTTConvolution::new(ring.clone());
-    let poly = cyclotomic_polynomial(&poly_ring, 5);
-    let reducer = CyclotomicPolyReducer::new(ring.clone(), 5, convolution);
-    let expected = poly_ring
-        .div_rem_monic(
-            poly_ring.from_terms((1..6).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
-            &poly,
-        )
-        .1;
-
-    let mut actual = (1..6).map(|x| ring.int_hom().map(x)).collect::<Vec<_>>();
-    reducer.remainder(&mut actual);
-
-    for i in 0..4 {
-        assert_el_eq!(&ring, poly_ring.coefficient_at(&expected, i), &actual[i]);
+        for i in 0..48 {
+            assert_el_eq!(&ring, poly_ring.coefficient_at(&expected, i), &actual[i]);
+        }
     }
 
-    let poly = cyclotomic_polynomial(&poly_ring, 4 * 5 * 7);
-    let convolution = NTTConvolution::new(ring.clone());
-    let reducer = CyclotomicPolyReducer::new(ring.clone(), 4 * 5 * 7, convolution);
-    let expected = poly_ring
-        .div_rem_monic(
-            poly_ring.from_terms((1..200).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
-            &poly,
-        )
-        .1;
+    #[test]
+    fn test_cyclotomic_poly_remainder() {
+        feanor_tracing::DelayedLogger::init_test();
+        let ring = Zn::new(65537).as_field().ok().unwrap();
+        let convolution = NTTConvolution::new(ring.clone());
+        let poly_ring = DensePolyRing::new(ring.clone(), "X");
+        let reducer = CyclotomicPolyReducer::new(ring.clone(), 3, convolution);
+        let expected = [ring.zero(), ring.zero()];
 
-    let mut actual = (1..200).map(|x| ring.int_hom().map(x)).collect::<Vec<_>>();
-    reducer.remainder(&mut actual);
+        let mut actual = [ring.one(), ring.one(), ring.one()];
+        reducer.remainder(&mut actual);
 
-    for i in 0..48 {
-        assert_el_eq!(&ring, poly_ring.coefficient_at(&expected, i), &actual[i]);
+        for i in 0..2 {
+            assert_el_eq!(&ring, &expected[i], &actual[i]);
+        }
+
+        let convolution = NTTConvolution::new(ring.clone());
+        let poly = cyclotomic_polynomial(&poly_ring, 5);
+        let reducer = CyclotomicPolyReducer::new(ring.clone(), 5, convolution);
+        let expected = poly_ring
+            .div_rem_monic(
+                poly_ring.from_terms((1..6).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
+                &poly,
+            )
+            .1;
+
+        let mut actual = (1..6).map(|x| ring.int_hom().map(x)).collect::<Vec<_>>();
+        reducer.remainder(&mut actual);
+
+        for i in 0..4 {
+            assert_el_eq!(&ring, poly_ring.coefficient_at(&expected, i), &actual[i]);
+        }
+
+        let poly = cyclotomic_polynomial(&poly_ring, 4 * 5 * 7);
+        let convolution = NTTConvolution::new(ring.clone());
+        let reducer = CyclotomicPolyReducer::new(ring.clone(), 4 * 5 * 7, convolution);
+        let expected = poly_ring
+            .div_rem_monic(
+                poly_ring.from_terms((1..200).enumerate().map(|(i, x)| (ring.int_hom().map(x), i))),
+                &poly,
+            )
+            .1;
+
+        let mut actual = (1..200).map(|x| ring.int_hom().map(x)).collect::<Vec<_>>();
+        reducer.remainder(&mut actual);
+
+        for i in 0..48 {
+            assert_el_eq!(&ring, poly_ring.coefficient_at(&expected, i), &actual[i]);
+        }
     }
 }

@@ -5,13 +5,13 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use feanor_math::algorithms::convolution::{ConvolutionAlgorithm, STANDARD_CONVOLUTION};
-use feanor_math::algorithms::eea::signed_gcd;
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::algorithms::matmul::ComputeInnerProduct;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::homomorphism::*;
 use feanor_math::integer::{BigIntRing, BigIntRingBase, IntegerRingStore, int_cast};
 use feanor_math::ordered::OrderedRingStore;
+use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::ring::*;
 use feanor_math::rings::extension::*;
 use feanor_math::rings::finite::*;
@@ -709,7 +709,8 @@ pub trait BGVInstantiation {
         let mut c1 = C.zero();
         for (m, ct) in summands {
             assert!(P.base_ring().is_unit(&ct.implicit_scale));
-            // fold the implicit scale into the scalar (free), bringing the result to implicit scale 1
+            // fold the implicit scale into the scalar (free), bringing the result to implicit scale
+            // 1
             let scalar = P.base_ring().mul(m, P.base_ring().invert(&ct.implicit_scale).unwrap());
             let scalar = to_Cbase.map(int_cast(
                 P.base_ring().smallest_lift(scalar),
@@ -931,8 +932,8 @@ pub trait BGVInstantiation {
                 switch_key.gadget_vector_digits(),
             );
             // we cheat regarding the implicit scale; since the scaling up and down later exactly
-            // cancel out any changes to the implicit scale, we just temporarily set it to 1 and later
-            // overwrite it with the original implicit scale
+            // cancel out any changes to the implicit scale, we just temporarily set it to 1 and
+            // later overwrite it with the original implicit scale
             let switched = Ciphertext {
                 c0: op.gadget_product(&switch_key.k0, C_special.get_ring()),
                 c1: op.gadget_product(&switch_key.k1, C_special.get_ring()),
@@ -1126,9 +1127,10 @@ pub trait BGVInstantiation {
                         implicit_scale: P.base_ring().clone_el(&ct.implicit_scale),
                     };
                 } else {
-                    // we cheat regarding the implicit scale; since the scaling up and down later exactly
-                    // cancel out any changes to the implicit scale, we just temporarily set it to 1 and later
-                    // overwrite it with the original implicit scale
+                    // we cheat regarding the implicit scale; since the scaling up and down later
+                    // exactly cancel out any changes to the implicit scale, we
+                    // just temporarily set it to 1 and later overwrite it with
+                    // the original implicit scale
                     let switched = Ciphertext {
                         c0: c1_g.gadget_product(&gks.at(i).k0, C_special.get_ring()),
                         c1: c1_g.gadget_product(&gks.at(i).k1, C_special.get_ring()),
@@ -1501,11 +1503,7 @@ pub trait BGVInstantiation {
         let ZZ = P.base_ring().integer_ring();
         assert!(ZZ.get_ring() == target.base_ring().integer_ring().get_ring());
         assert!(
-            ZZ.is_one(&signed_gcd(
-                ZZ.clone_el(P.base_ring().modulus()),
-                ZZ.clone_el(target.base_ring().modulus()),
-                ZZ
-            )),
+            ZZ.is_unit(&ZZ.ideal_gen(P.base_ring().modulus(), target.base_ring().modulus())),
             "can only mod-switch to ciphertext moduli that are coprime to t"
         );
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
@@ -1638,14 +1636,13 @@ impl<A: FheanorAllocator, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow2
         sk: &SecretKey<Self>,
         noise_sigma: f64,
     ) -> Ciphertext<Self> {
-        assert!(ZZbig.is_one(&signed_gcd(
-            ZZbig.clone_el(C.base_ring().modulus()),
-            int_cast(
+        assert!(ZZbig.is_unit(&ZZbig.ideal_gen(
+            C.base_ring().modulus(),
+            &int_cast(
                 P.base_ring().integer_ring().clone_el(P.base_ring().modulus()),
                 ZZbig,
                 P.base_ring().integer_ring()
-            ),
-            ZZbig
+            )
         )));
         let t = C.base_ring().coerce(&ZZi64, *P.base_ring().modulus());
         let (a, b) = Self::rlwe_sample(C, rng, sk, noise_sigma);
@@ -1901,528 +1898,527 @@ where
 }
 
 #[cfg(test)]
-use std::fmt::Debug;
+mod test {
 
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use rand::rngs::StdRng;
+    use feanor_math::assert_el_eq;
+    use rand::rngs::StdRng;
 
-#[cfg(test)]
-use crate::log_time;
+    use super::*;
+    use crate::log_time;
 
-#[test]
-fn test_pow2_bgv_enc_dec() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
+    #[test]
+    fn test_pow2_bgv_enc_dec() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
 
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let C = params.create_ciphertext_ring(500..520);
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(16));
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+        let C = params.create_ciphertext_ring(500..520);
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(16));
 
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let output = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &ctxt), &sk);
-    assert_el_eq!(&P, input, output);
-}
+        let input = P.int_hom().map(2);
+        let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
+        let output = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &ctxt), &sk);
+        assert_el_eq!(&P, input, output);
+    }
 
-#[test]
-fn test_pow2_bgv_gen_sk() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = StdRng::from_seed([0; 32]);
+    #[test]
+    fn test_pow2_bgv_gen_sk() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = StdRng::from_seed([0; 32]);
 
-    let params = Pow2BGV::new(1 << 8);
-    let C = params.create_ciphertext_ring(500..520);
+        let params = Pow2BGV::new(1 << 8);
+        let C = params.create_ciphertext_ring(500..520);
 
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::Zero);
-    assert_el_eq!(&C, C.zero(), &sk);
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::Zero);
+        assert_el_eq!(&C, C.zero(), &sk);
 
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(1));
-    assert!(
-        C.wrt_canonical_basis(&sk)
-            .iter()
-            .filter(|c| C.base_ring().is_one(&c) || C.base_ring().is_neg_one(&c))
-            .count()
-            == 1
-    );
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(1));
+        assert!(
+            C.wrt_canonical_basis(&sk)
+                .iter()
+                .filter(|c| C.base_ring().is_one(&c) || C.base_ring().is_neg_one(&c))
+                .count()
+                == 1
+        );
 
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    assert!(
-        C.wrt_canonical_basis(&sk)
-            .iter()
-            .filter(|c| C.base_ring().is_one(&c))
-            .count()
-            > 32
-    );
-}
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+        assert!(
+            C.wrt_canonical_basis(&sk)
+                .iter()
+                .filter(|c| C.base_ring().is_one(&c))
+                .count()
+                > 32
+        );
+    }
 
-#[test]
-fn test_pow2_bgv_mul() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
+    #[test]
+    fn test_pow2_bgv_mul() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
 
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let C = params.create_ciphertext_ring(500..520);
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(
-        &P,
-        &C,
-        &mut rng,
-        &sk,
-        &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
-        3.2,
-    );
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+        let C = params.create_ciphertext_ring(500..520);
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+        let rk = Pow2BGV::gen_rk(
+            &P,
+            &C,
+            &mut rng,
+            &sk,
+            &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
+            3.2,
+        );
 
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C, ctxt, &rk);
-    let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
-    assert_el_eq!(&P, P.int_hom().map(4), result);
-}
+        let input = P.int_hom().map(2);
+        let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
+        let result_ctxt = Pow2BGV::hom_square(&P, &C, &C, ctxt, &rk);
+        let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
+        assert_el_eq!(&P, P.int_hom().map(4), result);
+    }
 
-#[test]
-fn test_pow2_bgv_hybrid_key_switch() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
+    #[test]
+    fn test_pow2_bgv_hybrid_key_switch() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
 
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let C_special = params.create_ciphertext_ring(300..320);
-    assert_eq!(6, C_special.base_ring().len());
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+        let C_special = params.create_ciphertext_ring(300..320);
+        assert_eq!(6, C_special.base_ring().len());
 
-    let special_modulus_factors = RNSFactorIndexList::from(vec![5], C_special.base_ring().len());
-    let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);
-    let sk = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
-    let sk_new = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
-    let switch_key = Pow2BGV::gen_switch_key(
-        &P,
-        &C_special,
-        &mut rng,
-        &sk,
-        &sk_new,
-        &RNSGadgetVectorDigitIndices::select_digits(6, C_special.base_ring().len()),
-        3.2,
-    );
+        let special_modulus_factors = RNSFactorIndexList::from(vec![5], C_special.base_ring().len());
+        let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);
+        let sk = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
+        let sk_new = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
+        let switch_key = Pow2BGV::gen_switch_key(
+            &P,
+            &C_special,
+            &mut rng,
+            &sk,
+            &sk_new,
+            &RNSGadgetVectorDigitIndices::select_digits(6, C_special.base_ring().len()),
+            3.2,
+        );
 
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(
-        &P,
-        &C,
-        &mut rng,
-        &input,
-        &Pow2BGV::mod_switch_sk(&C, &C_special, &sk),
-        3.2,
-    );
-    let result_ctxt = Pow2BGV::key_switch(&P, &C, &C_special, Pow2BGV::clone_ct(&P, &C, &ctxt), &switch_key);
-    let result = Pow2BGV::dec(
-        &P,
-        &C,
-        Pow2BGV::clone_ct(&P, &C, &result_ctxt),
-        &Pow2BGV::mod_switch_sk(&C, &C_special, &sk_new),
-    );
-    assert_el_eq!(&P, P.int_hom().map(2), result);
-
-    let critical_quantity_size = |ct: &Ciphertext<Pow2BGV>, sk: &SecretKey<Pow2BGV>| {
-        C.wrt_canonical_basis(&C.add_ref_fst(
-            &ct.c0,
-            C.mul_ref_fst(&ct.c1, Pow2BGV::mod_switch_sk(&C, &C_special, sk)),
-        ))
-        .iter()
-        .map(|c| ZZbig.abs_log2_ceil(&C.base_ring().smallest_lift(c)).unwrap_or(0))
-        .max()
-        .unwrap()
-    };
-    assert!(
-        critical_quantity_size(&result_ctxt, &sk_new) <= critical_quantity_size(&ctxt, &sk) + 4,
-        "critical quantity size increased too much; {} increased to {}",
-        critical_quantity_size(&ctxt, &sk),
-        critical_quantity_size(&result_ctxt, &sk_new)
-    );
-
-    let rk = Pow2BGV::gen_rk(
-        &P,
-        &C_special,
-        &mut rng,
-        &sk,
-        &RNSGadgetVectorDigitIndices::select_digits(6, C_special.base_ring().len()),
-        3.2,
-    );
-    let sk_current = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk_current, 3.2);
-    let original_critical_quantity_size = critical_quantity_size(&ctxt, &sk);
-    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, ctxt, &rk);
-    let result = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &result_ctxt), &sk_current);
-    assert_el_eq!(&P, P.int_hom().map(4), result);
-    assert!(
-        critical_quantity_size(&result_ctxt, &sk) <= original_critical_quantity_size + 20,
-        "critical quantity size increased too much; {} increased to {}",
-        original_critical_quantity_size,
-        critical_quantity_size(&result_ctxt, &sk)
-    );
-
-    let special_modulus_factors = RNSFactorIndexList::from(vec![0, 1], C_special.base_ring().len());
-    let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);
-    let sk = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
-
-    let rk = Pow2BGV::gen_rk(
-        &P,
-        &C_special,
-        &mut rng,
-        &sk,
-        &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()),
-        3.2,
-    );
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C_special, &mut rng, &input, &sk, 3.2);
-    let first_mul_ctxt = Pow2BGV::hom_square(&P, &C_special, &C_special, ctxt, &rk);
-    let modswitched_ctxt = Pow2BGV::mod_switch_ct(&P, &C, &C_special, first_mul_ctxt);
-    let sk = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
-    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, modswitched_ctxt, &rk);
-    let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
-    assert_el_eq!(&P, P.int_hom().map(16), result);
-}
-
-#[test]
-fn test_pow2_bgv_modulus_switch() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
-
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let C0 = params.create_ciphertext_ring(500..520);
-    assert_eq!(9, C0.base_ring().len());
-
-    let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
-
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk, 3.2);
-
-    for i in [0, 1, 8] {
-        let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
-        let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
-        let ctxt1 = Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt));
+        let input = P.int_hom().map(2);
+        let ctxt = Pow2BGV::enc_sym(
+            &P,
+            &C,
+            &mut rng,
+            &input,
+            &Pow2BGV::mod_switch_sk(&C, &C_special, &sk),
+            3.2,
+        );
+        let result_ctxt = Pow2BGV::key_switch(&P, &C, &C_special, Pow2BGV::clone_ct(&P, &C, &ctxt), &switch_key);
         let result = Pow2BGV::dec(
             &P,
-            &C1,
-            Pow2BGV::clone_ct(&P, &C1, &ctxt1),
-            &Pow2BGV::mod_switch_sk(&C1, &C0, &sk),
+            &C,
+            Pow2BGV::clone_ct(&P, &C, &result_ctxt),
+            &Pow2BGV::mod_switch_sk(&C, &C_special, &sk_new),
         );
         assert_el_eq!(&P, P.int_hom().map(2), result);
 
-        let ctxt2 = Pow2BGV::mod_switch_ct(&P, &C0, &C1, ctxt1);
-        let result = Pow2BGV::dec(&P, &C0, ctxt2, &sk);
-        assert_el_eq!(&P, P.int_hom().map(2), result);
-    }
-}
-
-#[test]
-fn test_pow2_change_plaintext_modulus() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
-
-    let params = Pow2BGV::new(1 << 8);
-    let C = params.create_ciphertext_ring(500..520);
-    let P0 = params.create_plaintext_ring(int_cast(17 * 17, ZZbig, ZZi64));
-    let P1 = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
-
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-
-    let input = P0.int_hom().map(2 * 17);
-    let ctxt = Pow2BGV::enc_sym(&P0, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = Pow2BGV::change_plaintext_modulus(&P1, &P0, &C, ctxt);
-    let result = Pow2BGV::dec(&P1, &C, result_ctxt, &sk);
-    assert_el_eq!(&P1, P1.int_hom().map(2), result);
-}
-
-#[test]
-fn test_pow2_modulus_switch_hom_add() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
-
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let C0 = params.create_ciphertext_ring(500..520);
-    assert_eq!(9, C0.base_ring().len());
-
-    let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
-
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk, 3.2);
-
-    for i in [0, 1, 8] {
-        let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
-        let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
-        let ctxt_modswitch = Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt));
-        let sk_modswitch = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
-        let ctxt_other = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(30), &sk_modswitch, 3.2);
-
-        let ctxt_result = Pow2BGV::hom_add(&P, &C1, ctxt_modswitch, ctxt_other, ImplicitScalePolicy::Merge);
-
-        let result = Pow2BGV::dec(&P, &C1, ctxt_result, &sk_modswitch);
-        assert_el_eq!(&P, P.int_hom().map(32), result);
-    }
-}
-
-#[test]
-fn test_pow2_bgv_modulus_switch_rk() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = rand::rng();
-
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let C0 = params.create_ciphertext_ring(500..520);
-    assert_eq!(9, C0.base_ring().len());
-
-    let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(
-        &P,
-        &C0,
-        &mut rng,
-        &sk,
-        &RNSGadgetVectorDigitIndices::select_digits(3, C0.base_ring().len()),
-        3.2,
-    );
-
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk, 3.2);
-
-    for i in [0, 1, 8] {
-        let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
-        let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
-        let new_sk = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
-        let new_rk = Pow2BGV::mod_switch_down_rk(&C1, &C0, &rk);
-        let ctxt2 = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(3), &new_sk, 3.2);
-        let result_ctxt = Pow2BGV::hom_mul(
-            &P,
-            &C1,
-            &C1,
-            Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt)),
-            ctxt2,
-            &new_rk,
+        let critical_quantity_size = |ct: &Ciphertext<Pow2BGV>, sk: &SecretKey<Pow2BGV>| {
+            C.wrt_canonical_basis(&C.add_ref_fst(
+                &ct.c0,
+                C.mul_ref_fst(&ct.c1, Pow2BGV::mod_switch_sk(&C, &C_special, sk)),
+            ))
+            .iter()
+            .map(|c| ZZbig.abs_log2_ceil(&C.base_ring().smallest_lift(c)).unwrap_or(0))
+            .max()
+            .unwrap()
+        };
+        assert!(
+            critical_quantity_size(&result_ctxt, &sk_new) <= critical_quantity_size(&ctxt, &sk) + 4,
+            "critical quantity size increased too much; {} increased to {}",
+            critical_quantity_size(&ctxt, &sk),
+            critical_quantity_size(&result_ctxt, &sk_new)
         );
-        let result = Pow2BGV::dec(&P, &C1, result_ctxt, &new_sk);
-        assert_el_eq!(&P, P.int_hom().map(6), result);
+
+        let rk = Pow2BGV::gen_rk(
+            &P,
+            &C_special,
+            &mut rng,
+            &sk,
+            &RNSGadgetVectorDigitIndices::select_digits(6, C_special.base_ring().len()),
+            3.2,
+        );
+        let sk_current = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
+        let input = P.int_hom().map(2);
+        let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk_current, 3.2);
+        let original_critical_quantity_size = critical_quantity_size(&ctxt, &sk);
+        let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, ctxt, &rk);
+        let result = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &result_ctxt), &sk_current);
+        assert_el_eq!(&P, P.int_hom().map(4), result);
+        assert!(
+            critical_quantity_size(&result_ctxt, &sk) <= original_critical_quantity_size + 20,
+            "critical quantity size increased too much; {} increased to {}",
+            original_critical_quantity_size,
+            critical_quantity_size(&result_ctxt, &sk)
+        );
+
+        let special_modulus_factors = RNSFactorIndexList::from(vec![0, 1], C_special.base_ring().len());
+        let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);
+        let sk = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
+
+        let rk = Pow2BGV::gen_rk(
+            &P,
+            &C_special,
+            &mut rng,
+            &sk,
+            &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()),
+            3.2,
+        );
+        let input = P.int_hom().map(2);
+        let ctxt = Pow2BGV::enc_sym(&P, &C_special, &mut rng, &input, &sk, 3.2);
+        let first_mul_ctxt = Pow2BGV::hom_square(&P, &C_special, &C_special, ctxt, &rk);
+        let modswitched_ctxt = Pow2BGV::mod_switch_ct(&P, &C, &C_special, first_mul_ctxt);
+        let sk = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
+        let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, modswitched_ctxt, &rk);
+        let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
+        assert_el_eq!(&P, P.int_hom().map(16), result);
     }
-}
 
-#[test]
-fn test_pow2_mod_switch_repeated() {
-    feanor_tracing::DelayedLogger::init_test();
-    let mut rng = StdRng::from_seed([0; 32]);
+    #[test]
+    fn test_pow2_bgv_modulus_switch() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
 
-    let params = Pow2BGV::new(1 << 8);
-    let P = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
-    let C0 = params.create_ciphertext_ring(790..800);
-    assert_eq!(14, C0.base_ring().len());
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+        let C0 = params.create_ciphertext_ring(500..520);
+        assert_eq!(9, C0.base_ring().len());
 
-    let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
-    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &P.int_hom().map(2), &sk, 3.2);
-    let C1 = Pow2BGV::mod_switch_down_C(&C0, &RNSFactorIndexList::from(vec![0, 1, 12, 13], 14));
-    let ctxt1 = Pow2BGV::mod_switch_ct(&P, &C1, &C0, ctxt);
-    let sk1 = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(2),
-        Pow2BGV::dec(&P, &C1, Pow2BGV::clone_ct(&P, &C1, &ctxt1), &sk1)
-    );
+        let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
 
-    let C2 = Pow2BGV::mod_switch_down_C(&C0, &RNSFactorIndexList::from(vec![0, 1, 2, 12, 13], 14));
-    let ctxt2 = Pow2BGV::mod_switch_ct(&P, &C2, &C1, ctxt1);
-    let sk2 = Pow2BGV::mod_switch_sk(&C2, &C0, &sk);
-    assert_el_eq!(&P, &P.int_hom().map(2), Pow2BGV::dec(&P, &C2, ctxt2, &sk2));
-}
+        let input = P.int_hom().map(2);
+        let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk, 3.2);
 
-#[test]
-#[ignore]
-fn measure_time_pow2_bgv_basic_ops() {
-    feanor_tracing::DelayedLogger::init_test();
+        for i in [0, 1, 8] {
+            let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
+            let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
+            let ctxt1 = Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt));
+            let result = Pow2BGV::dec(
+                &P,
+                &C1,
+                Pow2BGV::clone_ct(&P, &C1, &ctxt1),
+                &Pow2BGV::mod_switch_sk(&C1, &C0, &sk),
+            );
+            assert_el_eq!(&P, P.int_hom().map(2), result);
 
-    let mut rng = rand::rng();
-    let params = Pow2BGV::new(1 << 16);
+            let ctxt2 = Pow2BGV::mod_switch_ct(&P, &C0, &C1, ctxt1);
+            let result = Pow2BGV::dec(&P, &C0, ctxt2, &sk);
+            assert_el_eq!(&P, P.int_hom().map(2), result);
+        }
+    }
 
-    let P = log_time("CreatePtxtRing", |[]| {
-        params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64))
-    });
+    #[test]
+    fn test_pow2_change_plaintext_modulus() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
 
-    let C = log_time("CreateCtxtRing", |[]| params.create_ciphertext_ring(790..800));
+        let params = Pow2BGV::new(1 << 8);
+        let C = params.create_ciphertext_ring(500..520);
+        let P0 = params.create_plaintext_ring(int_cast(17 * 17, ZZbig, ZZi64));
+        let P1 = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
 
-    let sk = log_time("GenSK", |[]| {
-        Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
-    });
+        let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 
-    let m = P.int_hom().map(2);
-    let ct = log_time("EncSym", |[]| Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2));
+        let input = P0.int_hom().map(2 * 17);
+        let ctxt = Pow2BGV::enc_sym(&P0, &C, &mut rng, &input, &sk, 3.2);
+        let result_ctxt = Pow2BGV::change_plaintext_modulus(&P1, &P0, &C, ctxt);
+        let result = Pow2BGV::dec(&P1, &C, result_ctxt, &sk);
+        assert_el_eq!(&P1, P1.int_hom().map(2), result);
+    }
 
-    let res = log_time("HomAddPlain", |[]| {
-        Pow2BGV::hom_add_plain(&P, &C, &m, Pow2BGV::clone_ct(&P, &C, &ct))
-    });
-    assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, res, &sk));
+    #[test]
+    fn test_pow2_modulus_switch_hom_add() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
 
-    let res = log_time("HomMulPlain", |[]| {
-        Pow2BGV::hom_mul_plain(&P, &C, &m, Pow2BGV::clone_ct(&P, &C, &ct))
-    });
-    assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, res, &sk));
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+        let C0 = params.create_ciphertext_ring(500..520);
+        assert_eq!(9, C0.base_ring().len());
 
-    let rk = log_time("GenRK", |[]| {
-        Pow2BGV::gen_rk(
+        let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
+
+        let input = P.int_hom().map(2);
+        let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk, 3.2);
+
+        for i in [0, 1, 8] {
+            let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
+            let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
+            let ctxt_modswitch = Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt));
+            let sk_modswitch = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
+            let ctxt_other = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(30), &sk_modswitch, 3.2);
+
+            let ctxt_result = Pow2BGV::hom_add(&P, &C1, ctxt_modswitch, ctxt_other, ImplicitScalePolicy::Merge);
+
+            let result = Pow2BGV::dec(&P, &C1, ctxt_result, &sk_modswitch);
+            assert_el_eq!(&P, P.int_hom().map(32), result);
+        }
+    }
+
+    #[test]
+    fn test_pow2_bgv_modulus_switch_rk() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = rand::rng();
+
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
+        let C0 = params.create_ciphertext_ring(500..520);
+        assert_eq!(9, C0.base_ring().len());
+
+        let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
+        let rk = Pow2BGV::gen_rk(
             &P,
-            &C,
+            &C0,
             &mut rng,
             &sk,
-            &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
+            &RNSGadgetVectorDigitIndices::select_digits(3, C0.base_ring().len()),
             3.2,
-        )
-    });
-    let ct2 = Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
-    let res = log_time("HomMul", |[]| Pow2BGV::hom_mul(&P, &C, &C, ct, ct2, &rk));
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(4),
-        &Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &res), &sk)
-    );
+        );
 
-    let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
-    let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
-    let sk_new = Pow2BGV::mod_switch_sk(&C_new, &C, &sk);
-    let res_new = log_time("ModSwitch", |[]| Pow2BGV::mod_switch_ct(&P, &C_new, &C, res));
-    assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C_new, res_new, &sk_new));
-}
+        let input = P.int_hom().map(2);
+        let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk, 3.2);
 
-#[test]
-#[ignore]
-fn measure_time_double_rns_composite_bgv_basic_ops() {
-    feanor_tracing::DelayedLogger::init_test();
+        for i in [0, 1, 8] {
+            let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
+            let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
+            let new_sk = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
+            let new_rk = Pow2BGV::mod_switch_down_rk(&C1, &C0, &rk);
+            let ctxt2 = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(3), &new_sk, 3.2);
+            let result_ctxt = Pow2BGV::hom_mul(
+                &P,
+                &C1,
+                &C1,
+                Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt)),
+                ctxt2,
+                &new_rk,
+            );
+            let result = Pow2BGV::dec(&P, &C1, result_ctxt, &new_sk);
+            assert_el_eq!(&P, P.int_hom().map(6), result);
+        }
+    }
 
-    let mut rng = rand::rng();
+    #[test]
+    fn test_pow2_mod_switch_repeated() {
+        feanor_tracing::DelayedLogger::init_test();
+        let mut rng = StdRng::from_seed([0; 32]);
 
-    let params = CompositeBGV::new(127, 337);
+        let params = Pow2BGV::new(1 << 8);
+        let P = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
+        let C0 = params.create_ciphertext_ring(790..800);
+        assert_eq!(14, C0.base_ring().len());
 
-    let P = log_time("CreatePtxtRing", |[]| {
-        params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))
-    });
-
-    let C = log_time("CreateCtxtRing", |[]| params.create_ciphertext_ring(1090..1100));
-
-    let sk = log_time("GenSK", |[]| {
-        CompositeBGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
-    });
-
-    let m = P.int_hom().map(3);
-    let ct = log_time("EncSym", |[]| CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2));
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(3),
-        &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &ct), &sk)
-    );
-
-    let res = log_time("HomAddPlain", |[]| {
-        CompositeBGV::hom_add_plain(&P, &C, &m, CompositeBGV::clone_ct(&P, &C, &ct))
-    });
-    assert_el_eq!(&P, &P.int_hom().map(2), &CompositeBGV::dec(&P, &C, res, &sk));
-
-    let res = log_time("HomMulPlain", |[]| {
-        CompositeBGV::hom_mul_plain(&P, &C, &m, CompositeBGV::clone_ct(&P, &C, &ct))
-    });
-    assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C, res, &sk));
-
-    let rk = log_time("GenRK", |[]| {
-        CompositeBGV::gen_rk(
+        let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
+        let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &P.int_hom().map(2), &sk, 3.2);
+        let C1 = Pow2BGV::mod_switch_down_C(&C0, &RNSFactorIndexList::from(vec![0, 1, 12, 13], 14));
+        let ctxt1 = Pow2BGV::mod_switch_ct(&P, &C1, &C0, ctxt);
+        let sk1 = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
+        assert_el_eq!(
             &P,
-            &C,
-            &mut rng,
-            &sk,
-            &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
-            3.2,
-        )
-    });
-    let ct2 = CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
-    let res = log_time("HomMul", |[]| CompositeBGV::hom_mul(&P, &C, &C, ct, ct2, &rk));
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(1),
-        &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &res), &sk)
-    );
+            &P.int_hom().map(2),
+            Pow2BGV::dec(&P, &C1, Pow2BGV::clone_ct(&P, &C1, &ctxt1), &sk1)
+        );
 
-    let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
-    let C_new = CompositeBGV::mod_switch_down_C(&C, &to_drop);
-    let sk_new = CompositeBGV::mod_switch_sk(&C_new, &C, &sk);
-    let res_new = log_time("ModSwitch", |[]| CompositeBGV::mod_switch_ct(&P, &C_new, &C, res));
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(1),
-        &CompositeBGV::dec(&P, &C_new, res_new, &sk_new)
-    );
-}
+        let C2 = Pow2BGV::mod_switch_down_C(&C0, &RNSFactorIndexList::from(vec![0, 1, 2, 12, 13], 14));
+        let ctxt2 = Pow2BGV::mod_switch_ct(&P, &C2, &C1, ctxt1);
+        let sk2 = Pow2BGV::mod_switch_sk(&C2, &C0, &sk);
+        assert_el_eq!(&P, &P.int_hom().map(2), Pow2BGV::dec(&P, &C2, ctxt2, &sk2));
+    }
 
-#[test]
-#[ignore]
-fn measure_time_single_rns_composite_bgv_basic_ops() {
-    feanor_tracing::DelayedLogger::init_test();
+    #[test]
+    #[ignore]
+    fn measure_time_pow2_bgv_basic_ops() {
+        feanor_tracing::DelayedLogger::init_test();
 
-    let mut rng = rand::rng();
+        let mut rng = rand::rng();
+        let params = Pow2BGV::new(1 << 16);
 
-    let params = CompositeSingleRNSBGV::new(127, 337);
+        let P = log_time("CreatePtxtRing", |[]| {
+            params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64))
+        });
 
-    let P = log_time("CreatePtxtRing", |[]| {
-        params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))
-    });
+        let C = log_time("CreateCtxtRing", |[]| params.create_ciphertext_ring(790..800));
 
-    let C = log_time("CreateCtxtRing", |[]| params.create_ciphertext_ring(1090..1100));
+        let sk = log_time("GenSK", |[]| {
+            Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
+        });
 
-    let sk = log_time("GenSK", |[]| {
-        CompositeSingleRNSBGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
-    });
+        let m = P.int_hom().map(2);
+        let ct = log_time("EncSym", |[]| Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2));
 
-    let m = P.int_hom().map(3);
-    let ct = log_time("EncSym", |[]| {
-        CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
-    });
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(3),
-        &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct), &sk)
-    );
+        let res = log_time("HomAddPlain", |[]| {
+            Pow2BGV::hom_add_plain(&P, &C, &m, Pow2BGV::clone_ct(&P, &C, &ct))
+        });
+        assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, res, &sk));
 
-    let res = log_time("HomAddPlain", |[]| {
-        CompositeSingleRNSBGV::hom_add_plain(&P, &C, &m, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct))
-    });
-    assert_el_eq!(&P, &P.int_hom().map(2), &CompositeSingleRNSBGV::dec(&P, &C, res, &sk));
+        let res = log_time("HomMulPlain", |[]| {
+            Pow2BGV::hom_mul_plain(&P, &C, &m, Pow2BGV::clone_ct(&P, &C, &ct))
+        });
+        assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, res, &sk));
 
-    let res = log_time("HomMulPlain", |[]| {
-        CompositeSingleRNSBGV::hom_mul_plain(&P, &C, &m, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct))
-    });
-    assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C, res, &sk));
-
-    let rk = log_time("GenRK", |[]| {
-        CompositeSingleRNSBGV::gen_rk(
+        let rk = log_time("GenRK", |[]| {
+            Pow2BGV::gen_rk(
+                &P,
+                &C,
+                &mut rng,
+                &sk,
+                &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
+                3.2,
+            )
+        });
+        let ct2 = Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
+        let res = log_time("HomMul", |[]| Pow2BGV::hom_mul(&P, &C, &C, ct, ct2, &rk));
+        assert_el_eq!(
             &P,
-            &C,
-            &mut rng,
-            &sk,
-            &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
-            3.2,
-        )
-    });
-    let ct2 = CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
-    let res = log_time("HomMul", |[]| CompositeSingleRNSBGV::hom_mul(&P, &C, &C, ct, ct2, &rk));
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(1),
-        &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &res), &sk)
-    );
+            &P.int_hom().map(4),
+            &Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &res), &sk)
+        );
 
-    let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
-    let C_new = CompositeSingleRNSBGV::mod_switch_down_C(&C, &to_drop);
-    let sk_new = CompositeSingleRNSBGV::mod_switch_sk(&C_new, &C, &sk);
-    let res_new = log_time("ModSwitch", |[]| {
-        CompositeSingleRNSBGV::mod_switch_ct(&P, &C_new, &C, res)
-    });
-    assert_el_eq!(
-        &P,
-        &P.int_hom().map(1),
-        &CompositeSingleRNSBGV::dec(&P, &C_new, res_new, &sk_new)
-    );
+        let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
+        let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
+        let sk_new = Pow2BGV::mod_switch_sk(&C_new, &C, &sk);
+        let res_new = log_time("ModSwitch", |[]| Pow2BGV::mod_switch_ct(&P, &C_new, &C, res));
+        assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C_new, res_new, &sk_new));
+    }
+
+    #[test]
+    #[ignore]
+    fn measure_time_double_rns_composite_bgv_basic_ops() {
+        feanor_tracing::DelayedLogger::init_test();
+
+        let mut rng = rand::rng();
+
+        let params = CompositeBGV::new(127, 337);
+
+        let P = log_time("CreatePtxtRing", |[]| {
+            params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))
+        });
+
+        let C = log_time("CreateCtxtRing", |[]| params.create_ciphertext_ring(1090..1100));
+
+        let sk = log_time("GenSK", |[]| {
+            CompositeBGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
+        });
+
+        let m = P.int_hom().map(3);
+        let ct = log_time("EncSym", |[]| CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2));
+        assert_el_eq!(
+            &P,
+            &P.int_hom().map(3),
+            &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &ct), &sk)
+        );
+
+        let res = log_time("HomAddPlain", |[]| {
+            CompositeBGV::hom_add_plain(&P, &C, &m, CompositeBGV::clone_ct(&P, &C, &ct))
+        });
+        assert_el_eq!(&P, &P.int_hom().map(2), &CompositeBGV::dec(&P, &C, res, &sk));
+
+        let res = log_time("HomMulPlain", |[]| {
+            CompositeBGV::hom_mul_plain(&P, &C, &m, CompositeBGV::clone_ct(&P, &C, &ct))
+        });
+        assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C, res, &sk));
+
+        let rk = log_time("GenRK", |[]| {
+            CompositeBGV::gen_rk(
+                &P,
+                &C,
+                &mut rng,
+                &sk,
+                &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
+                3.2,
+            )
+        });
+        let ct2 = CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
+        let res = log_time("HomMul", |[]| CompositeBGV::hom_mul(&P, &C, &C, ct, ct2, &rk));
+        assert_el_eq!(
+            &P,
+            &P.int_hom().map(1),
+            &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &res), &sk)
+        );
+
+        let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
+        let C_new = CompositeBGV::mod_switch_down_C(&C, &to_drop);
+        let sk_new = CompositeBGV::mod_switch_sk(&C_new, &C, &sk);
+        let res_new = log_time("ModSwitch", |[]| CompositeBGV::mod_switch_ct(&P, &C_new, &C, res));
+        assert_el_eq!(
+            &P,
+            &P.int_hom().map(1),
+            &CompositeBGV::dec(&P, &C_new, res_new, &sk_new)
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn measure_time_single_rns_composite_bgv_basic_ops() {
+        feanor_tracing::DelayedLogger::init_test();
+
+        let mut rng = rand::rng();
+
+        let params = CompositeSingleRNSBGV::new(127, 337);
+
+        let P = log_time("CreatePtxtRing", |[]| {
+            params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))
+        });
+
+        let C = log_time("CreateCtxtRing", |[]| params.create_ciphertext_ring(1090..1100));
+
+        let sk = log_time("GenSK", |[]| {
+            CompositeSingleRNSBGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
+        });
+
+        let m = P.int_hom().map(3);
+        let ct = log_time("EncSym", |[]| {
+            CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
+        });
+        assert_el_eq!(
+            &P,
+            &P.int_hom().map(3),
+            &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct), &sk)
+        );
+
+        let res = log_time("HomAddPlain", |[]| {
+            CompositeSingleRNSBGV::hom_add_plain(&P, &C, &m, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct))
+        });
+        assert_el_eq!(&P, &P.int_hom().map(2), &CompositeSingleRNSBGV::dec(&P, &C, res, &sk));
+
+        let res = log_time("HomMulPlain", |[]| {
+            CompositeSingleRNSBGV::hom_mul_plain(&P, &C, &m, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct))
+        });
+        assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C, res, &sk));
+
+        let rk = log_time("GenRK", |[]| {
+            CompositeSingleRNSBGV::gen_rk(
+                &P,
+                &C,
+                &mut rng,
+                &sk,
+                &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()),
+                3.2,
+            )
+        });
+        let ct2 = CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
+        let res = log_time("HomMul", |[]| CompositeSingleRNSBGV::hom_mul(&P, &C, &C, ct, ct2, &rk));
+        assert_el_eq!(
+            &P,
+            &P.int_hom().map(1),
+            &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &res), &sk)
+        );
+
+        let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
+        let C_new = CompositeSingleRNSBGV::mod_switch_down_C(&C, &to_drop);
+        let sk_new = CompositeSingleRNSBGV::mod_switch_sk(&C_new, &C, &sk);
+        let res_new = log_time("ModSwitch", |[]| {
+            CompositeSingleRNSBGV::mod_switch_ct(&P, &C_new, &C, res)
+        });
+        assert_el_eq!(
+            &P,
+            &P.int_hom().map(1),
+            &CompositeSingleRNSBGV::dec(&P, &C_new, res_new, &sk_new)
+        );
+    }
 }

@@ -320,27 +320,32 @@ where
 }
 
 #[cfg(test)]
-use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
+mod test {
+    use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 
-#[test]
-fn test_drop_rns_factor_list_of_congruences() {
-    feanor_tracing::DelayedLogger::init_test();
-    let from = FreeAlgebraImpl::new(
-        zn_rns::Zn::new(vec![Zn::new(17), Zn::new(19), Zn::new(23)], BigIntRing::RING),
-        1,
-        [],
-    );
-    let dummy = ();
-    let dropped_rns_factors = RNSFactorIndexList::from([1], 3);
+    use super::*;
 
-    let actual = drop_rns_factor_list_of_congruences(from.get_ring(), &dropped_rns_factors, &dummy).collect::<Vec<_>>();
-    assert_eq!(2, actual.len());
-    match actual[0] {
-        RNSFactorCongruence::CongruentTo(_, i, ()) => assert_eq!(0, i),
-        _ => unreachable!(),
-    }
-    match actual[1] {
-        RNSFactorCongruence::CongruentTo(_, i, ()) => assert_eq!(2, i),
-        _ => unreachable!(),
+    #[test]
+    fn test_drop_rns_factor_list_of_congruences() {
+        feanor_tracing::DelayedLogger::init_test();
+        let from = FreeAlgebraImpl::new(
+            zn_rns::Zn::new(vec![Zn::new(17), Zn::new(19), Zn::new(23)], BigIntRing::RING),
+            1,
+            [],
+        );
+        let dummy = ();
+        let dropped_rns_factors = RNSFactorIndexList::from([1], 3);
+
+        let actual =
+            drop_rns_factor_list_of_congruences(from.get_ring(), &dropped_rns_factors, &dummy).collect::<Vec<_>>();
+        assert_eq!(2, actual.len());
+        match actual[0] {
+            RNSFactorCongruence::CongruentTo(_, i, ()) => assert_eq!(0, i),
+            _ => unreachable!(),
+        }
+        match actual[1] {
+            RNSFactorCongruence::CongruentTo(_, i, ()) => assert_eq!(2, i),
+            _ => unreachable!(),
+        }
     }
 }
