@@ -489,9 +489,8 @@ impl<Params: BGVInstantiation> EncodedBGVPlaintextRingBase<Params> {
         if C.get_ring() == self.C.get_ring() {
             self.C.clone_el(&m.encoded)
         } else {
-            let dropped = RNSFactorIndexList::missing_from_subset(C.base_ring(), self.C.base_ring()).unwrap();
-            C.get_ring()
-                .drop_rns_factor_element(self.C.get_ring(), &dropped, &m.encoded)
+            assert!(RNSFactorIndexList::missing_from_subset(C.base_ring(), self.C.base_ring()).is_ok());
+            C.get_ring().lift_from(self.C.get_ring())(&m.encoded)
         }
     }
 }

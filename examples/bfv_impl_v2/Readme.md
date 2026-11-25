@@ -324,8 +324,8 @@ Note however that it actually is not required to get the actual coefficients `x[
 The reason for this is that the noise growth during multiplication depends on the size of `c0, c1, c0', c1'` w.r.t. the *canonical norm* of the number ring `R`.
 More details on the mathematical background can be found in the original BFV paper.
 
-We can access the coefficients w.r.t. some "short-element" basis of an element of `R_q` using the functions [`DoubleRNSRingBase::undo_fft()`] and [`DoubleRNSRingBase::as_matrix_wrt_small_basis()`].
-Fortunately for us, the returned data is exactly in the right format.
+We can get the coefficients w.r.t. some "short-element" basis of an element of `R_q` using the function [`DoubleRNSRingBase::undo_fft()`].
+An RNS conversion can then be applied to these coefficients using [`DoubleRNSRingBase::apply_rns_op_to_representation_non_fft()`].
 This leaves us to implement BFV multiplication as follows.
 ```rust
 # use feanor_math::algorithms::miller_rabin::*;
@@ -343,7 +343,6 @@ This leaves us to implement BFV multiplication as follows.
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
-# use fheanor::rns_conv::RNSOperation;
 # use fheanor::number_ring::pow2_cyclotomic::*;
 # use fheanor::ciphertext_ring::NumberRingRNSQuotient;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
@@ -375,12 +374,12 @@ fn hom_mul_three_component(
         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>()
     );
-    debug_assert!(lift_to_multiplication_ring_rnsconv.input_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
-    debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     let lift_to_multiplication_ring = |x: &SmallBasisEl<_, _>| {
-        multiplication_ring.get_ring().from_representation_wrt_small_generating_set(|dst|
-            lift_to_multiplication_ring_rnsconv.apply(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), dst)
-        )
+        multiplication_ring.get_ring().do_fft(multiplication_ring.get_ring().apply_rns_op_to_representation_non_fft(
+            ciphertext_ring.get_ring(),
+            x,
+            &lift_to_multiplication_ring_rnsconv
+        ))
     };
 
     let unscaled_result = (
@@ -395,14 +394,14 @@ fn hom_mul_three_component(
     let scale_down_rnsconv = RNSRescalingConversion::new(
         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
-        vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
+        &int_cast(*plaintext_ring.base_ring().modulus(), BigIntRing::RING, StaticRing::<i64>::RING), 
         ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>()
     );
-    debug_assert!(scale_down_rnsconv.input_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
-    debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     let scale_down = |x: El<CiphertextRing>| {
-        ciphertext_ring.get_ring().from_representation_wrt_small_generating_set_non_fft(|dst|
-            scale_down_rnsconv.apply(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), dst)
+        ciphertext_ring.get_ring().apply_rns_op_to_representation_non_fft(
+            multiplication_ring.get_ring(),
+            &multiplication_ring.get_ring().undo_fft(x),
+            &scale_down_rnsconv
         )
     };
 
@@ -439,7 +438,6 @@ We arrive at:
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::gadget_product::*;
-# use fheanor::rns_conv::RNSOperation;
 # use fheanor::number_ring::pow2_cyclotomic::*;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
 # use fheanor::number_ring::quotient_by_int::*;
@@ -510,7 +508,6 @@ Finally, let's test this implementation again!
 # use fheanor::number_ring::*;
 # use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
 # use fheanor::gadget_product::*;
-# use fheanor::rns_conv::RNSOperation;
 # use fheanor::ciphertext_ring::NumberRingRNSQuotient;
 # use fheanor::number_ring::pow2_cyclotomic::*;
 # use fheanor::ciphertext_ring::double_rns_ring::*;
@@ -615,12 +612,12 @@ Finally, let's test this implementation again!
 #         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
 #         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>()
 #     );
-#     debug_assert!(lift_to_multiplication_ring_rnsconv.input_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
-#     debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     let lift_to_multiplication_ring = |x: &SmallBasisEl<_, _>| {
-#         multiplication_ring.get_ring().from_representation_wrt_small_generating_set(|dst|
-#             lift_to_multiplication_ring_rnsconv.apply(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), dst)
-#         )
+#         multiplication_ring.get_ring().do_fft(multiplication_ring.get_ring().apply_rns_op_to_representation_non_fft(
+#             ciphertext_ring.get_ring(),
+#             x,
+#             &lift_to_multiplication_ring_rnsconv
+#         ))
 #     };
 #     let unscaled_result = (
 #         multiplication_ring.mul(lift_to_multiplication_ring(&c0), lift_to_multiplication_ring(&c0_prime)),
@@ -633,14 +630,14 @@ Finally, let's test this implementation again!
 #     let scale_down_rnsconv = RNSRescalingConversion::new(
 #         multiplication_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
 #         ciphertext_ring.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
-#         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
+#         &int_cast(*plaintext_ring.base_ring().modulus(), BigIntRing::RING, StaticRing::<i64>::RING), 
 #         ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>()
 #     );
-#     debug_assert!(scale_down_rnsconv.input_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
-#     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     let scale_down = |x: El<CiphertextRing>| {
-#         ciphertext_ring.get_ring().from_representation_wrt_small_generating_set_non_fft(|dst|
-#             scale_down_rnsconv.apply(multiplication_ring.get_ring().as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)), dst)
+#         ciphertext_ring.get_ring().apply_rns_op_to_representation_non_fft(
+#             multiplication_ring.get_ring(),
+#             &multiplication_ring.get_ring().undo_fft(x),
+#             &scale_down_rnsconv
 #         )
 #     };
 #     return (
@@ -727,7 +724,7 @@ Implementing these points is left as an exercise.
 [`RNSBaseConversion`]: crate::rns_conv::lift::RNSBaseConversion
 [`RNSRescalingConversion`]: crate::rns_conv::bfv_rescale::RNSRescalingConversion
 [`DoubleRNSRingBase`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase
-[`DoubleRNSRingBase::as_matrix_wrt_small_basis()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::as_matrix_wrt_small_basis()
+[`DoubleRNSRingBase::apply_rns_op_to_representation_non_fft()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::apply_rns_op_to_representation_non_fft()
 [`DoubleRNSRingBase::new_with_modulus_size()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::new_with_modulus_size()
 [`DoubleRNSRingBase::undo_fft()`]: crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase::undo_fft()
 [`SmallBasisEl`]: crate::ciphertext_ring::double_rns_ring::SmallBasisEl

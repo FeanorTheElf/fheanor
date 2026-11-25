@@ -1,4 +1,3 @@
-use std::convert::identity;
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Range;
@@ -24,11 +23,11 @@ use tracing::instrument;
 
 use crate::bfv::force_double_rns_repr;
 use crate::boo::Boo;
+use crate::ciphertext_ring::NumberRingRNSQuotient;
 use crate::ciphertext_ring::double_rns_managed::ManagedDoubleRNSRingBase;
 use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::single_rns_ring::*;
-use crate::ciphertext_ring::{AsSubmatrix, NumberRingRNSQuotient, RNSFactorCongruence, perform_rns_op};
 use crate::circuit::{CircuitEvaluatorCosts, Coefficient, PlaintextCircuit};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
@@ -40,8 +39,6 @@ use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use crate::number_ring::tensor_ring::TensorProductNumberRing;
 use crate::number_ring::*;
-use crate::rns_conv::bgv_rescale::RNSCongruencePreservingBaseConversion;
-use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::{
     DefaultCiphertextAllocator, DefaultConvolution, DefaultNegacyclicNTT, FheanorAllocator, NiceZn, ZZbig, ZZi64,
 };
@@ -1103,10 +1100,7 @@ pub trait BGVInstantiation {
                     .map(|i| int_cast(*C_special.base_ring().at(*i).modulus(), ZZbig, ZZi64)),
             );
             let special_modulus = C_special.base_ring().coerce(&ZZbig, special_modulus);
-            let mut ct1_modswitched =
-                C_special
-                    .get_ring()
-                    .add_rns_factor_element(C.get_ring(), &special_modulus_rns_factor_indices, &ct.c1);
+            let mut ct1_modswitched = C_special.get_ring().crt_lift_from(C.get_ring(), &ct.c1);
             C_special
                 .inclusion()
                 .mul_assign_map(&mut ct1_modswitched, special_modulus);
@@ -1161,139 +1155,6 @@ pub trait BGVInstantiation {
         return result;
     }
 
-    /// Creates the function that rescales a BGV ciphertext ring element from `q` to `q'`,
-    /// using the BGV-specific rescaling operation `x -> y` where `y` is the closest element
-    /// to `q' x / q` with `q y = q' x mod t`.
-    ///
-    /// It is returned as a function object, which allows it to store data that is used for the
-    /// rescaling. This function is used by the default implementations of some modulus
-    /// switching-related functionality, more concretely [`BGVInstantiation::mod_switch_ct()`].
-    ///
-    /// The function is behind a trait object, so that concrete instantiations can use a different
-    /// implementation which is more performant on their concrete choice of rings.
-    fn rescale_ring_element_fn<'a>(
-        P: &'a PlaintextRing<Self>,
-        Cnew: &'a CiphertextRing<Self>,
-        Cold: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Send + Sync + Fn(El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        let added_rns_factors = RNSFactorIndexList::missing_from(Cold.base_ring(), Cnew.base_ring());
-        let dropped_rns_factors = RNSFactorIndexList::missing_from(Cnew.base_ring(), Cold.base_ring());
-        let kept_rns_factors = dropped_rns_factors.complement(Cold.base_ring().len());
-        let a = Cold.base_ring().coerce(
-            &ZZbig,
-            ZZbig.prod(
-                added_rns_factors
-                    .iter()
-                    .map(|i| int_cast(*Cnew.base_ring().at(*i).modulus(), ZZbig, ZZi64)),
-            ),
-        );
-
-        fn map_kept_factors<Inst: ?Sized + BGVInstantiation>(
-            Cnew: &CiphertextRing<Inst>,
-            Cold: &CiphertextRing<Inst>,
-            added_rns_factors: &RNSFactorIndexList,
-            x: El<CiphertextRing<Inst>>,
-        ) -> El<CiphertextRing<Inst>> {
-            Cnew.get_ring()
-                .collect_rns_factors((0..Cnew.base_ring().len()).map(|idx| {
-                    if added_rns_factors.contains(idx) {
-                        RNSFactorCongruence::Zero
-                    } else {
-                        let old_idx = Cold
-                            .base_ring()
-                            .as_iter()
-                            .enumerate()
-                            .filter(|(_, old_ring)| old_ring.get_ring() == Cnew.base_ring().at(idx).get_ring())
-                            .next()
-                            .unwrap()
-                            .0;
-                        RNSFactorCongruence::CongruentTo(Cold.get_ring(), old_idx, &x)
-                    }
-                }))
-        }
-
-        if kept_rns_factors.len() == Cold.base_ring().len() {
-            if kept_rns_factors.len() == Cnew.base_ring().len() {
-                return Box::new(identity);
-            } else {
-                return Box::new(move |mut x: El<CiphertextRing<Self>>| {
-                    Cold.inclusion().mul_assign_ref_map(&mut x, &a);
-                    return map_kept_factors::<Self>(Cnew, Cold, &added_rns_factors, x);
-                });
-            }
-        }
-
-        let C_dropped = RingValue::from(Cold.get_ring().drop_rns_factor(&kept_rns_factors));
-        let Zt = Zn::new(int_cast(
-            P.base_ring().integer_ring().clone_el(P.base_ring().modulus()),
-            ZZi64,
-            P.base_ring().integer_ring(),
-        ) as u64);
-        let compute_delta = RNSCongruencePreservingBaseConversion::new(
-            C_dropped.base_ring().as_iter().cloned().collect(),
-            Cnew.base_ring().as_iter().cloned().collect(),
-            Zt,
-        );
-        let b_inv = Cnew
-            .base_ring()
-            .invert(
-                &Cnew.base_ring().coerce(
-                    &ZZbig,
-                    ZZbig.prod(
-                        dropped_rns_factors
-                            .iter()
-                            .map(|i| int_cast(*Cold.base_ring().at(*i).modulus(), ZZbig, ZZi64)),
-                    ),
-                ),
-            )
-            .unwrap();
-
-        #[instrument(skip_all)]
-        fn rescale_ring_element_impl<Inst: ?Sized + BGVInstantiation>(
-            Cnew: &CiphertextRing<Inst>,
-            Cold: &CiphertextRing<Inst>,
-            C_dropped: &CiphertextRing<Inst>,
-            added_rns_factors: &RNSFactorIndexList,
-            kept_rns_factors: &RNSFactorIndexList,
-            compute_delta: &RNSCongruencePreservingBaseConversion,
-            a: &El<<<CiphertextRing<Inst> as RingStore>::Type as RingExtension>::BaseRing>,
-            b_inv: &El<<<CiphertextRing<Inst> as RingStore>::Type as RingExtension>::BaseRing>,
-            mut x: El<CiphertextRing<Inst>>,
-        ) -> El<CiphertextRing<Inst>> {
-            Cold.inclusion().mul_assign_ref_map(&mut x, &a);
-
-            let x_dropped = C_dropped
-                .get_ring()
-                .drop_rns_factor_element(Cold.get_ring(), kept_rns_factors, &x);
-            let x_dropped_matrix = C_dropped
-                .get_ring()
-                .as_representation_wrt_small_generating_set(&x_dropped);
-            let x_dropped_matrix = x_dropped_matrix.as_submatrix();
-            let delta = Cnew
-                .get_ring()
-                .from_representation_wrt_small_generating_set(|dst| compute_delta.apply(x_dropped_matrix, dst));
-
-            return Cnew.inclusion().mul_ref_snd_map(
-                Cnew.sub(map_kept_factors::<Inst>(Cnew, Cold, added_rns_factors, x), delta),
-                &b_inv,
-            );
-        }
-
-        Box::new(move |x: El<CiphertextRing<Self>>| {
-            rescale_ring_element_impl::<Self>(
-                Cnew,
-                Cold,
-                &C_dropped,
-                &added_rns_factors,
-                &kept_rns_factors,
-                &compute_delta,
-                &a,
-                &b_inv,
-                x,
-            )
-        })
-    }
-
     /// Modulus-switches a ciphertext.
     ///
     /// More concretely, this function computes a valid ciphertext w.r.t. `Cnew` that
@@ -1308,7 +1169,12 @@ pub trait BGVInstantiation {
         ct: Ciphertext<Self>,
     ) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
-        let rescale = Self::rescale_ring_element_fn(P, Cnew, Cold);
+        let Zt = Zn::new(int_cast(
+            P.base_ring().integer_ring().clone_el(P.base_ring().modulus()),
+            ZZi64,
+            P.base_ring().integer_ring(),
+        ) as u64);
+        let rescale = Cnew.get_ring().rescale_from_preserving_congruence(Cold.get_ring(), Zt);
         let result = Ciphertext {
             c0: rescale(ct.c0),
             c1: rescale(ct.c1),
@@ -1343,12 +1209,8 @@ pub trait BGVInstantiation {
         } else {
             Ciphertext {
                 implicit_scale: P.base_ring().clone_el(&ct.implicit_scale),
-                c0: Cnew
-                    .get_ring()
-                    .drop_rns_factor_element(Cold.get_ring(), &drop_moduli, &ct.c0),
-                c1: Cnew
-                    .get_ring()
-                    .drop_rns_factor_element(Cold.get_ring(), &drop_moduli, &ct.c1),
+                c0: Cnew.get_ring().lift_from(Cold.get_ring())(&ct.c0),
+                c1: Cnew.get_ring().lift_from(Cold.get_ring())(&ct.c1),
             }
         }
     }
@@ -1377,29 +1239,7 @@ pub trait BGVInstantiation {
         Cold: &CiphertextRing<Self>,
         sk: &SecretKey<Self>,
     ) -> SecretKey<Self> {
-        if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
-            return Cnew
-                .get_ring()
-                .drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
-        } else {
-            let mod_switch = UsedBaseConversion::new(
-                Cold.base_ring().as_iter().cloned().collect(),
-                Cnew.base_ring().as_iter().cloned().collect(),
-            );
-            assert!(
-                Cold.base_ring()
-                    .as_iter()
-                    .zip(mod_switch.input_rings())
-                    .all(|(l, r)| l.get_ring() == r.get_ring())
-            );
-            assert!(
-                Cnew.base_ring()
-                    .as_iter()
-                    .zip(mod_switch.output_rings())
-                    .all(|(l, r)| l.get_ring() == r.get_ring())
-            );
-            return perform_rns_op(Cnew.get_ring(), Cold.get_ring(), sk, &mod_switch);
-        }
+        Cnew.get_ring().lift_from(Cold.get_ring())(sk)
     }
 
     /// Modulus-switches a relinearization key in a way compatible with modulus-switching

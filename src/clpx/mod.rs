@@ -17,9 +17,9 @@ use rand::{CryptoRng, Rng};
 use rand_distr::StandardNormal;
 use tracing::instrument;
 
-use crate::bfv::{CompositeBFV, Pow2BFV, default_impl_lift_to_Cmul, force_double_rns_repr};
+use crate::bfv::{CompositeBFV, Pow2BFV};
+use crate::ciphertext_ring::NumberRingRNSQuotient;
 use crate::ciphertext_ring::double_rns_managed::*;
-use crate::ciphertext_ring::{AsSubmatrix, NumberRingRNSQuotient};
 use crate::clpx::encoding::*;
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::gadget_product::*;
@@ -30,8 +30,6 @@ use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::number_ring::tensor_ring::*;
 use crate::number_ring::*;
-use crate::rns_conv::RNSOperation;
-use crate::rns_conv::bfv_rescale::RNSRescalingConversion;
 use crate::{DefaultCiphertextAllocator, DefaultNegacyclicNTT, *};
 
 /// Implementation of the isomorphism `Z[X]/(Phi_m(X), t(X^m2), p) ~ Fp[X]/(Phi_m2(X))`
@@ -443,7 +441,7 @@ pub trait CLPXInstantiation {
         let (c00, c01) = lhs;
         let (c10, c11) = rhs;
 
-        let lift = Self::lift_to_Cmul(C, C_mul);
+        let lift = C_mul.get_ring().lift_from(C.get_ring());
         let c00_lifted = lift(&c00);
         let c01_lifted = lift(&c01);
         let c10_lifted = lift(&c10);
@@ -458,7 +456,10 @@ pub trait CLPXInstantiation {
         C_mul.mul_assign_ref(&mut lifted1, &t_in_C_mul);
         C_mul.mul_assign_ref(&mut lifted2, &t_in_C_mul);
 
-        let scale_down = Self::rescale_to_C(C, C_mul, t_coeff_inf_norm);
+        assert_C_mul_large_enough::<Self>(C, C_mul, t_coeff_inf_norm);
+        let scale_down = C
+            .get_ring()
+            .rescale_from(C_mul.get_ring(), &ZZbig.one(), C.base_ring().modulus());
         let res0 = scale_down(&lifted0);
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
@@ -486,7 +487,7 @@ pub trait CLPXInstantiation {
     ) -> Ciphertext<Self> {
         let (c0, c1) = val;
 
-        let lift = Self::lift_to_Cmul(C, C_mul);
+        let lift = C_mul.get_ring().lift_from(C.get_ring());
         let c0_lifted = lift(&c0);
         let c1_lifted = lift(&c1);
 
@@ -498,7 +499,10 @@ pub trait CLPXInstantiation {
         C_mul.mul_assign_ref(&mut lifted1, &t_in_C_mul);
         C_mul.mul_assign_ref(&mut lifted2, &t_in_C_mul);
 
-        let scale_down = Self::rescale_to_C(C, C_mul, t_coeff_inf_norm);
+        assert_C_mul_large_enough::<Self>(C, C_mul, t_coeff_inf_norm);
+        let scale_down = C
+            .get_ring()
+            .rescale_from(C_mul.get_ring(), &ZZbig.one(), C.base_ring().modulus());
         let res0 = scale_down(&lifted0);
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
@@ -683,31 +687,6 @@ pub trait CLPXInstantiation {
             })
             .collect();
     }
-
-    /// Returns an implementation of the function `R/qR -> R/qq'R` that maps every `x` in `R/qR`
-    /// to a short element of `R/qq'R` congruent to `x` modulo `q`.
-    ///
-    /// The function is behind a trait object, so that concrete instantiations can use a different
-    /// implementation which is more performant on their concrete choice of rings.
-    fn lift_to_Cmul<'a>(
-        C: &'a CiphertextRing<Self>,
-        C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Send + Sync + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_lift_to_Cmul(C, C_mul, |_, _, _, delta| delta)
-    }
-
-    /// Returns an implementation of the function `R/qq'R -> R/qR` that maps every `x` in `R/qq'R`
-    /// to an element of `R/qR` close to `smallest_lift(tx/q)`.
-    ///
-    /// The function is behind a trait object, so that concrete instantiations can use a different
-    /// implementation which is more performant on their concrete choice of rings.
-    fn rescale_to_C<'a>(
-        C: &'a CiphertextRing<Self>,
-        C_mul: &'a CiphertextRing<Self>,
-        log2_t_coeff_inf_norm: usize,
-    ) -> Box<dyn 'a + Send + Sync + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_rescale_to_C::<Self>(C, C_mul, log2_t_coeff_inf_norm)
-    }
 }
 
 pub type Pow2CLPX<A = DefaultCiphertextAllocator, C = DefaultNegacyclicNTT> = Pow2BFV<A, C>;
@@ -742,19 +721,6 @@ impl<A: FheanorAllocator, C: FheanorNegacyclicNTT<Zn>> CLPXInstantiation for Pow
             self.ciphertext_allocator().clone(),
         );
         return (C, C_mul);
-    }
-
-    fn lift_to_Cmul<'a>(
-        C: &'a CiphertextRing<Self>,
-        C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Send + Sync + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_lift_to_Cmul(C, C_mul, |C, dst, C_delta, delta| {
-            if C.get_ring().is_doublerns_cached(dst) {
-                force_double_rns_repr(C_delta, delta)
-            } else {
-                delta
-            }
-        })
     }
 }
 
@@ -791,38 +757,15 @@ impl<A: FheanorAllocator> CLPXInstantiation for CompositeCLPX<A> {
         );
         return (C, C_mul);
     }
-
-    fn lift_to_Cmul<'a>(
-        C: &'a CiphertextRing<Self>,
-        C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Send + Sync + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_lift_to_Cmul(C, C_mul, |C, dst, C_delta, delta| {
-            if C.get_ring().is_doublerns_cached(dst) {
-                force_double_rns_repr(C_delta, delta)
-            } else {
-                delta
-            }
-        })
-    }
 }
 
-/// Default construction of the function `R/qq'R -> R/qR` that maps every `x` in `R/qq'R`
-/// to an element of `R/qR` close to `smallest_lift(tx/q)`, as required during CLPX homomorphic
-/// multiplication.
-///
-/// This is the default implementation of [`CLPXInstantiation::rescale_to_C()`], but we
-/// also make it available as standalone function to allow reuse in more scenarios.
-pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + CLPXInstantiation>(
-    C: &'a CiphertextRing<Inst>,
-    C_mul: &'a CiphertextRing<Inst>,
+/// Checks that `C_mul` is large enough to store the result of multiplying two lifted elements
+/// of `C` and the element `t`, without wrap-around.
+fn assert_C_mul_large_enough<Inst: ?Sized + CLPXInstantiation>(
+    C: &CiphertextRing<Inst>,
+    C_mul: &CiphertextRing<Inst>,
     log2_t_coeff_inf_norm: usize,
-) -> Box<dyn 'a + Send + Sync + for<'b> Fn(&'b El<CiphertextRing<Inst>>) -> El<CiphertextRing<Inst>>> {
-    assert!(C.number_ring() == C_mul.number_ring());
-    assert_eq!(
-        C.get_ring().small_generating_set_len(),
-        C_mul.get_ring().small_generating_set_len()
-    );
-
+) {
     // strictly speaking, this is not quite true since we actually multiply c (with small basis inf
     // norm) by t (with coeff basis inf norm) and care about the small basis inf norm of the result;
     // however, since the function currently isn't there, let's just pretend that
@@ -840,28 +783,6 @@ pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + CLPXInstantiation>(
         ),
         "extended modulus not big enough to avoid wrap-around during homomorphic multiplication"
     );
-
-    let rescale = RNSRescalingConversion::new(
-        C_mul.base_ring().as_iter().cloned().collect(),
-        C.base_ring().as_iter().cloned().collect(),
-        Vec::new(),
-        (0..C.base_ring().len()).collect(),
-    );
-
-    #[instrument(skip_all)]
-    fn rescale_to_C_impl<Inst: ?Sized + CLPXInstantiation>(
-        C: &CiphertextRing<Inst>,
-        C_mul: &CiphertextRing<Inst>,
-        rescale: &RNSRescalingConversion,
-        c: &El<CiphertextRing<Inst>>,
-    ) -> El<CiphertextRing<Inst>> {
-        let c_repr = C_mul.get_ring().as_representation_wrt_small_generating_set(c);
-        let c_repr = c_repr.as_submatrix();
-        return C
-            .get_ring()
-            .from_representation_wrt_small_generating_set(|dst| rescale.apply(c_repr, dst));
-    }
-    Box::new(move |c| rescale_to_C_impl::<Inst>(C, C_mul, &rescale, c))
 }
 
 #[cfg(test)]

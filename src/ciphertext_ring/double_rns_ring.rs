@@ -17,7 +17,6 @@ use feanor_math::iters::{MultiProduct, multi_cartesian_product};
 use feanor_math::rings::extension::*;
 use feanor_math::rings::finite::*;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
-use feanor_math::rings::zn::*;
 use feanor_math::seq::*;
 use feanor_math::serialization::*;
 use feanor_math::specialization::{FiniteRingOperation, FiniteRingSpecializable};
@@ -37,6 +36,7 @@ use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::*;
 use crate::number_ring::galois::*;
 use crate::number_ring::*;
+use crate::rns_conv::RNSOperation;
 use crate::{FheanorAllocator, ZZbig, is_parallel};
 
 /// Implementation of the ring `Z[𝝵_m]/(q)`, where `q = p1 ... pr` is a product of "RNS factors".
@@ -567,6 +567,24 @@ where
         };
     }
 
+    /// Same as [`NumberRingRNSQuotient::apply_rns_op_to_representation()`], but takes and
+    /// returns elements in small-basis representation, thus avoiding any conversion to or
+    /// from double-RNS representation.
+    #[instrument(skip_all)]
+    pub fn apply_rns_op_to_representation_non_fft<Op>(
+        &self,
+        from: &Self,
+        el: &SmallBasisEl<NumberRing, A>,
+        op: &Op,
+    ) -> SmallBasisEl<NumberRing, A>
+    where
+        Op: RNSOperation<RingType = ZnBase>,
+    {
+        let input_rows = rns_op_input_range(self, from, op);
+        let input = from.as_matrix_wrt_small_basis(el).restrict_rows(input_rows);
+        return self.from_representation_wrt_small_generating_set_non_fft(|dst| op.apply(input, dst, self.allocator()));
+    }
+
     #[instrument(skip_all)]
     pub fn wrt_canonical_basis_non_fft<'a>(
         &'a self,
@@ -805,6 +823,15 @@ where
     {
         let result = self.from_representation_wrt_small_generating_set_non_fft(initializer);
         return self.do_fft(result);
+    }
+
+    #[instrument(skip_all)]
+    fn apply_rns_op_to_representation<Op>(&self, from: &Self, el: &Self::Element, op: &Op) -> Self::Element
+    where
+        Op: RNSOperation<RingType = ZnBase>,
+    {
+        let el_small_basis = from.undo_fft(from.clone_el(el));
+        return self.do_fft(self.apply_rns_op_to_representation_non_fft(from, &el_small_basis, op));
     }
 
     #[instrument(skip_all)]
@@ -1839,11 +1866,7 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
                     .base_ring()
                     .from_congruence([*ring.base_ring().get_congruence(&c).at(1)].into_iter())
             })),
-            dropped_rns_factor_ring.get_ring().drop_rns_factor_element(
-                ring.get_ring(),
-                &RNSFactorIndexList::from([0], ring.base_ring().len()),
-                a
-            )
+            dropped_rns_factor_ring.get_ring().lift_from(ring.get_ring())(a)
         );
         assert_el_eq!(
             &dropped_rns_factor_ring,
@@ -1862,11 +1885,7 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
         );
     }
     for a in &elements {
-        let dropped_factor_a = dropped_rns_factor_ring.get_ring().drop_rns_factor_element(
-            ring.get_ring(),
-            &RNSFactorIndexList::from([0], ring.base_ring().len()),
-            a,
-        );
+        let dropped_factor_a = dropped_rns_factor_ring.get_ring().lift_from(ring.get_ring())(a);
         assert_el_eq!(
             &ring,
             ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| {
@@ -1878,11 +1897,8 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
                     .into_iter(),
                 )
             })),
-            ring.get_ring().add_rns_factor_element(
-                dropped_rns_factor_ring.get_ring(),
-                &RNSFactorIndexList::from([0], ring.base_ring().len()),
-                &dropped_factor_a
-            )
+            ring.get_ring()
+                .crt_lift_from(dropped_rns_factor_ring.get_ring(), &dropped_factor_a)
         );
         assert_el_eq!(
             &ring,
@@ -1915,11 +1931,7 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
                     .base_ring()
                     .from_congruence([*ring.base_ring().get_congruence(&c).at(0)].into_iter())
             })),
-            dropped_rns_factor_ring.get_ring().drop_rns_factor_element(
-                ring.get_ring(),
-                &RNSFactorIndexList::from([1], ring.base_ring().len()),
-                a
-            )
+            dropped_rns_factor_ring.get_ring().lift_from(ring.get_ring())(a)
         );
         assert_el_eq!(
             &dropped_rns_factor_ring,
@@ -1938,11 +1950,7 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
         );
     }
     for a in &elements {
-        let dropped_factor_a = dropped_rns_factor_ring.get_ring().drop_rns_factor_element(
-            ring.get_ring(),
-            &RNSFactorIndexList::from([1], ring.base_ring().len()),
-            a,
-        );
+        let dropped_factor_a = dropped_rns_factor_ring.get_ring().lift_from(ring.get_ring())(a);
         assert_el_eq!(
             &ring,
             ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| {
@@ -1954,11 +1962,8 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
                     .into_iter(),
                 )
             })),
-            ring.get_ring().add_rns_factor_element(
-                dropped_rns_factor_ring.get_ring(),
-                &RNSFactorIndexList::from([1], ring.base_ring().len()),
-                &dropped_factor_a
-            )
+            ring.get_ring()
+                .crt_lift_from(dropped_rns_factor_ring.get_ring(), &dropped_factor_a)
         );
         assert_el_eq!(
             &ring,

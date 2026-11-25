@@ -26,11 +26,12 @@ use super::single_rns_ring::*;
 use super::{NumberRingRNSQuotient, PreparedMultiplicationRing};
 use crate::boo::{Boo, MappedRwLockReadGuardType};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::{AsSubmatrix, RNSFactorCongruence};
+use crate::ciphertext_ring::{AsSubmatrix, RNSFactorCongruence, lift_from_default_impl};
 use crate::number_ring::galois::*;
 use crate::number_ring::{
     NumberRingDescriptor, NumberRingQuotient, extend_sampled_primes, largest_prime_leq_congruent_to_one,
 };
+use crate::rns_conv::RNSOperation;
 use crate::{FheanorAllocator, ZZbig};
 
 /// Like [`DoubleRNSRing`] but stores element in whatever representation they
@@ -984,6 +985,39 @@ where
             self.base
                 .from_representation_wrt_small_generating_set_non_fft(initializer),
         )
+    }
+
+    #[instrument(skip_all)]
+    fn apply_rns_op_to_representation<Op>(&self, from: &Self, el: &Self::Element, op: &Op) -> Self::Element
+    where
+        Op: RNSOperation<RingType = zn_64::ZnBase>,
+    {
+        // `to_small_basis()` caches the small-basis representation within `el`, so repeatedly
+        // applying RNS operations to the same element requires only one inverse NTT
+        let el_small_basis = from.to_small_basis(el).unwrap_or(&from.zero);
+        self.from_small_basis(
+            self.base
+                .apply_rns_op_to_representation_non_fft(&from.base, el_small_basis, op),
+        )
+    }
+
+    fn lift_from<'a>(&'a self, from: &'a Self) -> impl 'a + Send + Sync + Fn(&Self::Element) -> Self::Element
+    where
+        Self: Sized,
+    {
+        // if the input is available in double-RNS representation, we also convert the newly
+        // computed RNS factors to double-RNS representation; this way, the result is (completely)
+        // available in double-RNS representation, which is the most likely use for it
+        lift_from_default_impl(self, from, move |C_delta, input, delta| {
+            if from.is_doublerns_cached(input) {
+                C_delta
+                    .into_doublerns(delta)
+                    .map(|delta| C_delta.from_doublerns(delta))
+                    .unwrap_or_else(|| C_delta.zero())
+            } else {
+                delta
+            }
+        })
     }
 
     fn two_by_two_convolution(&self, lhs: [Self::Element; 2], rhs: [Self::Element; 2]) -> [Self::Element; 3] {

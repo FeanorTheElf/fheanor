@@ -1,3 +1,4 @@
+use std::alloc::Allocator;
 use std::mem::MaybeUninit;
 
 use feanor_math::divisibility::DivisibilityRingStore;
@@ -12,7 +13,7 @@ use tracing::{Level, Span, instrument, span};
 
 use crate::rns_conv::matmul_kernel::BLOCK;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
-use crate::{SCRATCH_ALLOCATOR, ZZbig, ZZi64, is_parallel};
+use crate::{ZZbig, ZZi64, is_parallel};
 
 /// Computes the base conversion that preserves the congruence modulo some `t` in a certain sense,
 /// which is required during BGV modulus-switching.
@@ -91,14 +92,16 @@ impl RNSOperation for RNSCongruencePreservingBaseConversion {
     fn output_rings<'a>(&'a self) -> &'a [Zn] { &self.intermediate_moduli[..self.q_moduli_count] }
 
     #[instrument(skip_all)]
-    fn apply<'a, V1, V2>(
+    fn apply<'a, V1, V2, A>(
         &self,
         input: Submatrix<V1, El<Self::Ring>>,
         mut output: SubmatrixMut<'a, V2, MaybeUninit<El<Self::Ring>>>,
+        scratch: &A,
     ) -> SubmatrixMut<'a, V2, El<Self::Ring>>
     where
         V1: Sync + AsPointerToSlice<El<Self::Ring>>,
         V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>,
+        A: ?Sized + Allocator,
     {
         // `input` is ordered as in `b_moduli`
         assert_eq!(input.row_count(), self.input_rings().len());
@@ -107,8 +110,8 @@ impl RNSOperation for RNSCongruencePreservingBaseConversion {
         let Zt = self.t_modulus();
 
         // Compute `lift(x) mod intermediate`
-        let mut x_lift = OwnedMatrix::uninit_in(self.intermediate_moduli.len(), input.col_count(), &SCRATCH_ALLOCATOR);
-        let x_lift = self.b_to_intermediate_lift.apply(input, x_lift.data_mut());
+        let mut x_lift = OwnedMatrix::uninit_in(self.intermediate_moduli.len(), input.col_count(), scratch);
+        let x_lift = self.b_to_intermediate_lift.apply(input, x_lift.data_mut(), scratch);
 
         // now compute `lift(x_lift b^-1 mod t)`, which we use to take care of the congruence modulo
         // `t` later; because of the helper moduli, this is small enough not to cause any
@@ -175,6 +178,8 @@ impl RNSOperation for RNSCongruencePreservingBaseConversion {
 
 #[cfg(test)]
 mod test {
+    use std::alloc::Global;
+
     use feanor_math::assert_el_eq;
     use feanor_math::seq::*;
 
@@ -211,6 +216,7 @@ mod test {
             let actual = baseconv.apply(
                 Submatrix::from_1d(&input, 1, 1),
                 SubmatrixMut::from_1d(&mut actual, 2, 1),
+                &Global,
             );
 
             for j in 0..expected.len() {
@@ -251,6 +257,7 @@ mod test {
             let actual = baseconv.apply(
                 Submatrix::from_1d(&input, 2, 1),
                 SubmatrixMut::from_1d(&mut actual, 3, 1),
+                &Global,
             );
 
             for j in 0..expected.len() {
@@ -291,6 +298,7 @@ mod test {
             let actual = baseconv.apply(
                 Submatrix::from_1d(&input, 3, 1),
                 SubmatrixMut::from_1d(&mut actual, 3, 1),
+                &Global,
             );
 
             for j in 0..expected.len() {

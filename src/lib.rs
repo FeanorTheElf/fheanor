@@ -1,7 +1,6 @@
 #![feature(fn_traits)]
 #![feature(unboxed_closures)]
 #![cfg_attr(test, feature(test))]
-#![feature(ptr_alignment_type)]
 #![feature(min_specialization)]
 #![feature(int_roundings)]
 #![feature(mapped_lock_guards)]
@@ -16,7 +15,6 @@
 extern crate test;
 
 use std::alloc::{Allocator, Global};
-use std::mem::Alignment;
 
 use feanor_math::algorithms::linsolve::LinSolveRing;
 use feanor_math::homomorphism::*;
@@ -25,7 +23,6 @@ use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
 use feanor_math::rings::zn::{FromModulusCreateableZnRing, ZnRing};
 use feanor_math::serialization::SerializableElementRing;
-use feanor_mempool::dynsize::Mempool;
 
 /// Trait for [`ZnRing`]s that have additional functionality, which
 /// is required in many different situations throughout this crate.
@@ -146,16 +143,6 @@ where
 }
 
 fn is_parallel() -> bool { cfg!(feature = "parallel") }
-
-#[repr(align(64))]
-#[allow(unused)]
-struct HighlyAlignedData([u64; 4]);
-
-/// Allocator for obtaining scratch space. This is supposed to be used for large chunks of scratch
-/// space, to hold intermediate results during NTTs or base conversions, not for utility vectors or
-/// other small allocations. In particular, this is a [`Mempool`] allocator, and doesn't support
-/// arbitrary-size allocations.
-static SCRATCH_ALLOCATOR: Mempool = Mempool::new_in(64, 3, Alignment::of::<HighlyAlignedData>(), Global);
 
 /// Euler's totient function.
 #[allow(unused)]

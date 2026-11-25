@@ -1,3 +1,4 @@
+use std::alloc::Allocator;
 use std::mem::MaybeUninit;
 
 use feanor_math::matrix::*;
@@ -32,12 +33,16 @@ pub mod shared_lift;
 /// "approximate versions" of rounding or rescaling, that are important during
 /// RLWE-based HE.
 ///
-/// When we then have an object representing such a map, we can pass it to
-/// [`perform_rns_op()`] or similar functions. This way, we can perform some
-/// operations on double-RNS-represented ring element very easily and efficiently
-/// (without arbitrary-precision arithmetic).
+/// When we then have an object representing such a map, we can apply it to a ring
+/// element using [`NumberRingRNSQuotient::apply_rns_op_to_representation()`]. This way,
+/// we can perform some operations on RNS-represented ring element very easily and
+/// efficiently (without arbitrary-precision arithmetic).
 ///
-/// [`perform_rns_op()`]: crate::ciphertext_ring::perform_rns_op()
+/// An [`RNSOperation`] only describes the map, it does not manage any memory. All
+/// temporary memory it requires is allocated using the allocator passed to
+/// [`RNSOperation::apply()`].
+///
+/// [`NumberRingRNSQuotient::apply_rns_op_to_representation()`]: crate::ciphertext_ring::NumberRingRNSQuotient::apply_rns_op_to_representation()
 pub trait RNSOperation {
     type Ring: ZnRingStore<Type = Self::RingType>;
 
@@ -50,14 +55,18 @@ pub trait RNSOperation {
     /// Applies the RNS operation to each column of the given matrix, and writes the results to the
     /// columns of `output`. The entries of the `i`-th row are considered to be elements of
     /// `self.input_rings().at(i)` resp. `self.output_rings().at(i)`.
-    fn apply<'a, V1, V2>(
+    ///
+    /// All temporary memory required by the operation is allocated using `scratch`.
+    fn apply<'a, V1, V2, A>(
         &self,
         input: Submatrix<V1, El<Self::Ring>>,
         output: SubmatrixMut<'a, V2, MaybeUninit<El<Self::Ring>>>,
+        scratch: &A,
     ) -> SubmatrixMut<'a, V2, El<Self::Ring>>
     where
         V1: Sync + AsPointerToSlice<El<Self::Ring>>,
-        V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>;
+        V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>,
+        A: ?Sized + Allocator;
 }
 
 pub(crate) type UsedBaseConversion = bconv::RNSBaseConversion;

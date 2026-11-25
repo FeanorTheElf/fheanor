@@ -31,12 +31,13 @@ use super::NumberRingRNSQuotient;
 use super::serialization::{deserialize_rns_data, serialize_rns_data};
 use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::{AsSubmatrix, RNSFactorCongruence};
+use crate::ciphertext_ring::{AsSubmatrix, RNSFactorCongruence, rns_op_input_range};
 use crate::ntt::FheanorConvolution;
 use crate::number_ring::galois::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 use crate::number_ring::*;
 use crate::prepared_mul::PreparedMultiplicationRing;
+use crate::rns_conv::RNSOperation;
 use crate::{DefaultConvolution, FheanorAllocator, ZZbig};
 
 /// Implementation of the ring `Z[𝝵_m]/(q)`, where `q = p1 ... pr` is a product of "RNS factors".
@@ -433,7 +434,8 @@ impl<NumberRing, A, C> NumberRingRNSQuotient for SingleRNSRingBase<NumberRing, A
 where
     NumberRing: NumberRingDescriptor,
     A: FheanorAllocator,
-    C: ConvolutionAlgorithm<ZnBase>,
+    C: ConvolutionAlgorithm<ZnBase> + Send + Sync,
+    C::PreparedConvolutionOperand: Send + Sync,
 {
     #[instrument(skip_all)]
     fn drop_rns_factor(&self, drop_rns_factors: &RNSFactorIndexList) -> Self {
@@ -532,6 +534,16 @@ where
             convolutions: PhantomData,
             number_ring: PhantomData,
         };
+    }
+
+    #[instrument(skip_all)]
+    fn apply_rns_op_to_representation<Op>(&self, from: &Self, el: &Self::Element, op: &Op) -> Self::Element
+    where
+        Op: RNSOperation<RingType = ZnBase>,
+    {
+        let input_rows = rns_op_input_range(self, from, op);
+        let input = from.coefficients_as_matrix(el).restrict_rows(input_rows);
+        return self.from_representation_wrt_small_generating_set(|dst| op.apply(input, dst, self.allocator()));
     }
 }
 
@@ -1366,19 +1378,11 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
                     .base_ring()
                     .from_congruence([*ring.base_ring().get_congruence(&c).at(1)].into_iter())
             })),
-            dropped_rns_factor_ring.get_ring().drop_rns_factor_element(
-                ring.get_ring(),
-                &RNSFactorIndexList::from([0], ring.base_ring().len()),
-                a
-            )
+            dropped_rns_factor_ring.get_ring().lift_from(ring.get_ring())(a)
         );
     }
     for a in &elements {
-        let dropped_factor_a = dropped_rns_factor_ring.get_ring().drop_rns_factor_element(
-            ring.get_ring(),
-            &RNSFactorIndexList::from([0], ring.base_ring().len()),
-            a,
-        );
+        let dropped_factor_a = dropped_rns_factor_ring.get_ring().lift_from(ring.get_ring())(a);
         assert_el_eq!(
             &ring,
             ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| {
@@ -1390,11 +1394,8 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
                     .into_iter(),
                 )
             })),
-            ring.get_ring().add_rns_factor_element(
-                dropped_rns_factor_ring.get_ring(),
-                &RNSFactorIndexList::from([0], ring.base_ring().len()),
-                &dropped_factor_a
-            )
+            ring.get_ring()
+                .crt_lift_from(dropped_rns_factor_ring.get_ring(), &dropped_factor_a)
         );
     }
 
@@ -1410,19 +1411,11 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
                     .base_ring()
                     .from_congruence([*ring.base_ring().get_congruence(&c).at(0)].into_iter())
             })),
-            dropped_rns_factor_ring.get_ring().drop_rns_factor_element(
-                ring.get_ring(),
-                &RNSFactorIndexList::from([1], ring.base_ring().len()),
-                a
-            )
+            dropped_rns_factor_ring.get_ring().lift_from(ring.get_ring())(a)
         );
     }
     for a in &elements {
-        let dropped_factor_a = dropped_rns_factor_ring.get_ring().drop_rns_factor_element(
-            ring.get_ring(),
-            &RNSFactorIndexList::from([1], ring.base_ring().len()),
-            a,
-        );
+        let dropped_factor_a = dropped_rns_factor_ring.get_ring().lift_from(ring.get_ring())(a);
         assert_el_eq!(
             &ring,
             ring.from_canonical_basis(ring.wrt_canonical_basis(a).iter().map(|c| {
@@ -1434,11 +1427,8 @@ pub fn test_with_number_ring<NumberRing: Clone + NumberRingDescriptor>(number_ri
                     .into_iter(),
                 )
             })),
-            ring.get_ring().add_rns_factor_element(
-                dropped_rns_factor_ring.get_ring(),
-                &RNSFactorIndexList::from([1], ring.base_ring().len()),
-                &dropped_factor_a
-            )
+            ring.get_ring()
+                .crt_lift_from(dropped_rns_factor_ring.get_ring(), &dropped_factor_a)
         );
     }
 

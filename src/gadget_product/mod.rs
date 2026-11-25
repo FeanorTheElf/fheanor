@@ -8,14 +8,14 @@ use feanor_math::rings::zn::*;
 use feanor_math::seq::{VectorFn, VectorView};
 use tracing::instrument;
 
+use crate::ciphertext_ring::NumberRingRNSQuotient;
 use crate::ciphertext_ring::double_rns_ring::{DoubleRNSRing, DoubleRNSRingBase, SmallBasisEl};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::{AsSubmatrix, NumberRingRNSQuotient};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::number_ring::galois::*;
 use crate::number_ring::{NumberRingDescriptor, NumberRingQuotient};
 use crate::prepared_mul::PreparedMultiplicationRing;
-use crate::rns_conv::{RNSOperation, UsedBaseConversion};
+use crate::rns_conv::UsedBaseConversion;
 use crate::{FheanorAllocator, ZZbig, ZZi64};
 
 /// Contains the type [`RNSGadgetVectorDigitIndices`] which is used to
@@ -77,7 +77,7 @@ impl<R: NumberRingRNSQuotient> RNSGadgetProductLhsOperand<R> {
         let scale_by_factors =
             RNSFactorIndexList::missing_from_subset(el_ring.base_ring(), main_ring.base_ring()).unwrap();
         let scaled_el = RingRef::new(main_ring).inclusion().mul_map(
-            main_ring.add_rns_factor_element(el_ring, &scale_by_factors, el),
+            main_ring.crt_lift_from(el_ring, el),
             main_ring.base_ring().coerce(
                 &ZZbig,
                 ZZbig.prod(
@@ -119,6 +119,10 @@ where
 {
     /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits`.
     /// For an explanation of gadget products, see [`RNSGadgetProductLhsOperand::gadget_product()`].
+    ///
+    /// This is functionally equivalent to calling
+    /// [`RNSGadgetProductLhsOperand::from_element_with()`] on the double-RNS representation of
+    /// `el`, but faster.
     pub fn from_double_rns_ring_with(
         ring: &DoubleRNSRingBase<NumberRing, A>,
         el: &SmallBasisEl<NumberRing, A>,
@@ -137,6 +141,9 @@ where
     /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the RNS gadget vector that has `digits`
     /// digits. For an explanation of gadget products, see
     /// [`RNSGadgetProductLhsOperand::gadget_product()`].
+    ///
+    /// This is functionally equivalent to calling [`RNSGadgetProductLhsOperand::from_element()`]
+    /// on the double-RNS representation of `el`, but faster.
     pub fn from_double_rns_ring(
         ring: &DoubleRNSRingBase<NumberRing, A>,
         el: &SmallBasisEl<NumberRing, A>,
@@ -336,35 +343,24 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
 }
 
 #[instrument(skip_all)]
-fn gadget_decompose<R, S, I>(
+fn gadget_decompose<R, I>(
     ring: &R,
     el: &R::Element,
     digits: I,
-    out_ring: &S,
-) -> Vec<(S::PreparedMultiplicant, S::Element)>
+    out_ring: &R,
+) -> Vec<(R::PreparedMultiplicant, R::Element)>
 where
     R: NumberRingRNSQuotient,
-    S: NumberRingRNSQuotient,
     I: Iterator<Item = Range<usize>>,
 {
+    let out_moduli = out_ring.base_ring().as_iter().cloned().collect::<Vec<_>>();
     let mut result = Vec::new();
-    let el_as_matrix = ring.as_representation_wrt_small_generating_set(el);
-    let el_as_matrix = el_as_matrix.as_submatrix();
-
-    let homs = out_ring
-        .base_ring()
-        .as_iter()
-        .map(|Zp| Zp.can_hom(&ZZi64).unwrap())
-        .collect::<Vec<_>>();
-
     for digit in digits {
         let conversion = GadgetProductBaseConversion::new(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
-            homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
+            out_moduli.clone(),
         );
-        let decomposition_part = out_ring.from_representation_wrt_small_generating_set(|dst| {
-            conversion.apply(el_as_matrix.restrict_rows(digit.clone()), dst)
-        });
+        let decomposition_part = out_ring.apply_rns_op_to_representation(ring, el, &conversion);
         result.push((out_ring.prepare_multiplicant(&decomposition_part), decomposition_part));
     }
     return result;
@@ -382,24 +378,15 @@ where
     A: FheanorAllocator,
     I: Iterator<Item = Range<usize>>,
 {
+    let out_moduli = out_ring.base_ring().as_iter().cloned().collect::<Vec<_>>();
     let mut result = Vec::new();
-    let el_as_matrix = ring.as_representation_wrt_small_generating_set_non_fft(el);
-    let el_as_matrix = el_as_matrix.as_submatrix();
-
-    let homs = out_ring
-        .base_ring()
-        .as_iter()
-        .map(|Zp| Zp.can_hom(&ZZi64).unwrap())
-        .collect::<Vec<_>>();
-
     for digit in digits {
         let conversion = GadgetProductBaseConversion::new(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
-            homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
+            out_moduli.clone(),
         );
-        let decomposition_part = out_ring.from_representation_wrt_small_generating_set(|dst| {
-            conversion.apply(el_as_matrix.restrict_rows(digit.clone()), dst)
-        });
+        let decomposition_part =
+            out_ring.do_fft(out_ring.apply_rns_op_to_representation_non_fft(ring, el, &conversion));
         result.push((out_ring.prepare_multiplicant(&decomposition_part), decomposition_part));
     }
     return result;
@@ -546,7 +533,7 @@ impl<R: NumberRingRNSQuotient> RNSGadgetProductRhsOperand<R> {
                 continue;
             }
             if let Some((scaled_el_prepared, scaled_el)) = scaled_el {
-                let new_scaled_el = to.drop_rns_factor_element(from, dropped_rns_factors, scaled_el);
+                let new_scaled_el = to.lift_from(from)(scaled_el);
                 result_scaled_el.push(Some((
                     to.drop_rns_factor_prepared_element(from, dropped_rns_factors, scaled_el_prepared),
                     new_scaled_el,

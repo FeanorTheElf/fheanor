@@ -1,3 +1,4 @@
+use std::alloc::Allocator;
 use std::mem::MaybeUninit;
 
 use feanor_math::matrix::*;
@@ -61,14 +62,16 @@ impl RNSOperation for RNSSharedBaseConversion {
     fn output_rings<'a>(&'a self) -> &'a [Self::Ring] { &self.out_moduli }
 
     #[instrument(skip_all)]
-    fn apply<'a, V1, V2>(
+    fn apply<'a, V1, V2, A>(
         &self,
         input: Submatrix<V1, El<Self::Ring>>,
         mut output: SubmatrixMut<'a, V2, MaybeUninit<El<Self::Ring>>>,
+        scratch: &A,
     ) -> SubmatrixMut<'a, V2, El<Self::Ring>>
     where
         V1: Sync + AsPointerToSlice<El<Self::Ring>>,
         V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>,
+        A: ?Sized + Allocator,
     {
         assert_eq!(input.col_count(), output.col_count());
         assert_eq!(input.row_count(), self.input_rings().len());
@@ -79,6 +82,7 @@ impl RNSOperation for RNSSharedBaseConversion {
             output
                 .reborrow()
                 .restrict_rows(self.a_moduli_count()..self.output_rings().len()),
+            scratch,
         );
         for i in 0..self.a_moduli_count() {
             for j in 0..input.col_count() {
@@ -92,6 +96,8 @@ impl RNSOperation for RNSSharedBaseConversion {
 
 #[cfg(test)]
 mod test {
+    use std::alloc::Global;
+
     use feanor_math::homomorphism::*;
 
     use super::*;
@@ -108,7 +114,11 @@ mod test {
             let y = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
             let mut actual = to.iter().map(|_| MaybeUninit::uninit()).collect::<Vec<_>>();
 
-            let actual = table.apply(Submatrix::from_1d(&x, 3, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
+            let actual = table.apply(
+                Submatrix::from_1d(&x, 3, 1),
+                SubmatrixMut::from_1d(&mut actual, 4, 1),
+                &Global,
+            );
 
             for i in 0..y.len() {
                 assert!(to[i].eq_el(&y[i], actual.at(i, 0)));

@@ -1,3 +1,4 @@
+use std::alloc::Allocator;
 use std::mem::MaybeUninit;
 use std::slice::from_ref;
 
@@ -15,7 +16,7 @@ use tracing::{Level, Span, instrument, span};
 
 use super::RNSOperation;
 use crate::rns_conv::matmul_kernel::{BLOCK, skinny_matmul_i64_i64_i128_block, skinny_matmul_i128_i64_i128_block};
-use crate::{SCRATCH_ALLOCATOR, ZZbig, ZZi64, ZZi128, is_parallel};
+use crate::{ZZbig, ZZi64, ZZi128, is_parallel};
 
 /// Stores values for an almost exact conversion between RNS bases.
 /// A complete conversion refers to the function
@@ -319,14 +320,16 @@ impl GeneralRNSMatrixBaseConversion {
     /// Furthermore, if the shortest lift of the input is bounded by `Q/4`,
     /// then the result is guaranteed to be exact.
     #[instrument(skip_all)]
-    fn convert_base<'a, V1, V2>(
+    fn convert_base<'a, V1, V2, A>(
         &self,
         input: Submatrix<V1, El<Zn>>,
         output: SubmatrixMut<'a, V2, MaybeUninit<El<Zn>>>,
+        scratch: &A,
     ) -> SubmatrixMut<'a, V2, El<Zn>>
     where
         V1: Sync + AsPointerToSlice<El<Zn>>,
         V2: Sync + AsPointerToSlice<El<Zn>> + AsPointerToSlice<MaybeUninit<El<Zn>>>,
+        A: ?Sized + Allocator,
     {
         assert_eq!(input.row_count(), self.from_moduli.len());
         assert_eq!(output.row_count(), self.to_moduli.len());
@@ -335,9 +338,9 @@ impl GeneralRNSMatrixBaseConversion {
         let in_len = input.row_count();
         let out_len = output.row_count();
         let col_count = input.col_count();
-        let mut lifts = OwnedMatrix::uninit_in(in_len, col_count, &SCRATCH_ALLOCATOR);
-        let mut output_unreduced = OwnedMatrix::uninit_in(out_len, col_count, &SCRATCH_ALLOCATOR);
-        let mut corrections = Vec::with_capacity_in(col_count, &SCRATCH_ALLOCATOR);
+        let mut lifts = OwnedMatrix::uninit_in(in_len, col_count, scratch);
+        let mut output_unreduced = OwnedMatrix::uninit_in(out_len, col_count, scratch);
+        let mut corrections = Vec::with_capacity_in(col_count, scratch);
         corrections.resize_with(col_count, MaybeUninit::uninit);
 
         let (output_unreduced, corrections) =
@@ -349,20 +352,22 @@ impl GeneralRNSMatrixBaseConversion {
 
 impl SingleInRNSMatrixBaseConversion {
     #[instrument(skip_all)]
-    fn convert_base<'a, V1, V2>(
+    fn convert_base<'a, V1, V2, A>(
         &self,
         input: Submatrix<V1, El<Zn>>,
         mut out: SubmatrixMut<'a, V2, MaybeUninit<El<Zn>>>,
+        scratch: &A,
     ) -> SubmatrixMut<'a, V2, El<Zn>>
     where
         V1: Sync + AsPointerToSlice<El<Zn>>,
         V2: Sync + AsPointerToSlice<El<Zn>> + AsPointerToSlice<MaybeUninit<El<Zn>>>,
+        A: ?Sized + Allocator,
     {
         assert_eq!(input.row_count(), 1);
         assert_eq!(out.row_count(), self.to_moduli.len());
         assert_eq!(input.col_count(), out.col_count());
 
-        let mut lifts = Vec::with_capacity(out.col_count());
+        let mut lifts = Vec::with_capacity_in(out.col_count(), scratch);
         lifts.extend(input.row_at(0).iter().map(|x| self.from_modulus.smallest_lift(*x)));
 
         for i in 0..out.row_count() {
@@ -413,24 +418,28 @@ impl RNSOperation for RNSBaseConversion {
         }
     }
 
-    fn apply<'a, V1, V2>(
+    fn apply<'a, V1, V2, A>(
         &self,
         input: Submatrix<V1, El<Self::Ring>>,
         output: SubmatrixMut<'a, V2, MaybeUninit<El<Self::Ring>>>,
+        scratch: &A,
     ) -> SubmatrixMut<'a, V2, El<Self::Ring>>
     where
         V1: Sync + AsPointerToSlice<El<Self::Ring>>,
         V2: Sync + AsPointerToSlice<El<Self::Ring>> + AsPointerToSlice<MaybeUninit<El<Self::Ring>>>,
+        A: ?Sized + Allocator,
     {
         match &self.0 {
-            RNSMatrixBaseConversionEnum::General(rns_conv) => rns_conv.convert_base(input, output),
-            RNSMatrixBaseConversionEnum::SingleIn(rns_conv) => rns_conv.convert_base(input, output),
+            RNSMatrixBaseConversionEnum::General(rns_conv) => rns_conv.convert_base(input, output, scratch),
+            RNSMatrixBaseConversionEnum::SingleIn(rns_conv) => rns_conv.convert_base(input, output, scratch),
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::alloc::Global;
+
     use ::test::Bencher;
     use feanor_math::algorithms::miller_rabin::is_prime;
     use feanor_math::assert_el_eq;
@@ -475,6 +484,7 @@ mod test {
         let actual = table.apply(
             Submatrix::from_1d(&[], from.len(), 1),
             SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+            &Global,
         );
         for j in 0..to.len() {
             assert_el_eq!(to.at(j), to.at(j).zero(), actual.at(j, 0));
@@ -488,6 +498,7 @@ mod test {
         table.apply(
             Submatrix::from_1d(&input, from.len(), 1),
             SubmatrixMut::from_1d(&mut [], to.len(), 1),
+            &Global,
         );
     }
 
@@ -508,6 +519,7 @@ mod test {
             let actual = table.apply(
                 Submatrix::from_1d(&input, from.len(), 1),
                 SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+                &Global,
             );
 
             check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
@@ -521,6 +533,7 @@ mod test {
             let actual = table.apply(
                 Submatrix::from_1d(&input, from.len(), 1),
                 SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+                &Global,
             );
 
             for j in 0..to.len() {
@@ -545,6 +558,7 @@ mod test {
             let actual = table.apply(
                 Submatrix::from_1d(&input, from.len(), 1),
                 SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+                &Global,
             );
 
             check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
@@ -568,6 +582,7 @@ mod test {
             let actual = table.apply(
                 Submatrix::from_1d(&input, from.len(), 1),
                 SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+                &Global,
             );
 
             check_almost_exact_result(&to, k, q, actual.col_at(0), &expected);
@@ -591,6 +606,7 @@ mod test {
             let actual = table.apply(
                 Submatrix::from_1d(&input, from.len(), 1),
                 SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+                &Global,
             );
 
             for i in 0..to.len() {
@@ -616,6 +632,7 @@ mod test {
             let actual = table.apply(
                 Submatrix::from_1d(&input, from.len(), 1),
                 SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+                &Global,
             );
 
             for i in 0..to.len() {
@@ -641,6 +658,7 @@ mod test {
             let actual = table.apply(
                 Submatrix::from_1d(&input, from.len(), 1),
                 SubmatrixMut::from_1d(&mut actual, to.len(), 1),
+                &Global,
             );
 
             for i in 0..to.len() {
@@ -679,7 +697,7 @@ mod test {
                     *in_matrix.at_mut(i, j) = in_moduli[i].random_element(|| rng.rand_u64());
                 }
             }
-            let result = conv.apply(in_matrix.as_const(), out_matrix.reborrow());
+            let result = conv.apply(in_matrix.as_const(), out_matrix.reborrow(), &Global);
             for i in 0..out_moduli_count {
                 for j in 0..cols {
                     std::hint::black_box(result.at(i, j));
@@ -750,6 +768,7 @@ mod test {
         let output = conversion.apply(
             Submatrix::from_1d(&input, in_len, 1),
             SubmatrixMut::from_1d(&mut output, primes.len() - in_len, 1),
+            &Global,
         );
 
         for j in 0..to.len() {

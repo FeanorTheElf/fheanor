@@ -18,7 +18,6 @@ use fheanor::gadget_product::*;
 use fheanor::number_ring::pow2_cyclotomic::*;
 use fheanor::number_ring::quotient_by_int::NumberRingQuotientByInt;
 use fheanor::number_ring::*;
-use fheanor::rns_conv::RNSOperation;
 use fheanor::rns_conv::bconv::RNSBaseConversion;
 use fheanor::rns_conv::bfv_rescale::RNSRescalingConversion;
 use rand::{Rng, RngCore};
@@ -176,26 +175,12 @@ fn hom_mul_three_component(
         ciphertext_ring.base_ring().as_iter().cloned().collect(),
         multiplication_ring.base_ring().as_iter().cloned().collect(),
     );
-    debug_assert!(
-        lift_to_multiplication_ring_rnsconv
-            .input_rings()
-            .iter()
-            .zip(ciphertext_ring.base_ring().as_iter())
-            .all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring())
-    );
-    debug_assert!(
-        lift_to_multiplication_ring_rnsconv
-            .output_rings()
-            .iter()
-            .zip(multiplication_ring.base_ring().as_iter())
-            .all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring())
-    );
     let lift_to_multiplication_ring = |x: &SmallBasisEl<_, _>| {
-        let result = multiplication_ring
-            .get_ring()
-            .from_representation_wrt_small_generating_set_non_fft(|dst| {
-                lift_to_multiplication_ring_rnsconv.apply(ciphertext_ring.get_ring().as_matrix_wrt_small_basis(&x), dst)
-            });
+        let result = multiplication_ring.get_ring().apply_rns_op_to_representation_non_fft(
+            ciphertext_ring.get_ring(),
+            x,
+            &lift_to_multiplication_ring_rnsconv,
+        );
         return multiplication_ring.get_ring().do_fft(result);
     };
 
@@ -211,7 +196,11 @@ fn hom_mul_three_component(
     let scale_down_rnsconv = RNSRescalingConversion::new(
         multiplication_ring.base_ring().as_iter().cloned().collect(),
         ciphertext_ring.base_ring().as_iter().cloned().collect(),
-        vec![zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64)],
+        &int_cast(
+            *plaintext_ring.base_ring().modulus(),
+            BigIntRing::RING,
+            StaticRing::<i64>::RING,
+        ),
         ciphertext_ring
             .base_ring()
             .as_iter()
@@ -224,32 +213,12 @@ fn hom_mul_three_component(
             })
             .collect::<Vec<_>>(),
     );
-    debug_assert!(
-        scale_down_rnsconv
-            .input_rings()
-            .iter()
-            .zip(multiplication_ring.base_ring().as_iter())
-            .all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring())
-    );
-    debug_assert!(
-        scale_down_rnsconv
-            .output_rings()
-            .iter()
-            .zip(ciphertext_ring.base_ring().as_iter())
-            .all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring())
-    );
     let scale_down = |x: El<CiphertextRing>| {
-        let result = ciphertext_ring
-            .get_ring()
-            .from_representation_wrt_small_generating_set_non_fft(|dst| {
-                scale_down_rnsconv.apply(
-                    multiplication_ring
-                        .get_ring()
-                        .as_matrix_wrt_small_basis(&multiplication_ring.get_ring().undo_fft(x)),
-                    dst,
-                )
-            });
-        return result;
+        return ciphertext_ring.get_ring().apply_rns_op_to_representation_non_fft(
+            multiplication_ring.get_ring(),
+            &multiplication_ring.get_ring().undo_fft(x),
+            &scale_down_rnsconv,
+        );
     };
 
     return (

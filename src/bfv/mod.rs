@@ -7,12 +7,8 @@ use std::ops::Range;
 
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
 use feanor_math::algorithms::int_factor::is_prime_power;
-use feanor_math::algorithms::miller_rabin::prev_prime;
-use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::group::*;
 use feanor_math::homomorphism::Homomorphism;
-use feanor_math::matrix::OwnedMatrix;
-use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::finite::{FiniteRing, FiniteRingStore};
 use feanor_math::rings::zn::zn_64::*;
@@ -22,10 +18,10 @@ use rand::{CryptoRng, Rng};
 use rand_distr::StandardNormal;
 use tracing::instrument;
 
+use crate::ciphertext_ring::NumberRingRNSQuotient;
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
-use crate::ciphertext_ring::{AsSubmatrix, NumberRingRNSQuotient, perform_rns_op};
 use crate::circuit::{CircuitEvaluatorCosts, DEFAULT_EVALUATOR_COSTS, PlaintextCircuit};
 use crate::gadget_product::digits::*;
 use crate::gadget_product::{RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
@@ -37,9 +33,6 @@ use crate::number_ring::pow2_cyclotomic::*;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use crate::number_ring::tensor_ring::*;
 use crate::number_ring::*;
-use crate::rns_conv::bfv_rescale::{RNSRescaling, RNSRescalingConversion};
-use crate::rns_conv::shared_lift::RNSSharedBaseConversion;
-use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::{DefaultCiphertextAllocator, *};
 
 pub mod eval;
@@ -551,7 +544,7 @@ pub trait BFVInstantiation {
         let (c00, c01) = lhs;
         let (c10, c11) = rhs;
 
-        let lift = Self::lift_to_Cmul(C, C_mul);
+        let lift = C_mul.get_ring().lift_from(C.get_ring());
         let c00_lifted = lift(&c00);
         let c01_lifted = lift(&c01);
         let c10_lifted = lift(&c10);
@@ -561,7 +554,12 @@ pub trait BFVInstantiation {
             .get_ring()
             .two_by_two_convolution([c00_lifted, c01_lifted], [c10_lifted, c11_lifted]);
 
-        let scale_down = Self::rescale_to_C(P, C, C_mul);
+        let t = int_cast(
+            P.base_ring().integer_ring().clone_el(P.base_ring().modulus()),
+            ZZbig,
+            P.base_ring().integer_ring(),
+        );
+        let scale_down = C.get_ring().rescale_from(C_mul.get_ring(), &t, C.base_ring().modulus());
         let res0 = scale_down(&lifted0);
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
@@ -594,13 +592,18 @@ pub trait BFVInstantiation {
     ) -> Ciphertext<Self> {
         let (c0, c1) = val;
 
-        let lift = Self::lift_to_Cmul(C, C_mul);
+        let lift = C_mul.get_ring().lift_from(C.get_ring());
         let c0_lifted = lift(&c0);
         let c1_lifted = lift(&c1);
 
         let [lifted0, lifted1, lifted2] = C_mul.get_ring().two_by_two_convolution_square([c0_lifted, c1_lifted]);
 
-        let scale_down = Self::rescale_to_C(P, C, C_mul);
+        let t = int_cast(
+            P.base_ring().integer_ring().clone_el(P.base_ring().modulus()),
+            ZZbig,
+            P.base_ring().integer_ring(),
+        );
+        let scale_down = C.get_ring().rescale_from(C_mul.get_ring(), &t, C.base_ring().modulus());
         let res0 = scale_down(&lifted0);
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
@@ -714,26 +717,10 @@ pub trait BFVInstantiation {
         Cold: &CiphertextRing<Self>,
         ct: Ciphertext<Self>,
     ) -> Ciphertext<Self> {
-        let mod_switch = RNSRescaling::new(
-            Cold.base_ring().as_iter().map(|Zp| *Zp).collect(),
-            Cnew.base_ring().as_iter().map(|Zp| *Zp).collect(),
-        );
-        assert!(
-            Cold.base_ring()
-                .as_iter()
-                .zip(mod_switch.input_rings())
-                .all(|(l, r)| l.get_ring() == r.get_ring())
-        );
-        assert!(
-            Cnew.base_ring()
-                .as_iter()
-                .zip(mod_switch.output_rings())
-                .all(|(l, r)| l.get_ring() == r.get_ring())
-        );
-        return (
-            perform_rns_op(Cnew.get_ring(), Cold.get_ring(), &ct.0, &mod_switch),
-            perform_rns_op(Cnew.get_ring(), Cold.get_ring(), &ct.1, &mod_switch),
-        );
+        let mod_switch =
+            Cnew.get_ring()
+                .rescale_from(Cold.get_ring(), Cnew.base_ring().modulus(), Cold.base_ring().modulus());
+        return (mod_switch(&ct.0), mod_switch(&ct.1));
     }
 
     /// Modulus-switches a secret key.
@@ -747,29 +734,7 @@ pub trait BFVInstantiation {
         Cold: &CiphertextRing<Self>,
         sk: &SecretKey<Self>,
     ) -> SecretKey<Self> {
-        if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
-            return Cnew
-                .get_ring()
-                .drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
-        } else {
-            let mod_switch = UsedBaseConversion::new(
-                Cold.base_ring().as_iter().cloned().collect(),
-                Cnew.base_ring().as_iter().cloned().collect(),
-            );
-            assert!(
-                Cold.base_ring()
-                    .as_iter()
-                    .zip(mod_switch.input_rings())
-                    .all(|(l, r)| l.get_ring() == r.get_ring())
-            );
-            assert!(
-                Cnew.base_ring()
-                    .as_iter()
-                    .zip(mod_switch.output_rings())
-                    .all(|(l, r)| l.get_ring() == r.get_ring())
-            );
-            return perform_rns_op(Cnew.get_ring(), Cold.get_ring(), sk, &mod_switch);
-        }
+        Cnew.get_ring().lift_from(Cold.get_ring())(sk)
     }
 
     /// Generates a Galois key, usable for homomorphically applying the Galois automorphisms
@@ -895,39 +860,6 @@ pub trait BFVInstantiation {
             })
             .collect();
     }
-
-    /// Returns an implementation of the function `R/qR -> R/qq'R` that maps every `x` in `R/qR`
-    /// to a short element of `R/qq'R` congruent to `x` modulo `q`.
-    ///
-    /// It is returned as a function object, which allows it to store data that is used for the
-    /// rescaling. This function is used by the default implementations of multiplication, i.e.
-    /// [`BFVInstantiation::hom_mul()`] and [`BFVInstantiation::hom_square()`].
-    ///
-    /// The function is behind a trait object, so that concrete instantiations can use a different
-    /// implementation which is more performant on their concrete choice of rings.
-    fn lift_to_Cmul<'a>(
-        C: &'a CiphertextRing<Self>,
-        C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Sync + Send + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |_, _, _, delta| delta)
-    }
-
-    /// Returns an implementation of the function `R/qq'R -> R/qR` that maps every `x` in `R/qq'R`
-    /// to an element of `R/qR` close to `smallest_lift(tx/q)`.
-    ///
-    /// It is returned as a function object, which allows it to store data that is used for the
-    /// rescaling. This function is used by the default implementations of multiplication, i.e.
-    /// [`BFVInstantiation::hom_mul()`] and [`BFVInstantiation::hom_square()`].
-    ///
-    /// The function is behind a trait object, so that concrete instantiations can use a different
-    /// implementation which is more performant on their concrete choice of rings.
-    fn rescale_to_C<'a>(
-        P: &PlaintextRing<Self>,
-        C: &'a CiphertextRing<Self>,
-        C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Sync + Send + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_rescale_to_C::<Self>(P, C, C_mul)
-    }
 }
 
 /// Instantiation of BFV in power-of-two cyclotomic rings `Z[X]/(X^N + 1)` for `N`
@@ -1021,19 +953,6 @@ impl<A: FheanorAllocator, C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Pow2
         return force_double_rns_repr(C, result);
     }
 
-    fn lift_to_Cmul<'a>(
-        C: &'a CiphertextRing<Self>,
-        C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Sync + Send + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |C, dst, C_delta, delta| {
-            if C.get_ring().is_doublerns_cached(dst) {
-                force_double_rns_repr(C_delta, delta)
-            } else {
-                delta
-            }
-        })
-    }
-
     fn cost_model(&self) -> CircuitEvaluatorCosts { DEFAULT_EVALUATOR_COSTS }
 }
 
@@ -1109,19 +1028,6 @@ impl<A: FheanorAllocator, C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Pow2
                 .map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))),
         );
         return force_double_rns_repr(C, result);
-    }
-
-    fn lift_to_Cmul<'a>(
-        C: &'a CiphertextRing<Self>,
-        C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Sync + Send + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |C, dst, C_delta, delta| {
-            if C.get_ring().is_doublerns_cached(dst) {
-                force_double_rns_repr(C_delta, delta)
-            } else {
-                delta
-            }
-        })
     }
 
     fn cost_model(&self) -> CircuitEvaluatorCosts { DEFAULT_EVALUATOR_COSTS }
@@ -1211,19 +1117,6 @@ impl<A: FheanorAllocator> BFVInstantiation for CompositeBFV<A> {
                     .map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))),
             ),
         );
-    }
-
-    fn lift_to_Cmul<'a>(
-        C: &'a CiphertextRing<Self>,
-        C_mul: &'a CiphertextRing<Self>,
-    ) -> Box<dyn 'a + Sync + Send + for<'b> Fn(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        default_impl_lift_to_Cmul::<CiphertextRing<Self>, _>(C, C_mul, |C, dst, C_delta, delta| {
-            if C.get_ring().is_doublerns_cached(dst) {
-                force_double_rns_repr(C_delta, delta)
-            } else {
-                delta
-            }
-        })
     }
 
     fn cost_model(&self) -> CircuitEvaluatorCosts { DEFAULT_EVALUATOR_COSTS }
@@ -1348,205 +1241,6 @@ where
         .into_doublerns(x)
         .map(|x| C.get_ring().from_doublerns(x))
         .unwrap_or(C.zero())
-}
-
-fn t_fits_zn_64<I>(ZZ: I, t: &El<I>) -> Option<Zn>
-where
-    I: RingStore,
-    I::Type: IntegerRing,
-{
-    if ZZ.abs_log2_ceil(t).unwrap() <= 50 {
-        Some(Zn::new(int_cast(ZZ.clone_el(t), ZZi64, ZZ) as u64))
-    } else {
-        None
-    }
-}
-
-pub fn temporarily_extend_rns_base<'a>(
-    current: &'a zn_rns::Zn<Zn, BigIntRing>,
-    by_bits: usize,
-) -> RNSSharedBaseConversion {
-    let current_log2_modulus = ZZbig.abs_log2_ceil(current.modulus()).unwrap();
-    let new_log2_modulus = current_log2_modulus + by_bits;
-
-    let extended_rns_base = extend_sampled_primes(
-        &current.as_iter().map(|Zp| *Zp.modulus()).collect::<Vec<_>>(),
-        new_log2_modulus + 10,
-        new_log2_modulus + 67,
-        57,
-        |bound| prev_prime(ZZi64, bound),
-    )
-    .unwrap()
-    .into_iter()
-    .map(|p| Zn::new(p as u64))
-    .collect::<Vec<_>>();
-
-    let to_extended = RNSSharedBaseConversion::new(
-        extended_rns_base[..current.len()].iter().cloned().collect::<Vec<_>>(),
-        Vec::new(),
-        extended_rns_base[current.len()..].iter().cloned().collect::<Vec<_>>(),
-    );
-
-    to_extended
-}
-
-/// Default construction of the function `R/qR -> R/qq'R` that maps every `x` in `R/qR`
-/// to a short lift in `R/qq'R`, as required during BFV homomorphic multiplication.
-///
-/// This is the default implementation of [`BFVInstantiation::lift_to_Cmul()`], but we
-/// also make it available as standalone function to allow reuse in more scenarios.
-pub fn default_impl_lift_to_Cmul<'a, R, F>(
-    C: &'a R,
-    C_mul: &'a R,
-    prepare_delta: F,
-) -> Box<dyn 'a + Sync + Send + for<'b> Fn(&'b El<R>) -> El<R>>
-where
-    R: Send + Sync + RingStore,
-    R::Type: Sized + Send + Sync + NumberRingRNSQuotient,
-    F: 'a + Send + Sync + Fn(&R, &El<R>, &RingValue<R::Type>, El<R>) -> El<R>,
-{
-    let C_delta = C_mul.get_ring().drop_rns_factor(&RNSFactorIndexList::from(
-        0..C.base_ring().len(),
-        C_mul.base_ring().len(),
-    ));
-    let lift = UsedBaseConversion::new(
-        C.base_ring().as_iter().cloned().collect::<Vec<_>>(),
-        C_mul
-            .base_ring()
-            .as_iter()
-            .skip(C.base_ring().len())
-            .cloned()
-            .collect::<Vec<_>>(),
-    );
-
-    #[instrument(skip_all)]
-    fn lift_to_Cmul_impl<R, F>(
-        C: &R,
-        C_mul: &R,
-        C_delta: &RingValue<R::Type>,
-        lift: &UsedBaseConversion,
-        c: &El<R>,
-        prepare_delta: &F,
-    ) -> El<R>
-    where
-        R: RingStore,
-        R::Type: Sized + NumberRingRNSQuotient,
-        F: Fn(&R, &El<R>, &RingValue<R::Type>, El<R>) -> El<R>,
-    {
-        let c_repr = C.get_ring().as_representation_wrt_small_generating_set(&c);
-        let c_repr = c_repr.as_submatrix();
-        let delta = prepare_delta(
-            C,
-            c,
-            C_delta,
-            C_delta
-                .get_ring()
-                .from_representation_wrt_small_generating_set(|dst| lift.apply(c_repr, dst)),
-        );
-        return C_mul.add(
-            C_mul.get_ring().add_rns_factor_element(
-                C.get_ring(),
-                &RNSFactorIndexList::from(C.base_ring().len()..C_mul.base_ring().len(), C_mul.base_ring().len()),
-                &c,
-            ),
-            C_mul.get_ring().add_rns_factor_element(
-                &C_delta.get_ring(),
-                &RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len()),
-                &delta,
-            ),
-        );
-    }
-    return Box::new(move |c| {
-        lift_to_Cmul_impl::<R, F>(C, C_mul, RingValue::from_ref(&C_delta), &lift, c, &prepare_delta)
-    });
-}
-
-/// Default construction of the function `R/qq'R -> R/qR` that maps every `x` in `R/qq'R`
-/// to an element of `R/qR` close to `smallest_lift(tx/q)`, as required during BFV homomorphic
-/// multiplication.
-///
-/// This is the default implementation of [`BFVInstantiation::rescale_to_C()`], but we
-/// also make it available as standalone function to allow reuse in more scenarios.
-pub fn default_impl_rescale_to_C<'a, Inst: ?Sized + BFVInstantiation>(
-    P: &PlaintextRing<Inst>,
-    C: &'a CiphertextRing<Inst>,
-    C_mul: &'a CiphertextRing<Inst>,
-) -> Box<dyn 'a + Sync + Send + for<'b> Fn(&'b El<CiphertextRing<Inst>>) -> El<CiphertextRing<Inst>>> {
-    assert!(C.number_ring() == C_mul.number_ring());
-    assert_eq!(
-        C.get_ring().small_generating_set_len(),
-        C_mul.get_ring().small_generating_set_len()
-    );
-    let ZZ = P.base_ring().integer_ring();
-    // we treat the case that Zt can be represented using zn_64::Zn separately, since it is
-    // common and can be implemented more efficiently
-    if let Some(Zt) = t_fits_zn_64(ZZ, P.base_ring().modulus())
-        && ZZbig.is_unit(&ZZbig.gcd(&int_cast(*Zt.modulus(), ZZbig, ZZi64), C_mul.base_ring().modulus()))
-    {
-        let rescale = RNSRescalingConversion::new(
-            C_mul.base_ring().as_iter().cloned().collect(),
-            C.base_ring().as_iter().cloned().collect(),
-            vec![Zt],
-            (0..C.base_ring().len()).collect(),
-        );
-
-        #[instrument(skip_all)]
-        fn rescale_to_C_impl_small_t<Inst: ?Sized + BFVInstantiation>(
-            C: &CiphertextRing<Inst>,
-            C_mul: &CiphertextRing<Inst>,
-            rescale: &RNSRescalingConversion,
-            c: &El<CiphertextRing<Inst>>,
-        ) -> El<CiphertextRing<Inst>> {
-            perform_rns_op(C.get_ring(), C_mul.get_ring(), &*c, rescale)
-        }
-        Box::new(move |c| rescale_to_C_impl_small_t::<Inst>(C, C_mul, &rescale, c))
-    } else {
-        let to_extended =
-            temporarily_extend_rns_base(C_mul.base_ring(), ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap());
-        let rescale = RNSRescalingConversion::new(
-            to_extended.output_rings().to_owned(),
-            C.base_ring().as_iter().cloned().collect(),
-            Vec::new(),
-            (0..C.base_ring().len()).collect(),
-        );
-        let t_mod_extended = to_extended
-            .output_rings()
-            .iter()
-            .map(|ring| ring.coerce(ZZ, ZZ.clone_el(P.base_ring().modulus())))
-            .collect::<Vec<_>>();
-
-        #[instrument(skip_all)]
-        fn rescale_to_C_impl_large_t<Inst: ?Sized + BFVInstantiation>(
-            C: &CiphertextRing<Inst>,
-            C_mul: &CiphertextRing<Inst>,
-            to_extended: &RNSSharedBaseConversion,
-            t_mod_extended: &[El<zn_64::Zn>],
-            rescale: &RNSRescalingConversion,
-            c: &El<CiphertextRing<Inst>>,
-        ) -> El<CiphertextRing<Inst>> {
-            let c_repr = C_mul.get_ring().as_representation_wrt_small_generating_set(c);
-            let c_repr = c_repr.as_submatrix();
-            let mut tmp_extended = OwnedMatrix::uninit_in(
-                to_extended.output_rings().len(),
-                C_mul.get_ring().small_generating_set_len(),
-                &SCRATCH_ALLOCATOR,
-            );
-            let mut tmp_extended = to_extended.apply(c_repr, tmp_extended.data_mut());
-            for (ring, (row, factor)) in to_extended
-                .output_rings()
-                .iter()
-                .zip(tmp_extended.reborrow().row_iter().zip(t_mod_extended.iter()))
-            {
-                for x in row {
-                    ring.mul_assign_ref(x, factor);
-                }
-            }
-            return C
-                .get_ring()
-                .from_representation_wrt_small_generating_set(|dst| rescale.apply(tmp_extended.as_const(), dst));
-        }
-        Box::new(move |c| rescale_to_C_impl_large_t::<Inst>(C, C_mul, &to_extended, &t_mod_extended, &rescale, c))
-    }
 }
 
 #[cfg(test)]

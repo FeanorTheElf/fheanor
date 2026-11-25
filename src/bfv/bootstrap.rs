@@ -562,11 +562,7 @@ impl<Inst: BFVInstantiation> ThinBootstrapper<Inst> {
         assert_eq!(1, result.len());
         let result = result.into_iter().next().unwrap();
 
-        let sk_input = debug_sk.map(|sk| {
-            C_input
-                .get_ring()
-                .drop_rns_factor_element(C.get_ring(), &C_to_C_input_drop_factors, &sk)
-        });
+        let sk_input = debug_sk.map(|sk| C_input.get_ring().lift_from(C.get_ring())(&sk));
         if let Some(sk) = &sk_input {
             Inst::dec_println(P, &C_input, &result, sk);
         }
