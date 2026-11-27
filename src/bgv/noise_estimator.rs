@@ -248,9 +248,7 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation>: Sized {
         C: &CiphertextRing<Params>,
         m: &El<PlaintextRing<Params>>,
         ct: &CiphertextDescriptor<Params, Self>,
-    ) -> CiphertextDescriptor<Params, Self> {
-        self.hom_mul_plain_encoded(P, C, &Params::encode_plain(P, C, m), ct)
-    }
+    ) -> CiphertextDescriptor<Params, Self>;
 
     /// Noise equivalent of [`BGVInstantiation::hom_mul_plain_scalar()`].
     fn hom_mul_plain_scalar(
@@ -651,6 +649,20 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         )
     }
 
+    fn hom_mul_plain(
+        &self,
+        P: &PlaintextRing<Params>,
+        _C: &CiphertextRing<Params>,
+        _m: &El<PlaintextRing<Params>>,
+        ct: &CiphertextDescriptor<Params, Self>,
+    ) -> CiphertextDescriptor<Params, Self> {
+        Self::descriptor::<Params>(
+            ct.noise.log2_relative_critical_quantity + log2_can_norm_shortest_lift_estimate::<Params>(P),
+            P.base_ring().clone_el(&ct.implicit_scale),
+            ct.sk,
+        )
+    }
+
     fn hom_mul_plain_int(
         &self,
         P: &PlaintextRing<Params>,
@@ -860,6 +872,16 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for AlwaysZeroNoiseEsti
         P: &PlaintextRing<Params>,
         _C: &CiphertextRing<Params>,
         _m: &El<CiphertextRing<Params>>,
+        ct: &CiphertextDescriptor<Params, Self>,
+    ) -> CiphertextDescriptor<Params, Self> {
+        CiphertextDescriptor::new((), P.base_ring().clone_el(&ct.implicit_scale), ct.sk)
+    }
+
+    fn hom_mul_plain(
+        &self,
+        P: &PlaintextRing<Params>,
+        _C: &CiphertextRing<Params>,
+        _m: &El<PlaintextRing<Params>>,
         ct: &CiphertextDescriptor<Params, Self>,
     ) -> CiphertextDescriptor<Params, Self> {
         CiphertextDescriptor::new((), P.base_ring().clone_el(&ct.implicit_scale), ct.sk)
