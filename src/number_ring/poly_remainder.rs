@@ -13,7 +13,6 @@ use tracing::instrument;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum SmallCoeff {
-    Zero = 0,
     One = 1,
     NegOne = -1,
 }
@@ -25,7 +24,8 @@ where
 {
     degree: usize,
     stride: usize,
-    coefficients: Vec<SmallCoeff>,
+    /// the nonzero coefficients of `-(poly - X^deg(poly))`, as pairs `(index, coefficient)`
+    coefficients: Vec<(usize, SmallCoeff)>,
     ring: R,
 }
 
@@ -45,15 +45,15 @@ where
         assert!(!poly_ring.is_zero(poly));
         assert!(poly_ring.base_ring().is_one(poly_ring.lc(poly).unwrap()));
         let coefficients = (0..poly_ring.degree(poly).unwrap())
-            .map(|i| {
+            .filter_map(|i| {
                 let c = poly_ring.coefficient_at(poly, i);
                 if poly_ring.base_ring().is_zero(c) {
-                    SmallCoeff::Zero
+                    None
                 } else if poly_ring.base_ring().is_one(c) {
-                    SmallCoeff::NegOne
+                    Some((i, SmallCoeff::NegOne))
                 } else {
                     assert!(poly_ring.base_ring().is_neg_one(c));
-                    SmallCoeff::One
+                    Some((i, SmallCoeff::One))
                 }
             })
             .collect::<Vec<_>>();
@@ -67,43 +67,33 @@ where
 
     #[instrument(skip_all)]
     fn remainder(&self, data: &mut [El<R>]) {
-        let mut start_pos_it = (self.degree..data.len()).step_by(self.stride).rev();
-        if let Some(i) = start_pos_it.next() {
-            let stride = data.len() - i;
-            let (base, reduce) = data[(i - self.degree)..].split_at_mut(self.degree);
-            for j in 0..self.coefficients.len() {
-                match self.coefficients[j] {
-                    SmallCoeff::Zero => {}
-                    SmallCoeff::One => {
-                        for k in 0..stride {
-                            self.ring.add_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
-                        }
-                    }
-                    SmallCoeff::NegOne => {
-                        for k in 0..stride {
-                            self.ring.sub_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
-                        }
-                    }
-                }
-            }
+        // we reduce blocks of `stride` coefficients at once; the first (topmost) block
+        // might be shorter, if `data.len() - degree` is not divisible by `stride`
+        let mut block_len = (data.len().saturating_sub(self.degree)) % self.stride;
+        if block_len == 0 {
+            block_len = self.stride;
         }
-        for i in start_pos_it {
-            let (base, reduce) = data[(i - self.degree)..].split_at_mut(self.degree);
-            for j in 0..self.coefficients.len() {
-                match self.coefficients[j] {
-                    SmallCoeff::Zero => {}
+        let mut end = data.len();
+        while end > self.degree {
+            let i = end - block_len;
+            let (base, reduce) = data[(i - self.degree)..end].split_at_mut(self.degree);
+            for (j, c) in &self.coefficients {
+                let base = &mut base[(j * self.stride)..(j * self.stride + block_len)];
+                match c {
                     SmallCoeff::One => {
-                        for k in 0..self.stride {
-                            self.ring.add_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
+                        for k in 0..block_len {
+                            self.ring.add_assign_ref(&mut base[k], &reduce[k]);
                         }
                     }
                     SmallCoeff::NegOne => {
-                        for k in 0..self.stride {
-                            self.ring.sub_assign_ref(&mut base[k + j * self.stride], &reduce[k]);
+                        for k in 0..block_len {
+                            self.ring.sub_assign_ref(&mut base[k], &reduce[k]);
                         }
                     }
                 }
             }
+            end = i;
+            block_len = self.stride;
         }
     }
 }
@@ -117,8 +107,9 @@ where
     f_deg: usize,
     /// degree of modulus `q`
     q_deg: usize,
-    neg_Xn_over_q: Vec<El<R>>,
-    neg_Xn_over_q_prep: C::PreparedConvolutionOperand,
+    /// `-floor(X^f_deg / q)`, of degree `f_deg - q_deg` (or `0` if `f_deg < q_deg`)
+    neg_mu: Vec<El<R>>,
+    neg_mu_prep: C::PreparedConvolutionOperand,
     q: Vec<El<R>>,
     q_prep: C::PreparedConvolutionOperand,
     ring: R,
@@ -136,28 +127,28 @@ where
         let q_deg = poly_ring.degree(poly).unwrap();
         let ring = poly_ring.base_ring();
 
-        let n = f_deg + q_deg;
         let quo_deg = f_deg.checked_sub(q_deg);
-        let Xn_over_q_deg = n - q_deg;
+        let mu_deg = quo_deg.unwrap_or(0);
 
         let q = (0..(q_deg + 1))
             .map(|i| ring.clone_el(poly_ring.coefficient_at(poly, i)))
             .collect::<Vec<_>>();
         let q_prep = convolution.prepare_convolution_operand(&q, Some(quo_deg.unwrap_or(0) + q_deg + 1), &ring);
 
-        let Xn_over_q = poly_ring.div_rem_monic(poly_ring.from_terms([(ring.one(), n)]), poly).0;
-        assert_eq!(Xn_over_q_deg, poly_ring.degree(&Xn_over_q).unwrap());
-        let neg_Xn_over_q = (0..(Xn_over_q_deg + 1))
-            .map(|i| ring.negate(ring.clone_el(poly_ring.coefficient_at(&Xn_over_q, i))))
+        let mu = poly_ring
+            .div_rem_monic(poly_ring.from_terms([(ring.one(), f_deg.max(q_deg))]), poly)
+            .0;
+        assert_eq!(mu_deg, poly_ring.degree(&mu).unwrap());
+        let neg_mu = (0..(mu_deg + 1))
+            .map(|i| ring.negate(ring.clone_el(poly_ring.coefficient_at(&mu, i))))
             .collect::<Vec<_>>();
-        let neg_Xn_over_q_prep =
-            convolution.prepare_convolution_operand(&neg_Xn_over_q, Some(Xn_over_q_deg + f_deg + 1), &ring);
+        let neg_mu_prep = convolution.prepare_convolution_operand(&neg_mu, Some(2 * mu_deg + 1), &ring);
 
         return Self {
             f_deg,
             q_deg,
-            neg_Xn_over_q,
-            neg_Xn_over_q_prep,
+            neg_mu,
+            neg_mu_prep,
             q,
             q_prep,
             ring: poly_ring.into().into_base_ring(),
@@ -189,23 +180,21 @@ where
 
         let f_deg = self.f_deg;
         let q_deg = self.q_deg;
-        let n = f_deg + q_deg;
-        let Xn_over_q_deg = n - q_deg;
         if let Some(quo_deg) = f_deg.checked_sub(q_deg) {
             assert!(self.ring.is_zero(&data[self.f_deg + 1]));
 
-            let mut scaled_quotient = Vec::with_capacity_in(f_deg + Xn_over_q_deg + 2, Global);
-            scaled_quotient.resize_with(f_deg + Xn_over_q_deg + 2, || self.ring.zero());
+            let mut scaled_quotient = Vec::with_capacity_in(2 * quo_deg + 2, Global);
+            scaled_quotient.resize_with(2 * quo_deg + 2, || self.ring.zero());
             self.convolution.compute_convolution_prepared(
-                &data[..(f_deg + 1)],
+                &data[q_deg..(f_deg + 1)],
                 None,
-                &self.neg_Xn_over_q,
-                Some(&self.neg_Xn_over_q_prep),
+                &self.neg_mu,
+                Some(&self.neg_mu_prep),
                 &mut scaled_quotient,
                 &self.ring,
             );
 
-            let quotient = &scaled_quotient[n..(n + quo_deg + 1)];
+            let quotient = &scaled_quotient[quo_deg..(2 * quo_deg + 1)];
             self.convolution.compute_convolution_prepared(
                 &quotient,
                 None,
@@ -226,16 +215,15 @@ where
     fn clone(&self) -> Self {
         let f_deg = self.f_deg;
         let q_deg = self.q_deg;
-        let n = f_deg + q_deg;
         let quo_deg = f_deg.checked_sub(q_deg);
-        let Xn_over_q_deg = n - q_deg;
+        let mu_deg = quo_deg.unwrap_or(0);
         Self {
             convolution: self.convolution.clone(),
             f_deg: self.f_deg,
-            neg_Xn_over_q: self.neg_Xn_over_q.iter().map(|x| self.ring.clone_el(x)).collect(),
-            neg_Xn_over_q_prep: self.convolution.prepare_convolution_operand(
-                &self.neg_Xn_over_q,
-                Some(Xn_over_q_deg + f_deg + 1),
+            neg_mu: self.neg_mu.iter().map(|x| self.ring.clone_el(x)).collect(),
+            neg_mu_prep: self.convolution.prepare_convolution_operand(
+                &self.neg_mu,
+                Some(2 * mu_deg + 1),
                 &self.ring,
             ),
             q: self.q.iter().map(|x| self.ring.clone_el(x)).collect(),
@@ -286,11 +274,22 @@ where
             };
         }
 
+        // `SparsePolyReducer` only supports coefficients in `{-1, 0, 1}`, which is not
+        // the case for all cyclotomic polynomials (e.g. `Phi_105` has a coefficient `-2`)
+        let is_flat = |poly: &El<SparsePolyRing<StaticRing<i32>>>| poly_ring.terms(poly).all(|(c, _)| c.abs() <= 1);
+
+        // we reduce modulo `Phi_n(X^(m / n))` for `n = 1, p1, p1 p2, ...`, which are all
+        // multiples of `Phi_m`, and very sparse as long as `n` has few prime factors
         let mut sparse_reducers = Vec::new();
         let mut current_n = 1;
         let mut current_stride = m as usize;
+        let mut all_flat = true;
         for i in 0..factorization.len() {
             let cyclotomic_poly = cyclotomic_polynomial(&poly_ring, current_n);
+            if !is_flat(&cyclotomic_poly) {
+                all_flat = false;
+                break;
+            }
             sparse_reducers.push(SparsePolyReducer::new(
                 &ring_poly_ring,
                 &hom.map(cyclotomic_poly),
@@ -302,7 +301,22 @@ where
             current_stride /= p as usize;
         }
 
-        let cyclotomic_poly = hom.map(cyclotomic_polynomial(&poly_ring, m as usize));
+        let cyclotomic_poly = cyclotomic_polynomial(&poly_ring, m as usize);
+        if all_flat && is_flat(&cyclotomic_poly) {
+            sparse_reducers.push(SparsePolyReducer::new(
+                &ring_poly_ring,
+                &hom.map(cyclotomic_poly),
+                ring.clone(),
+                1,
+            ));
+            let trivial_poly = ring_poly_ring.indeterminate();
+            return Self {
+                sparse_reducers,
+                final_reducer: BarettPolyReducer::new(ring_poly_ring, &trivial_poly, 0, convolution),
+            };
+        }
+
+        let cyclotomic_poly = hom.map(cyclotomic_poly);
         let final_reducer = BarettPolyReducer::new(
             ring_poly_ring,
             &cyclotomic_poly,

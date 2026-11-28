@@ -18,7 +18,10 @@ use feanor_mempool::AllocArc;
 use feanor_mempool::dynsize::Mempool;
 use tracing::instrument;
 
+use crate::ntt::FheanorConvolution;
+use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 use crate::number_ring::*;
+use crate::DefaultConvolution;
 use crate::{FheanorAllocator, ZZi64, euler_phi, euler_phi_squarefree};
 
 /// Represents `Z[𝝵_m]` for an odd and squarefree `m`.
@@ -349,7 +352,7 @@ where
     /// contains `usize::MAX` whenenver the fft output index corresponds to a non-primitive root of
     /// unity, and an index otherwise
     fft_output_indices_to_indices: Vec<usize>,
-    zeta_pow_rank: Vec<(usize, ZnEl)>,
+    cyclotomic_poly_reducer: CyclotomicPolyReducer<Zn, DefaultConvolution>,
     rank: usize,
     allocator: A,
 }
@@ -380,20 +383,6 @@ where
         assert_eq!(m as i64, n_factorization.iter().copied().product::<i64>());
         let rank = euler_phi_squarefree(&n_factorization) as usize;
 
-        let Fp_as_field = (&Fp).as_field().ok().unwrap();
-        let poly_ring = SparsePolyRing::new(Fp_as_field.clone(), "X");
-        let cyclotomic_poly = cyclotomic_polynomial(&poly_ring, m as usize);
-        assert_eq!(poly_ring.degree(&cyclotomic_poly).unwrap(), rank);
-        let mut zeta_pow_rank = Vec::new();
-        for (a, i) in poly_ring.terms(&cyclotomic_poly) {
-            if i != rank {
-                zeta_pow_rank.push((
-                    i,
-                    Fp.negate(Fp_as_field.get_ring().unwrap_element(Fp_as_field.clone_el(a))),
-                ));
-            }
-        }
-        zeta_pow_rank.sort_unstable_by_key(|(i, _)| *i);
 
         let fft_output_indices_to_indices = (0..fft_table.len())
             .scan(0, |state, i| {
@@ -407,11 +396,18 @@ where
             })
             .collect::<Vec<_>>();
 
+        let log2_m = StaticRing::<i64>::RING.abs_log2_ceil(&(m as i64)).unwrap();
+        let cyclotomic_poly_reducer = CyclotomicPolyReducer::new(
+            Fp.clone(),
+            m,
+            <DefaultConvolution as FheanorConvolution<Zn>>::new(Fp.clone(), log2_m + 1),
+        );
+
         return Self {
             galois_group,
             ring: Fp,
             fft_table,
-            zeta_pow_rank,
+            cyclotomic_poly_reducer,
             rank,
             allocator,
             fft_output_indices_to_indices,
@@ -453,14 +449,7 @@ where
 
         self.fft_table.unordered_inv_fft(&mut tmp[..], ring);
 
-        for i in (self.rank()..self.fft_table.len()).rev() {
-            let factor = ring.clone_el(&tmp[i]);
-            for (j, c) in self.zeta_pow_rank.iter() {
-                let mut add = ring.clone_el(&factor);
-                ring.mul_assign_ref(&mut add, c);
-                ring.add_assign(&mut tmp[i - self.rank() + *j], add);
-            }
-        }
+        self.cyclotomic_poly_reducer.remainder(&mut tmp[..]);
 
         for i in 0..self.rank() {
             *data.at_mut(i) = ring.clone_el(&tmp[i]);
@@ -529,6 +518,7 @@ where
 #[cfg(test)]
 mod test {
     use feanor_math::assert_el_eq;
+    use feanor_math::rings::poly::dense_poly::DensePolyRing;
 
     use super::*;
     use crate::ciphertext_ring::{double_rns_ring, single_rns_ring};
@@ -540,6 +530,8 @@ mod test {
         feanor_tracing::DelayedLogger::init_test();
         double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
         double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+        double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(15));
+        double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(21));
     }
 
     #[test]
@@ -547,6 +539,30 @@ mod test {
         feanor_tracing::DelayedLogger::init_test();
         single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
         single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+        single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(15));
+        single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(21));
+    }
+
+    #[test]
+    fn test_mult_basis_to_small_basis_composite() {
+        feanor_tracing::DelayedLogger::init_test();
+        // reducing `X^(m - 1)` requires all reduction steps, including Barett reduction for `m = 105, 1155`
+        for m in [15, 105, 1155] {
+            let number_ring = OddSquarefreeCyclotomicNumberRing::new(m);
+            let p = largest_prime_leq_congruent_to_one(1 << 50, number_ring.mod_p_required_root_of_unity() as i64);
+            let Fp = Zn::new(p.unwrap() as u64);
+            let bases = number_ring.bases_mod_p(Fp);
+            let ZZX = DensePolyRing::new(ZZi64, "X");
+            let expected = ZZX.div_rem_monic(ZZX.pow(ZZX.indeterminate(), m - 1), &number_ring.generating_poly(&ZZX)).1;
+
+            let mut actual = (0..bases.rank()).map(|i| Fp.int_hom().map((i == 1) as i32)).collect::<Vec<_>>();
+            bases.small_basis_to_mult_basis(&mut actual[..]);
+            actual = actual.into_iter().map(|x| Fp.pow(x, m - 1)).collect();
+            bases.mult_basis_to_small_basis(&mut actual[..]);
+            for i in 0..bases.rank() {
+                assert_el_eq!(Fp, Fp.int_hom().map(*ZZX.coefficient_at(&expected, i) as i32), actual[i]);
+            }
+        }
     }
 
     #[test]
@@ -554,6 +570,9 @@ mod test {
         feanor_tracing::DelayedLogger::init_test();
         quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
         quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+        quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(15));
+        quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(21));
+        quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(105));
     }
 
     #[test]
